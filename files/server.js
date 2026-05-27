@@ -59,6 +59,26 @@ app.get('/api/sets', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+async function fetchSet(setId) {
+  const first = await fetch(`${API}/cards?q=set.id:${setId}&orderBy=number&pageSize=250&page=1`, { headers: apiHeaders() });
+  const firstData = await first.json();
+  if (!firstData.data) throw new Error(JSON.stringify(firstData));
+  let all = [...firstData.data];
+  const total = firstData.totalCount;
+  if (total > 250) {
+    const pageCount = Math.ceil(total / 250);
+    const pageNums = Array.from({ length: pageCount - 1 }, (_, i) => i + 2);
+    const results = await Promise.all(
+      pageNums.map(p =>
+        fetch(`${API}/cards?q=set.id:${setId}&orderBy=number&pageSize=250&page=${p}`, { headers: apiHeaders() })
+          .then(r => r.json())
+      )
+    );
+    for (const r of results) all = all.concat(r.data || []);
+  }
+  return all.sort((a, b) => (parseInt(a.number) || 0) - (parseInt(b.number) || 0));
+}
+
 // GET /api/cards/:setId
 app.get('/api/cards/:setId', async (req, res) => {
   const { setId } = req.params;
@@ -66,14 +86,7 @@ app.get('/api/cards/:setId', async (req, res) => {
   if (cache.cards[setId] && (now - cache.cards[setId].at) < CACHE_TTL)
     return res.json(cache.cards[setId].data);
   try {
-    let page = 1, all = [];
-    while (true) {
-      const r = await fetch(`${API}/cards?q=set.id:${setId}&orderBy=number&pageSize=250&page=${page}`, { headers: apiHeaders() });
-      const d = await r.json();
-      all = all.concat(d.data);
-      if (all.length >= d.totalCount) break;
-      page++;
-    }
+    const all = await fetchSet(setId);
     cache.cards[setId] = { data: all, at: now };
     saveCache(cache);
     res.json(all);
@@ -118,19 +131,35 @@ app.listen(PORT, () => {
   console.log('   Open that URL in your browser.\n');
   console.log('   Press Ctrl+C to stop.\n');
 
-  // Prefetch sets on startup so the first user request is instant
-  if (!cache.sets || (Date.now() - cache.setsAt) >= CACHE_TTL) {
-    console.log('   Pre-loading sets cache...');
-    fetch(`${API}/sets?orderBy=-releaseDate&pageSize=250`, { headers: apiHeaders() })
-      .then(r => r.json())
-      .then(data => {
+  // Prefetch sets + top sets on startup so first user request is instant
+  async function prewarm() {
+    // sets
+    if (!cache.sets || (Date.now() - cache.setsAt) >= CACHE_TTL) {
+      try {
+        const r = await fetch(`${API}/sets?orderBy=-releaseDate&pageSize=250`, { headers: apiHeaders() });
+        const data = await r.json();
         cache.sets = data.data;
         cache.setsAt = Date.now();
         saveCache(cache);
-        console.log(`   ✓ Cached ${data.data.length} sets.\n`);
-      })
-      .catch(e => console.log('   ⚠ Could not pre-load sets:', e.message));
-  } else {
-    console.log(`   ✓ Sets already cached (${cache.sets.length} sets).\n`);
+        console.log(`   ✓ Cached ${data.data.length} sets.`);
+        // pre-cache the 5 most recent sets in background
+        const recent = data.data.slice(0, 5);
+        for (const s of recent) {
+          if (!cache.cards[s.id] || (Date.now() - cache.cards[s.id].at) >= CACHE_TTL) {
+            try {
+              console.log(`   Pre-caching ${s.name}...`);
+              const cards = await fetchSet(s.id);
+              cache.cards[s.id] = { data: cards, at: Date.now() };
+              saveCache(cache);
+              console.log(`   ✓ Cached ${s.name} (${cards.length} cards)`);
+            } catch(e) { console.log(`   ⚠ Could not cache ${s.name}:`, e.message); }
+          }
+        }
+      } catch(e) { console.log('   ⚠ Could not pre-load sets:', e.message); }
+    } else {
+      console.log(`   ✓ Sets already cached (${cache.sets.length} sets).`);
+    }
   }
+  prewarm();
+
 });
