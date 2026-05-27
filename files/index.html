@@ -167,6 +167,18 @@
   .toast.show{opacity:1;transform:translateY(0);}
   .progress-wrap{height:3px;background:var(--border);border-radius:2px;margin-top:5px;overflow:hidden;}
   .progress-bar{height:100%;background:var(--accent);border-radius:2px;transition:width .3s;}
+
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;}
+  .modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px;width:100%;max-width:520px;}
+  .modal h3{font-family:'Space Mono',monospace;font-size:14px;color:var(--accent);margin-bottom:8px;}
+  .modal p{font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.6;}
+  .modal textarea{width:100%;height:160px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:'Space Mono',monospace;font-size:12px;padding:10px;outline:none;resize:vertical;margin-bottom:12px;}
+  .modal textarea:focus{border-color:var(--accent2);}
+  .modal-btns{display:flex;gap:8px;justify-content:flex-end;}
+  .modal input[type=file]{display:none;}
+  .import-result{font-size:13px;margin-bottom:12px;padding:8px 12px;border-radius:var(--radius);background:var(--surface2);display:none;}
+  .import-result.ok{color:var(--green);display:block;}
+  .import-result.err{color:var(--red);display:block;}
 </style>
 </head>
 <body>
@@ -196,6 +208,7 @@
     <div class="header-right">
       <button class="tb-btn" id="ownedBtn" onclick="toggleOwned()">Owned only</button>
       <button class="tb-btn" onclick="exportCSV()">⬇ Export CSV</button>
+      <button class="tb-btn" onclick="openImport()">⬆ Import CSV</button>
       <button class="tb-btn primary" onclick="clearSet()">Clear set</button>
       <button class="tb-btn" onclick="switchUser()" style="color:var(--muted)">Switch user</button>
     </div>
@@ -218,6 +231,24 @@
   </div>
 
   <div id="main"><div class="loading">Loading</div></div>
+</div>
+
+
+<!-- IMPORT MODAL -->
+<div id="importModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeImport()">
+  <div class="modal">
+    <h3>⬆ IMPORT CSV</h3>
+    <p>Paste a CSV or upload a file. Expected columns: <b>Card ID</b> and <b>Quantity</b> (minimum). Also accepts <b>Market Price</b> if present.<br><br>
+    Card IDs look like <b>sv1-1</b>, <b>base1-4</b> etc. — same format as the Export CSV.</p>
+    <input type="file" id="importFile" accept=".csv" onchange="handleImportFile(event)">
+    <textarea id="importText" placeholder="Card ID,Quantity&#10;sv1-1,2&#10;base1-4,1"></textarea>
+    <div id="importResult" class="import-result"></div>
+    <div class="modal-btns">
+      <button class="tb-btn" onclick="document.getElementById('importFile').click()">📁 Upload file</button>
+      <button class="tb-btn" onclick="closeImport()">Cancel</button>
+      <button class="tb-btn primary" onclick="runImport()">Import</button>
+    </div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -272,7 +303,71 @@ function switchUser(){
   document.getElementById('loginScreen').style.display='flex';
   document.getElementById('app').style.display='none';
   document.getElementById('nameInput').value='';
-  initLogin();
+  
+function openImport(){
+  document.getElementById('importModal').style.display='flex';
+  document.getElementById('importText').value='';
+  document.getElementById('importResult').className='import-result';
+}
+function closeImport(){document.getElementById('importModal').style.display='none';}
+
+function handleImportFile(e){
+  const file=e.target.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=ev=>document.getElementById('importText').value=ev.target.result;
+  reader.readAsText(file);
+}
+
+async function runImport(){
+  const text=document.getElementById('importText').value.trim();
+  const result=document.getElementById('importResult');
+  if(!text){result.textContent='Paste some CSV data first.';result.className='import-result err';return;}
+
+  const lines=text.split('
+').map(l=>l.trim()).filter(Boolean);
+  if(lines.length<2){result.textContent='Need at least a header row and one data row.';result.className='import-result err';return;}
+
+  // parse header
+  const headers=lines[0].split(',').map(h=>h.replace(/"/g,'').trim().toLowerCase());
+  const idCol=headers.findIndex(h=>h.includes('card id')||h==='id');
+  const qtyCol=headers.findIndex(h=>h.includes('quantity')||h==='qty');
+  const priceCol=headers.findIndex(h=>h.includes('market price')||h.includes('price'));
+
+  if(idCol===-1||qtyCol===-1){
+    result.textContent='Could not find "Card ID" and "Quantity" columns.';
+    result.className='import-result err';return;
+  }
+
+  const bulk=[];let skipped=0;
+  for(let i=1;i<lines.length;i++){
+    const cols=lines[i].split(',').map(c=>c.replace(/"/g,'').trim());
+    const id=cols[idCol];
+    const qty=parseInt(cols[qtyCol])||0;
+    const price=priceCol>=0?parseFloat(cols[priceCol])||0:0;
+    if(!id||qty===0){skipped++;continue;}
+    if(!collection[id]) collection[id]={qty:0,price:0,setId:'',name:id};
+    collection[id].qty=qty;
+    if(price>0) collection[id].price=price;
+    bulk.push({id,qty,price:collection[id].price,setId:collection[id].setId,name:collection[id].name});
+  }
+
+  if(bulk.length===0){result.textContent='No valid rows found.';result.className='import-result err';return;}
+
+  try{
+    await api('/api/collection/'+currentUser+'/bulk',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(bulk)
+    });
+    result.textContent='✓ Imported '+bulk.length+' cards'+(skipped>0?' ('+skipped+' skipped)':'')+'. Reload the set to see changes.';
+    result.className='import-result ok';
+    updateStats();
+  }catch(e){
+    result.textContent='Save failed: '+e.message;
+    result.className='import-result err';
+  }
+}
+
+initLogin();
 }
 
 // ── App ──
@@ -466,10 +561,13 @@ function quickAdd(e){
   setTimeout(()=>inp.classList.remove('flash-ok'),400);
   inp.value='';inp.focus();
   if(confirm){
-    confirm.textContent='+ '+card.name+' (#'+card.number+')';
+    const price=collection[card.id]?.price||0;
+    const qty=collection[card.id]?.qty||0;
+    const priceStr=price>0?' · $'+price.toFixed(2)+(qty>1?' ea ($'+(price*qty).toFixed(2)+' total)':''):'';
+    confirm.textContent='+ '+card.name+' (#'+card.number+')'+priceStr;
     confirm.className='quick-confirm show';
     if(confirmTimer)clearTimeout(confirmTimer);
-    confirmTimer=setTimeout(()=>confirm.classList.remove('show'),3000);
+    // don't auto-hide — stays until next card is added or error
   }
   const qEl=document.getElementById('q_'+card.id);
   if(qEl){
@@ -511,6 +609,70 @@ function exportCSV(){
   a.download='pokemon_collection_'+currentUser+'_'+new Date().toISOString().slice(0,10)+'.csv';
   a.click();
   toast('Exported '+(rows.length-1)+' cards.');
+}
+
+
+function openImport(){
+  document.getElementById('importModal').style.display='flex';
+  document.getElementById('importText').value='';
+  document.getElementById('importResult').className='import-result';
+}
+function closeImport(){document.getElementById('importModal').style.display='none';}
+
+function handleImportFile(e){
+  const file=e.target.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=ev=>document.getElementById('importText').value=ev.target.result;
+  reader.readAsText(file);
+}
+
+async function runImport(){
+  const text=document.getElementById('importText').value.trim();
+  const result=document.getElementById('importResult');
+  if(!text){result.textContent='Paste some CSV data first.';result.className='import-result err';return;}
+
+  const lines=text.split('
+').map(l=>l.trim()).filter(Boolean);
+  if(lines.length<2){result.textContent='Need at least a header row and one data row.';result.className='import-result err';return;}
+
+  // parse header
+  const headers=lines[0].split(',').map(h=>h.replace(/"/g,'').trim().toLowerCase());
+  const idCol=headers.findIndex(h=>h.includes('card id')||h==='id');
+  const qtyCol=headers.findIndex(h=>h.includes('quantity')||h==='qty');
+  const priceCol=headers.findIndex(h=>h.includes('market price')||h.includes('price'));
+
+  if(idCol===-1||qtyCol===-1){
+    result.textContent='Could not find "Card ID" and "Quantity" columns.';
+    result.className='import-result err';return;
+  }
+
+  const bulk=[];let skipped=0;
+  for(let i=1;i<lines.length;i++){
+    const cols=lines[i].split(',').map(c=>c.replace(/"/g,'').trim());
+    const id=cols[idCol];
+    const qty=parseInt(cols[qtyCol])||0;
+    const price=priceCol>=0?parseFloat(cols[priceCol])||0:0;
+    if(!id||qty===0){skipped++;continue;}
+    if(!collection[id]) collection[id]={qty:0,price:0,setId:'',name:id};
+    collection[id].qty=qty;
+    if(price>0) collection[id].price=price;
+    bulk.push({id,qty,price:collection[id].price,setId:collection[id].setId,name:collection[id].name});
+  }
+
+  if(bulk.length===0){result.textContent='No valid rows found.';result.className='import-result err';return;}
+
+  try{
+    await api('/api/collection/'+currentUser+'/bulk',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(bulk)
+    });
+    result.textContent='✓ Imported '+bulk.length+' cards'+(skipped>0?' ('+skipped+' skipped)':'')+'. Reload the set to see changes.';
+    result.className='import-result ok';
+    updateStats();
+  }catch(e){
+    result.textContent='Save failed: '+e.message;
+    result.className='import-result err';
+  }
 }
 
 initLogin();
