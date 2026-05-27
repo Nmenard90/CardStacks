@@ -34,6 +34,7 @@
   .login-box button{
     width:100%;padding:11px;font-size:15px;font-weight:600;font-family:'DM Sans',sans-serif;
     background:var(--accent);border:none;border-radius:var(--radius);color:#111;cursor:pointer;
+    display:block;text-align:center;
   }
   .login-box button:hover{background:#e6b800;}
   .existing-users{margin-top:20px;}
@@ -241,7 +242,9 @@
     <p>Paste a CSV or upload a file. Expected columns: <b>Card ID</b> and <b>Quantity</b> (minimum). Also accepts <b>Market Price</b> if present.<br><br>
     Card IDs look like <b>sv1-1</b>, <b>base1-4</b> etc. — same format as the Export CSV.</p>
     <input type="file" id="importFile" accept=".csv" onchange="handleImportFile(event)">
-    <textarea id="importText" placeholder="Card ID,Quantity&#10;sv1-1,2&#10;base1-4,1"></textarea>
+    <textarea id="importText" placeholder="Card ID,Quantity
+sv1-1,2
+base1-4,1"></textarea>
     <div id="importResult" class="import-result"></div>
     <div class="modal-btns">
       <button class="tb-btn" onclick="document.getElementById('importFile').click()">📁 Upload file</button>
@@ -324,8 +327,7 @@ async function runImport(){
   const result=document.getElementById('importResult');
   if(!text){result.textContent='Paste some CSV data first.';result.className='import-result err';return;}
 
-  const lines=text.split('
-').map(l=>l.trim()).filter(Boolean);
+  const lines=text.split('\n').map(l=>l.trim()).filter(Boolean);
   if(lines.length<2){result.textContent='Need at least a header row and one data row.';result.className='import-result err';return;}
 
   // parse header
@@ -632,8 +634,7 @@ async function runImport(){
   const result=document.getElementById('importResult');
   if(!text){result.textContent='Paste some CSV data first.';result.className='import-result err';return;}
 
-  const lines=text.split('
-').map(l=>l.trim()).filter(Boolean);
+  const lines=text.split('\n').map(l=>l.trim()).filter(Boolean);
   if(lines.length<2){result.textContent='Need at least a header row and one data row.';result.className='import-result err';return;}
 
   // parse header
