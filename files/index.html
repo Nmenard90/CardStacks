@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pokémon Card Tracker</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap');
+  :root {
+    --bg:#0f0f11; --surface:#18181c; --surface2:#222228; --border:#2e2e38;
+    --accent:#ffcb05; --accent2:#3b5bdb; --text:#f0f0f2; --muted:#888896;
+    --green:#51cf66; --red:#ff6b6b; --radius:10px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+
+  /* ── Login screen ── */
+  #loginScreen{
+    display:flex;align-items:center;justify-content:center;
+    min-height:100vh;flex-direction:column;gap:24px;
+  }
+  .login-box{
+    background:var(--surface);border:1px solid var(--border);border-radius:16px;
+    padding:36px 40px;width:100%;max-width:400px;text-align:center;
+  }
+  .login-box h1{font-family:'Space Mono',monospace;font-size:20px;color:var(--accent);margin-bottom:6px;}
+  .login-box p{font-size:14px;color:var(--muted);margin-bottom:24px;}
+  .login-box input{
+    width:100%;padding:10px 14px;font-size:16px;font-family:'DM Sans',sans-serif;
+    background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);
+    color:var(--text);outline:none;margin-bottom:12px;text-align:center;
+  }
+  .login-box input:focus{border-color:var(--accent);}
+  .login-box button{
+    width:100%;padding:11px;font-size:15px;font-weight:600;font-family:'DM Sans',sans-serif;
+    background:var(--accent);border:none;border-radius:var(--radius);color:#111;cursor:pointer;
+  }
+  .login-box button:hover{background:#e6b800;}
+  .existing-users{margin-top:20px;}
+  .existing-users p{font-size:12px;color:var(--muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:.07em;}
+  .user-chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;}
+  .user-chip{
+    padding:5px 14px;border-radius:99px;background:var(--surface2);
+    border:1px solid var(--border);font-size:13px;color:var(--text);cursor:pointer;
+  }
+  .user-chip:hover{border-color:var(--accent);color:var(--accent);}
+
+  /* ── App ── */
+  #app{display:none;}
+  header{
+    background:var(--surface);border-bottom:1px solid var(--border);
+    padding:.85rem 1.5rem;display:flex;align-items:center;gap:1rem;
+    flex-wrap:wrap;position:sticky;top:0;z-index:100;
+  }
+  .logo{font-family:'Space Mono',monospace;font-size:15px;font-weight:700;color:var(--accent);white-space:nowrap;}
+  .logo span{color:var(--muted);font-weight:400;}
+  .user-badge{
+    font-size:12px;padding:4px 12px;border-radius:99px;
+    background:var(--surface2);border:1px solid var(--border);color:var(--muted);
+    display:flex;align-items:center;gap:6px;
+  }
+  .user-badge b{color:var(--text);}
+  select,input[type="text"]{
+    background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);
+    color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;
+    padding:7px 12px;outline:none;transition:border-color .15s;
+  }
+  select:focus,input[type="text"]:focus{border-color:var(--accent2);}
+  #setSelect{min-width:240px;cursor:pointer;}
+  .header-right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  button{
+    background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);
+    color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;
+    padding:7px 14px;cursor:pointer;display:flex;align-items:center;gap:5px;
+    transition:background .15s;white-space:nowrap;
+  }
+  button:hover{background:var(--border);}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#111;font-weight:600;}
+  button.primary:hover{background:#e6b800;}
+  button.active{background:var(--accent2);border-color:var(--accent2);color:#fff;}
+
+  .stats-bar{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+    gap:1px;background:var(--border);border-bottom:1px solid var(--border);
+  }
+  .stat{background:var(--surface);padding:10px 18px;}
+  .stat-label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:3px;}
+  .stat-value{font-size:20px;font-weight:600;}
+  .stat-value.gold{color:var(--accent);}
+
+  .toolbar{
+    display:flex;gap:8px;padding:9px 18px;background:var(--surface);
+    border-bottom:1px solid var(--border);align-items:center;flex-wrap:wrap;
+  }
+  .sort-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;}
+  .tb-btn{font-size:12px;padding:5px 11px;}
+
+  #main{padding:14px 18px;}
+
+  .quick-entry{
+    display:flex;align-items:center;gap:10px;margin-bottom:14px;
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;
+  }
+  .quick-entry label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;white-space:nowrap;font-family:'Space Mono',monospace;}
+  .quick-entry input{
+    width:90px;font-family:'Space Mono',monospace;font-size:18px;font-weight:700;
+    padding:5px 10px;background:var(--surface2);border:1px solid var(--border);
+    border-radius:8px;color:var(--accent);outline:none;transition:border-color .15s;
+  }
+  .quick-entry input:focus{border-color:var(--accent);}
+  .quick-entry input.flash-ok{border-color:var(--green)!important;background:#0e2a16;}
+  .quick-entry input.flash-err{border-color:var(--red)!important;background:#2a0e0e;}
+  .quick-confirm{font-size:13px;color:var(--green);font-family:'Space Mono',monospace;opacity:0;transition:opacity .2s;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis;}
+  .quick-confirm.show{opacity:1;}
+  .quick-confirm.err{color:var(--red);}
+  .quick-hint{font-size:12px;color:var(--muted);margin-left:auto;white-space:nowrap;}
+  .quick-hint b{color:var(--text);font-weight:500;}
+
+  .set-info{display:flex;align-items:center;gap:12px;margin-bottom:12px;}
+  .set-logo{height:34px;object-fit:contain;}
+  .set-name{font-size:17px;font-weight:600;}
+  .set-meta{font-size:12px;color:var(--muted);margin-top:2px;}
+
+  .card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:9px;}
+  .pcard{
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    padding:9px;display:flex;align-items:center;gap:9px;transition:border-color .15s;
+  }
+  .pcard:hover{border-color:#3e3e4e;background:var(--surface2);}
+  .pcard.owned{border-color:#2a3a6e;background:#16192a;}
+  .thumb{width:42px;height:58px;object-fit:contain;border-radius:4px;background:var(--surface2);flex-shrink:0;}
+  .thumb-placeholder{width:42px;height:58px;background:var(--surface2);border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:18px;}
+  .cinfo{flex:1;min-width:0;}
+  .cname{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:1px;}
+  .cmeta{font-size:11px;color:var(--muted);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .cprice{font-size:11px;color:var(--green);font-family:'Space Mono',monospace;margin-bottom:5px;min-height:14px;}
+  .cprice.no-price{color:var(--muted);}
+  .qty-row{display:flex;align-items:center;gap:5px;}
+  .qbtn{
+    width:22px;height:22px;border-radius:50%;background:var(--surface2);
+    border:1px solid var(--border);color:var(--text);font-size:14px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;padding:0;flex-shrink:0;
+  }
+  .qbtn:hover{background:var(--border);}
+  input.qty{
+    width:38px;text-align:center;font-size:13px;padding:2px 4px;height:24px;
+    border-radius:6px;background:var(--surface2);border:1px solid var(--border);
+    color:var(--text);font-family:'Space Mono',monospace;
+  }
+  input.qty.has-qty{border-color:var(--accent2);color:var(--accent);background:#1a1f3a;font-weight:700;}
+
+  .loading{text-align:center;padding:4rem 0;color:var(--muted);font-size:15px;}
+  .loading::after{
+    content:'';display:block;width:32px;height:32px;
+    border:2px solid var(--border);border-top-color:var(--accent);
+    border-radius:50%;animation:spin .7s linear infinite;margin:16px auto 0;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .empty{text-align:center;padding:3rem 0;color:var(--muted);font-size:14px;}
+
+  .toast{
+    position:fixed;bottom:24px;right:24px;background:var(--surface2);
+    border:1px solid var(--border);border-radius:var(--radius);padding:10px 16px;
+    font-size:13px;color:var(--text);opacity:0;transform:translateY(8px);
+    transition:opacity .2s,transform .2s;pointer-events:none;z-index:999;
+  }
+  .toast.show{opacity:1;transform:translateY(0);}
+  .progress-wrap{height:3px;background:var(--border);border-radius:2px;margin-top:5px;overflow:hidden;}
+  .progress-bar{height:100%;background:var(--accent);border-radius:2px;transition:width .3s;}
+</style>
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div id="loginScreen">
+  <div class="login-box">
+    <h1>POKÉDEX TRACKER</h1>
+    <p>Enter your name to load your collection</p>
+    <input type="text" id="nameInput" placeholder="Your name" maxlength="30" autocomplete="off"
+      onkeydown="if(event.key==='Enter')startSession()">
+    <button onclick="startSession()">Let's Go →</button>
+    <div class="existing-users" id="existingUsers" style="display:none">
+      <p>Or pick an existing user</p>
+      <div class="user-chips" id="userChips"></div>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app">
+  <header>
+    <div class="logo">POKÉDEX <span>TRACKER</span></div>
+    <div class="user-badge">👤 <b id="userLabel"></b></div>
+    <select id="setSelect"><option>Loading sets…</option></select>
+    <input type="text" id="searchBox" placeholder="Search cards…" oninput="renderCards()" style="width:160px">
+    <div class="header-right">
+      <button class="tb-btn" id="ownedBtn" onclick="toggleOwned()">Owned only</button>
+      <button class="tb-btn" onclick="exportCSV()">⬇ Export CSV</button>
+      <button class="tb-btn primary" onclick="clearSet()">Clear set</button>
+      <button class="tb-btn" onclick="switchUser()" style="color:var(--muted)">Switch user</button>
+    </div>
+  </header>
+
+  <div class="stats-bar">
+    <div class="stat"><div class="stat-label">Cards owned</div><div class="stat-value" id="sOwned">—</div></div>
+    <div class="stat"><div class="stat-label">Set completion</div><div class="stat-value" id="sCompletion">—</div></div>
+    <div class="stat"><div class="stat-label">Set value</div><div class="stat-value gold" id="sValue">—</div></div>
+    <div class="stat"><div class="stat-label">Total collection</div><div class="stat-value gold" id="sTotal">—</div></div>
+    <div class="stat"><div class="stat-label">Sets entered</div><div class="stat-value" id="sSets">—</div></div>
+  </div>
+
+  <div class="toolbar">
+    <span class="sort-label">Sort:</span>
+    <button class="tb-btn active" id="sort-number" onclick="setSort('number')">Card #</button>
+    <button class="tb-btn" id="sort-value" onclick="setSort('value')">Value ↓</button>
+    <button class="tb-btn" id="sort-qty" onclick="setSort('qty')">Quantity ↓</button>
+    <button class="tb-btn" id="sort-name" onclick="setSort('name')">Name</button>
+  </div>
+
+  <div id="main"><div class="loading">Loading</div></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let sets=[],cards=[],collection={},ownedOnly=false,currentSetId=null,sortMode='number',currentUser=null;
+let confirmTimer=null;
+
+async function api(path,opts){
+  const r=await fetch(path,opts);
+  if(!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+function toast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2000);
+}
+
+// ── Login ──
+async function initLogin(){
+  try{
+    const users=await api('/api/users');
+    if(users.length>0){
+      const wrap=document.getElementById('existingUsers');
+      const chips=document.getElementById('userChips');
+      wrap.style.display='block';
+      chips.innerHTML=users.map(u=>`<div class="user-chip" onclick="loginAs('${u}')">${u}</div>`).join('');
+    }
+  }catch(e){}
+  document.getElementById('nameInput').focus();
+}
+
+function startSession(){
+  const name=document.getElementById('nameInput').value.trim();
+  if(!name){document.getElementById('nameInput').focus();return;}
+  loginAs(name);
+}
+
+function loginAs(name){
+  currentUser=name;
+  document.getElementById('userLabel').textContent=name;
+  document.getElementById('loginScreen').style.display='none';
+  document.getElementById('app').style.display='block';
+  initApp();
+}
+
+function switchUser(){
+  currentUser=null;
+  collection={};cards=[];sets=[];
+  document.getElementById('loginScreen').style.display='flex';
+  document.getElementById('app').style.display='none';
+  document.getElementById('nameInput').value='';
+  initLogin();
+}
+
+// ── App ──
+function getPrice(c){
+  const tp=c.tcgplayer?.prices;
+  if(tp){
+    const order=['holofoil','normal','1stEditionHolofoil','1stEditionNormal','unlimitedHolofoil','unlimitedNormal','reverseHolofoil'];
+    for(const k of order) if(tp[k]?.market) return tp[k].market;
+    for(const k of Object.keys(tp)){
+      if(tp[k]?.market) return tp[k].market;
+      if(tp[k]?.low) return tp[k].low;
+    }
+  }
+  const cm=c.cardmarket?.prices;
+  if(cm) return cm.averageSellPrice||cm.avg1||cm.avg7||0;
+  return 0;
+}
+
+function totalValue(){return Object.values(collection).reduce((s,c)=>s+(c.qty||0)*(c.price||0),0);}
+function setsEntered(){return new Set(Object.values(collection).filter(c=>c.qty>0).map(c=>c.setId)).size;}
+
+function updateStats(){
+  const owned=cards.filter(c=>(collection[c.id]?.qty||0)>0).length;
+  const pct=cards.length>0?Math.round((owned/cards.length)*100):0;
+  const setVal=cards.reduce((s,c)=>s+(collection[c.id]?.qty||0)*(collection[c.id]?.price||0),0);
+  document.getElementById('sOwned').textContent=owned+' / '+cards.length;
+  document.getElementById('sCompletion').innerHTML=pct+'%<div class="progress-wrap"><div class="progress-bar" style="width:'+pct+'%"></div></div>';
+  document.getElementById('sValue').textContent='$'+setVal.toFixed(2);
+  document.getElementById('sTotal').textContent='$'+totalValue().toFixed(2);
+  document.getElementById('sSets').textContent=setsEntered();
+}
+
+function updateCardPrice(id){
+  const el=document.getElementById('price_'+id);
+  if(!el)return;
+  const qty=collection[id]?.qty||0,price=collection[id]?.price||0;
+  el.className=price>0?'cprice':'cprice no-price';
+  el.textContent=price>0?'$'+price.toFixed(2)+(qty>1?' · $'+(price*qty).toFixed(2):''):'no price';
+}
+
+function setSort(mode){
+  sortMode=mode;
+  ['number','value','qty','name'].forEach(m=>document.getElementById('sort-'+m).classList.toggle('active',m===mode));
+  renderCards();
+}
+
+function getSortedCards(list){
+  return [...list].sort((a,b)=>{
+    if(sortMode==='number'){const na=parseInt(a.number)||0,nb=parseInt(b.number)||0;return na!==nb?na-nb:a.number.localeCompare(b.number);}
+    if(sortMode==='value') return(collection[b.id]?.price||0)-(collection[a.id]?.price||0);
+    if(sortMode==='qty')   return(collection[b.id]?.qty||0)-(collection[a.id]?.qty||0);
+    if(sortMode==='name')  return a.name.localeCompare(b.name);
+    return 0;
+  });
+}
+
+async function saveOne(id){
+  await api('/api/collection/'+currentUser,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id,...collection[id]})
+  });
+}
+
+async function initApp(){
+  try{
+    [sets,collection]=await Promise.all([api('/api/sets'),api('/api/collection/'+currentUser)]);
+    const sel=document.getElementById('setSelect');
+    sel.innerHTML=sets.map(s=>`<option value="${s.id}">${s.name} · ${s.series} (${s.total})</option>`).join('');
+    sel.addEventListener('change',()=>loadSet(sel.value));
+    loadSet(sets[0].id);
+  }catch(e){
+    document.getElementById('main').innerHTML=`<div class="empty">⚠ Server not reachable.<br>Make sure you ran <b>npm start</b> in the pokemon-tracker folder.</div>`;
+  }
+}
+
+async function loadSet(setId){
+  currentSetId=setId;cards=[];
+  document.getElementById('main').innerHTML=`<div class="loading">Loading cards</div>`;
+  try{
+    const raw=await api('/api/cards/'+setId);
+    cards=raw;
+    const bulk=[];
+    cards.forEach(c=>{
+      const price=getPrice(c);
+      if(!collection[c.id]) collection[c.id]={qty:0,price,setId,name:c.name};
+      else{collection[c.id].price=price;collection[c.id].setId=setId;collection[c.id].name=c.name;}
+      bulk.push({id:c.id,price,setId,name:c.name,qty:collection[c.id].qty});
+    });
+    await api('/api/collection/'+currentUser+'/bulk',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(bulk)
+    });
+    renderCards();
+  }catch(e){
+    document.getElementById('main').innerHTML=`<div class="empty">⚠ Failed to load cards: ${e.message}</div>`;
+  }
+}
+
+function renderCards(){
+  const q=(document.getElementById('searchBox')?.value||'').toLowerCase().trim();
+  let filtered=cards.filter(c=>{
+    if(ownedOnly&&!(collection[c.id]?.qty>0))return false;
+    if(q&&!c.name.toLowerCase().includes(q)&&!c.number.includes(q))return false;
+    return true;
+  });
+  filtered=getSortedCards(filtered);
+  const setData=sets.find(s=>s.id===currentSetId);
+  let html='';
+  if(setData){
+    html+=`<div class="set-info">`;
+    if(setData.images?.logo) html+=`<img class="set-logo" src="${setData.images.logo}" alt="${setData.name}">`;
+    html+=`<div><div class="set-name">${setData.name}</div><div class="set-meta">${setData.series} · ${setData.releaseDate} · ${setData.total} cards</div></div></div>`;
+  }
+  html+=`<div class="quick-entry">
+    <label>Quick add</label>
+    <input type="text" id="quickInput" placeholder="007" maxlength="10"
+      onkeydown="quickAdd(event)" autocomplete="off" spellcheck="false">
+    <span id="quickConfirm" class="quick-confirm"></span>
+    <span class="quick-hint" style="margin-left:auto">Type card #, hit <b>Enter</b></span>
+  </div>`;
+  if(filtered.length===0){
+    html+=`<div class="empty">No cards match.</div>`;
+  }else{
+    html+=`<div class="card-grid">`;
+    filtered.forEach(c=>{
+      const qty=collection[c.id]?.qty||0,price=collection[c.id]?.price||0;
+      const priceStr=price>0?'$'+price.toFixed(2)+(qty>1?' · $'+(price*qty).toFixed(2):''):'no price';
+      html+=`<div class="pcard${qty>0?' owned':''}" id="pc_${c.id}">`;
+      html+=c.images?.small?`<img class="thumb" src="${c.images.small}" alt="${c.name}" loading="lazy">`:`<div class="thumb-placeholder">🃏</div>`;
+      html+=`<div class="cinfo">
+        <div class="cname" title="${c.name}">${c.name}</div>
+        <div class="cmeta">#${c.number} · ${c.rarity||'?'}</div>
+        <div id="price_${c.id}" class="cprice${price===0?' no-price':''}">${priceStr}</div>
+        <div class="qty-row">
+          <button class="qbtn" onclick="adj('${c.id}',-1)">−</button>
+          <input class="qty${qty>0?' has-qty':''}" type="number" min="0" value="${qty}" id="q_${c.id}"
+            onchange="setQty('${c.id}',this.value)" onkeydown="if(event.key==='Enter')this.blur();"
+            aria-label="qty for ${c.name}">
+          <button class="qbtn" onclick="adj('${c.id}',1)">+</button>
+        </div>
+      </div></div>`;
+    });
+    html+=`</div>`;
+  }
+  document.getElementById('main').innerHTML=html;
+  updateStats();
+  const qi=document.getElementById('quickInput');
+  if(qi) qi.focus();
+}
+
+async function adj(id,delta){
+  const cur=collection[id]?.qty||0,next=Math.max(0,cur+delta);
+  collection[id].qty=next;
+  const inp=document.getElementById('q_'+id);
+  if(inp){inp.value=next;inp.className='qty'+(next>0?' has-qty':'');}
+  const pc=document.getElementById('pc_'+id);
+  if(pc) pc.className='pcard'+(next>0?' owned':'');
+  updateCardPrice(id);updateStats();
+  if(ownedOnly&&next===0)renderCards();
+  await saveOne(id);
+}
+
+async function setQty(id,val){
+  const n=Math.max(0,parseInt(val)||0);
+  collection[id].qty=n;
+  const inp=document.getElementById('q_'+id);
+  if(inp) inp.className='qty'+(n>0?' has-qty':'');
+  const pc=document.getElementById('pc_'+id);
+  if(pc) pc.className='pcard'+(n>0?' owned':'');
+  updateCardPrice(id);updateStats();
+  await saveOne(id);
+}
+
+function quickAdd(e){
+  if(e.key!=='Enter')return;
+  e.preventDefault();
+  const inp=document.getElementById('quickInput');
+  const confirm=document.getElementById('quickConfirm');
+  const raw=inp.value.trim();
+  if(!raw)return;
+  const card=cards.find(c=>c.number.toLowerCase()===raw.toLowerCase())
+    ||cards.find(c=>String(parseInt(c.number))===String(parseInt(raw)))
+    ||cards.find(c=>c.number.toLowerCase().startsWith(raw.toLowerCase()));
+  if(!card){
+    inp.classList.add('flash-err');
+    if(confirm){confirm.textContent='not found: '+raw;confirm.className='quick-confirm err show';}
+    setTimeout(()=>inp.classList.remove('flash-err'),600);
+    inp.value='';inp.focus();return;
+  }
+  collection[card.id].qty=(collection[card.id]?.qty||0)+1;
+  inp.classList.add('flash-ok');
+  setTimeout(()=>inp.classList.remove('flash-ok'),400);
+  inp.value='';inp.focus();
+  if(confirm){
+    confirm.textContent='+ '+card.name+' (#'+card.number+')';
+    confirm.className='quick-confirm show';
+    if(confirmTimer)clearTimeout(confirmTimer);
+    confirmTimer=setTimeout(()=>confirm.classList.remove('show'),3000);
+  }
+  const qEl=document.getElementById('q_'+card.id);
+  if(qEl){
+    qEl.value=collection[card.id].qty;qEl.className='qty has-qty';
+    const pcEl=document.getElementById('pc_'+card.id);
+    if(pcEl)pcEl.className='pcard owned';
+    updateCardPrice(card.id);
+  }
+  updateStats();
+  saveOne(card.id);
+}
+
+function toggleOwned(){
+  ownedOnly=!ownedOnly;
+  document.getElementById('ownedBtn').classList.toggle('active',ownedOnly);
+  renderCards();
+}
+
+function clearSet(){
+  if(!confirm('Clear all quantities for this set?'))return;
+  const bulk=[];
+  cards.forEach(c=>{if(collection[c.id]){collection[c.id].qty=0;bulk.push({id:c.id,qty:0});}});
+  api('/api/collection/'+currentUser+'/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(bulk)});
+  renderCards();toast('Set cleared.');
+}
+
+function exportCSV(){
+  const rows=[['Card ID','Name','Set','Number','Rarity','Quantity','Market Price','Total Value']];
+  Object.entries(collection).forEach(([id,c])=>{
+    if((c.qty||0)>0){
+      const card=cards.find(x=>x.id===id);
+      rows.push([id,c.name,c.setId,card?.number||'',card?.rarity||'',c.qty,(c.price||0).toFixed(2),((c.qty||0)*(c.price||0)).toFixed(2)]);
+    }
+  });
+  if(rows.length===1){toast('Nothing to export yet.');return;}
+  const csv=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download='pokemon_collection_'+currentUser+'_'+new Date().toISOString().slice(0,10)+'.csv';
+  a.click();
+  toast('Exported '+(rows.length-1)+' cards.');
+}
+
+initLogin();
+</script>
+</body>
+</html>

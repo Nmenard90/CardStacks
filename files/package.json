@@ -1,0 +1,16 @@
+{
+  "name": "pokemon-tracker",
+  "version": "1.0.0",
+  "description": "Local Pokemon card collection tracker",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=14"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "node-fetch": "^2.7.0"
+  }
+}
