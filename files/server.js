@@ -8,6 +8,7 @@ const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, 'data');
 const CACHE_FILE = path.join(__dirname, 'cache.json');
 const API = 'https://api.pokemontcg.io/v2';
+const apiHeaders = () => process.env.POKEMONTCG_API_KEY ? { 'X-Api-Key': process.env.POKEMONTCG_API_KEY } : {};
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 
@@ -49,7 +50,7 @@ app.get('/api/sets', async (req, res) => {
   const now = Date.now();
   if (cache.sets && (now - cache.setsAt) < CACHE_TTL) return res.json(cache.sets);
   try {
-    const r = await fetch(`${API}/sets?orderBy=-releaseDate&pageSize=250`);
+    const r = await fetch(`${API}/sets?orderBy=-releaseDate&pageSize=250`, { headers: apiHeaders() });
     const data = await r.json();
     cache.sets = data.data;
     cache.setsAt = now;
@@ -67,7 +68,7 @@ app.get('/api/cards/:setId', async (req, res) => {
   try {
     let page = 1, all = [];
     while (true) {
-      const r = await fetch(`${API}/cards?q=set.id:${setId}&orderBy=number&pageSize=250&page=${page}`);
+      const r = await fetch(`${API}/cards?q=set.id:${setId}&orderBy=number&pageSize=250&page=${page}`, { headers: apiHeaders() });
       const d = await r.json();
       all = all.concat(d.data);
       if (all.length >= d.totalCount) break;
@@ -116,4 +117,20 @@ app.listen(PORT, () => {
   console.log(`\n✅  Pokémon Tracker running at http://localhost:${PORT}\n`);
   console.log('   Open that URL in your browser.\n');
   console.log('   Press Ctrl+C to stop.\n');
+
+  // Prefetch sets on startup so the first user request is instant
+  if (!cache.sets || (Date.now() - cache.setsAt) >= CACHE_TTL) {
+    console.log('   Pre-loading sets cache...');
+    fetch(`${API}/sets?orderBy=-releaseDate&pageSize=250`, { headers: apiHeaders() })
+      .then(r => r.json())
+      .then(data => {
+        cache.sets = data.data;
+        cache.setsAt = Date.now();
+        saveCache(cache);
+        console.log(`   ✓ Cached ${data.data.length} sets.\n`);
+      })
+      .catch(e => console.log('   ⚠ Could not pre-load sets:', e.message));
+  } else {
+    console.log(`   ✓ Sets already cached (${cache.sets.length} sets).\n`);
+  }
 });
