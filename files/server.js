@@ -52,8 +52,8 @@ async function getTcgTrackSets() {
   const data = await fetch(`${TCG_TRACK}/3/sets`).then(r => r.json());
   const map = {};
   for (const s of data.sets) {
-    map[s.abbreviation.toUpperCase()] = s.id;
-    map[s.name.toUpperCase()] = s.id;
+    if (s.abbreviation) map[s.abbreviation.toUpperCase()] = s.id;
+    if (s.name) map[s.name.toUpperCase()] = s.id;
   }
   cache.tcgSets = { map, sets: data.sets };
   cache.tcgSetsAt = now;
