@@ -206,9 +206,25 @@ app.get('/api/cards/:setId', async (req, res) => {
     } catch(e) { console.log('TCGTracking prices failed:', e.message); }
 
     // Merge SKU prices onto each card
+    // TCGTracking uses formats like "007/165", pokemontcg uses "1" or "007"
+    // Build a lookup that tries multiple formats
+    const totalCards = cards.length;
+    function findSkuPrice(cardNumber) {
+      if (!cardNumber) return null;
+      const n = cardNumber;
+      const nInt = parseInt(n);
+      // Try exact match first
+      if (skuPrices[n]) return skuPrices[n];
+      // Try padded with /total e.g. "007/165"
+      for (const key of Object.keys(skuPrices)) {
+        const keyNum = parseInt(key);
+        if (keyNum === nInt) return skuPrices[key];
+      }
+      return null;
+    }
     const merged = cards.map(c => ({
       ...c,
-      skuPrices: skuPrices[c.number] || skuPrices[c.number?.replace(/^0+/, '')] || null
+      skuPrices: findSkuPrice(c.number)
     }));
 
     cache.cards[setId] = { data: merged, at: now };
@@ -275,7 +291,17 @@ app.listen(PORT, () => {
             const tcgId = await resolveTcgTrackId(s);
             let skuPrices = {};
             if (tcgId) skuPrices = await fetchSkuPrices(tcgId);
-            cache.cards[s.id] = { data: cards.map(c => ({ ...c, skuPrices: skuPrices[c.number] || null })), at: Date.now() };
+            const totalCards2 = cards.length;
+            function findSkuPrice2(cardNumber) {
+              if (!cardNumber) return null;
+              const nInt = parseInt(cardNumber);
+              if (skuPrices[cardNumber]) return skuPrices[cardNumber];
+              for (const key of Object.keys(skuPrices)) {
+                if (parseInt(key) === nInt) return skuPrices[key];
+              }
+              return null;
+            }
+            cache.cards[s.id] = { data: cards.map(c => ({ ...c, skuPrices: findSkuPrice2(c.number) })), at: Date.now() };
             saveCache(cache);
             console.log(`   ✓ ${s.name} (${cards.length} cards, prices: ${Object.keys(skuPrices).length})`);
           } catch(e) { console.log(`   ⚠ ${s.name}:`, e.message); }
