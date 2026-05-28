@@ -41,16 +41,10 @@ function saveCollection(user, data) {
 // TEMP: Test TCGTracking Base Set SKUs for 1st edition
 app.get('/api/test-tcgtracking', async (req, res) => {
   try {
-    // First find Base Set ID
-    const sets = await fetch('https://tcgtracking.com/tcgapi/v1/3/sets').then(r=>r.json());
-    const base = sets.sets.find(s => s.name.toLowerCase() === 'base set');
-    if (!base) return res.json({ error: 'Base Set not found', sets: sets.sets.slice(0,5).map(s=>s.name) });
-    // Fetch SKUs for Base Set
-    const skus = await fetch('https://tcgtracking.com' + base.skus_url).then(r=>r.json());
-    // Find Charizard SKUs
-    const charizard = Object.entries(skus.products || {})
-      .find(([id, p]) => p.name?.toLowerCase().includes('charizard'));
-    res.json({ base_set_id: base.id, charizard: charizard?.[1] || 'not found', sample_keys: Object.keys(skus.products||{}).slice(0,3) });
+    const skus = await fetch('https://tcgtracking.com/tcgapi/v1/3/sets/604/skus').then(r=>r.json());
+    // show first 2 products with all their SKU detail
+    const sample = Object.entries(skus.products || {}).slice(0, 2).map(([id, p]) => ({ id, ...p }));
+    res.json({ total_products: Object.keys(skus.products||{}).length, sample });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
