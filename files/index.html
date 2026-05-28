@@ -129,8 +129,8 @@
   }
   .pcard:hover{border-color:#3e3e4e;background:var(--surface2);}
   .pcard.owned{border-color:#2a3a6e;background:#16192a;}
-  .thumb{width:42px;height:58px;object-fit:contain;border-radius:4px;background:var(--surface2);flex-shrink:0;}
-  .thumb-placeholder{width:42px;height:58px;background:var(--surface2);border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:18px;}
+  .thumb{width:64px;height:89px;object-fit:contain;border-radius:4px;background:var(--surface2);flex-shrink:0;transition:transform 0.15s;cursor:zoom-in;}
+  .thumb-placeholder{width:64px;height:89px;background:var(--surface2);border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:18px;}
   .cinfo{flex:1;min-width:0;}
   .cname{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:1px;}
   .cmeta{font-size:11px;color:var(--muted);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -180,6 +180,36 @@
   .import-result{font-size:13px;margin-bottom:12px;padding:8px 12px;border-radius:var(--radius);background:var(--surface2);display:none;}
   .import-result.ok{color:var(--green);display:block;}
   .import-result.err{color:var(--red);display:block;}
+
+  .cond-select{
+    background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);
+    color:var(--accent);font-family:'Space Mono',monospace;font-size:13px;font-weight:700;
+    padding:5px 8px;outline:none;cursor:pointer;height:36px;
+  }
+  .cond-select:focus{border-color:var(--accent);}
+  .cond-breakdown{font-size:11px;color:var(--muted);margin-bottom:5px;min-height:13px;font-family:'Space Mono',monospace;}
+  .cond-breakdown span{color:var(--text);}
+
+  .card-preview-overlay{
+    position:fixed;inset:0;z-index:300;pointer-events:none;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .card-preview-img{
+    max-width:min(360px,90vw);max-height:90vh;
+    border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,0.8);
+    pointer-events:none;opacity:0;transition:opacity 0.15s;
+  }
+  .card-preview-img.visible{opacity:1;}
+
+  .first-ed-label{
+    display:flex;align-items:center;gap:6px;font-size:13px;
+    color:var(--muted);cursor:pointer;white-space:nowrap;
+    font-family:'Space Mono',monospace;
+  }
+  .first-ed-label input{
+    width:15px;height:15px;cursor:pointer;accent-color:var(--accent);
+  }
+  .first-ed-label:has(input:checked){color:var(--accent);}
 </style>
 </head>
 <body>
@@ -254,6 +284,7 @@ base1-4,1"></textarea>
   </div>
 </div>
 
+<div class="card-preview-overlay" id="previewOverlay"><img class="card-preview-img" id="previewImg" src="" alt=""></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -307,6 +338,18 @@ function switchUser(){
   document.getElementById('app').style.display='none';
   document.getElementById('nameInput').value='';
   
+
+function showPreview(src){
+  const img=document.getElementById('previewImg');
+  img.src=src.replace('/small/','/large/').replace('.png','_hires.png');
+  // fallback to small if large fails
+  img.onerror=()=>{img.src=src;img.onerror=null;};
+  img.classList.add('visible');
+}
+function hidePreview(){
+  document.getElementById('previewImg').classList.remove('visible');
+}
+
 function openImport(){
   document.getElementById('importModal').style.display='flex';
   document.getElementById('importText').value='';
@@ -374,6 +417,12 @@ initLogin();
 
 // ── App ──
 function getPrice(c){
+  // Prefer TCGTracking SKU prices (NM/Normal or NM/Holofoil)
+  if(c.skuPrices){
+    const nmKeys=Object.keys(c.skuPrices).filter(k=>k.startsWith('NM/'));
+    if(nmKeys.length>0) return c.skuPrices[nmKeys[0]];
+  }
+  // Fall back to pokemontcg.io tcgplayer prices
   const tp=c.tcgplayer?.prices;
   if(tp){
     const order=['holofoil','normal','1stEditionHolofoil','1stEditionNormal','unlimitedHolofoil','unlimitedNormal','reverseHolofoil'];
@@ -388,7 +437,44 @@ function getPrice(c){
   return 0;
 }
 
-function totalValue(){return Object.values(collection).reduce((s,c)=>s+(c.qty||0)*(c.price||0),0);}
+// Get price for a specific condition+variant from SKU prices
+function getSkuPrice(skuPrices, cond, firstEd){
+  if(!skuPrices) return 0;
+  // Build search key — try 1st edition variants first if checked
+  const variants=['Holofoil','Normal','Reverse Holofoil','1st Edition Holofoil','1st Edition Normal'];
+  if(firstEd){
+    const edKeys=Object.keys(skuPrices).filter(k=>k.startsWith(cond+'/') && k.toLowerCase().includes('1st'));
+    if(edKeys.length>0) return skuPrices[edKeys[0]]||0;
+  }
+  // Non-1st edition: prefer non-1st variants
+  const nonEdKeys=Object.keys(skuPrices).filter(k=>k.startsWith(cond+'/') && !k.toLowerCase().includes('1st'));
+  if(nonEdKeys.length>0) return skuPrices[nonEdKeys[0]]||0;
+  // fallback to any matching condition
+  const anyKeys=Object.keys(skuPrices).filter(k=>k.startsWith(cond+'/'));
+  if(anyKeys.length>0) return skuPrices[anyKeys[0]]||0;
+  return 0;
+}
+
+// Build all available prices for a card as an object { "NM/Holofoil": 12.50, ... }
+function getAllSkuPrices(skuPrices){
+  if(!skuPrices) return null;
+  return skuPrices;
+}
+
+function totalValue(){
+  return Object.values(collection).reduce((s,c)=>{
+    const conds=c.conditions||{};
+    const condPrices=c.condPrices||{};
+    const hasConds=Object.values(conds).some(v=>v>0);
+    if(hasConds){
+      return s+Object.entries(conds).reduce((cs,[k,v])=>{
+        const p=condPrices[k]||c.price||0;
+        return cs+p*v;
+      },0);
+    }
+    return s+(c.qty||0)*(c.price||0);
+  },0);
+}
 function setsEntered(){return new Set(Object.values(collection).filter(c=>c.qty>0).map(c=>c.setId)).size;}
 
 function updateStats(){
@@ -427,9 +513,10 @@ function getSortedCards(list){
 }
 
 async function saveOne(id){
+  const c=collection[id];
   await api('/api/collection/'+currentUser,{
     method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({id,...collection[id]})
+    body:JSON.stringify({id,qty:c.qty,price:c.price,setId:c.setId,name:c.name,conditions:c.conditions,condPrices:c.condPrices})
   });
 }
 
@@ -467,6 +554,29 @@ async function loadSet(setId){
   }
 }
 
+// Condition multipliers removed — using real TCGTracking prices
+
+function condBreakdown(id){
+  const conds=collection[id]?.condPrices||{};
+  const qty=collection[id]?.conditions||{};
+  const parts=Object.entries(qty).filter(([,v])=>v>0).map(([k,v])=>{
+    const p=conds[k]||0;
+    const val=p>0?' $'+(p*v).toFixed(2):'';
+    return `<span>${k}:${v}</span>${val}`;
+  });
+  return parts.length>0?parts.join(' · '):'';
+}
+
+function condTotalQty(id){
+  const conds=collection[id]?.conditions||{};
+  return Object.values(conds).reduce((s,v)=>s+v,0);
+}
+
+function condTotalValue(id,price){
+  const conds=collection[id]?.conditions||{};
+  return Object.entries(conds).reduce((s,[k,v])=>s+(price*(COND_MULT[k]||1)*v),0);
+}
+
 function renderCards(){
   const q=(document.getElementById('searchBox')?.value||'').toLowerCase().trim();
   let filtered=cards.filter(c=>{
@@ -486,6 +596,16 @@ function renderCards(){
     <label>Quick add</label>
     <input type="text" id="quickInput" placeholder="007" maxlength="10"
       onkeydown="quickAdd(event)" autocomplete="off" spellcheck="false">
+    <select class="cond-select" id="condSelect">
+      <option value="NM">NM</option>
+      <option value="LP">LP</option>
+      <option value="MP">MP</option>
+      <option value="HP">HP</option>
+      <option value="DMG">DMG</option>
+    </select>
+    <label class="first-ed-label">
+      <input type="checkbox" id="firstEdCheck"> 1st Ed
+    </label>
     <span id="quickConfirm" class="quick-confirm"></span>
     <span class="quick-hint" style="margin-left:auto">Type card #, hit <b>Enter</b></span>
   </div>`;
@@ -494,10 +614,10 @@ function renderCards(){
   }else{
     html+=`<div class="card-grid">`;
     filtered.forEach(c=>{
-      const qty=collection[c.id]?.qty||0,price=collection[c.id]?.price||0;
+      const qty=collection[c.id]?.qty||0,price=collection[c.id]?.price||0,conds=collection[c.id]?.conditions||{};
       const priceStr=price>0?'$'+price.toFixed(2)+(qty>1?' · $'+(price*qty).toFixed(2):''):'no price';
       html+=`<div class="pcard${qty>0?' owned':''}" id="pc_${c.id}">`;
-      html+=c.images?.small?`<img class="thumb" src="${c.images.small}" alt="${c.name}" loading="lazy">`:`<div class="thumb-placeholder">🃏</div>`;
+      html+=c.images?.small?`<img class="thumb" src="${c.images.small}" alt="${c.name}" loading="lazy" onmouseenter="showPreview('${c.images.small}')" onmouseleave="hidePreview()">`:`<div class="thumb-placeholder">🃏</div>`;
       html+=`<div class="cinfo">
         <div class="cname" title="${c.name}">${c.name}</div>
         <div class="cmeta">#${c.number} · ${c.rarity||'?'}</div>
@@ -558,7 +678,19 @@ function quickAdd(e){
     setTimeout(()=>inp.classList.remove('flash-err'),600);
     inp.value='';inp.focus();return;
   }
-  collection[card.id].qty=(collection[card.id]?.qty||0)+1;
+  const cond=document.getElementById('condSelect')?.value||'NM';
+  const firstEd=document.getElementById('firstEdCheck')?.checked||false;
+  const condKey=firstEd?cond+' 1st Ed':cond;
+  if(!collection[card.id].conditions) collection[card.id].conditions={};
+  collection[card.id].conditions[condKey]=(collection[card.id].conditions[condKey]||0)+1;
+  collection[card.id].qty=condTotalQty(card.id);
+  // Look up real SKU price for this condition
+  const cardData=cards.find(c=>c.id===card.id);
+  const skuPrice=cardData?.skuPrices?getSkuPrice(cardData.skuPrices,cond,firstEd):0;
+  if(!collection[card.id].condPrices) collection[card.id].condPrices={};
+  if(skuPrice>0) collection[card.id].condPrices[condKey]=skuPrice;
+  // Update default display price to NM price
+  if(cond==='NM'&&!firstEd&&skuPrice>0) collection[card.id].price=skuPrice;
   inp.classList.add('flash-ok');
   setTimeout(()=>inp.classList.remove('flash-ok'),400);
   inp.value='';inp.focus();
@@ -566,7 +698,13 @@ function quickAdd(e){
     const price=collection[card.id]?.price||0;
     const qty=collection[card.id]?.qty||0;
     const priceStr=price>0?' · $'+price.toFixed(2)+(qty>1?' ea ($'+(price*qty).toFixed(2)+' total)':''):'';
-    confirm.textContent='+ '+card.name+' (#'+card.number+')'+priceStr;
+    const cond2=document.getElementById('condSelect')?.value||'NM';
+    const firstEd2=document.getElementById('firstEdCheck')?.checked||false;
+    const condLabel=firstEd2?cond2+' 1st Ed':cond2;
+    const cardData2=cards.find(c=>c.id===card.id);
+    const realPrice=cardData2?.skuPrices?getSkuPrice(cardData2.skuPrices,cond2,firstEd2):0;
+    const realPriceStr=realPrice>0?' · $'+realPrice.toFixed(2):'';
+    confirm.textContent='+ '+card.name+' (#'+card.number+') ['+condLabel+']'+realPriceStr;
     confirm.className='quick-confirm show';
     if(confirmTimer)clearTimeout(confirmTimer);
     // don't auto-hide — stays until next card is added or error
@@ -577,6 +715,8 @@ function quickAdd(e){
     const pcEl=document.getElementById('pc_'+card.id);
     if(pcEl)pcEl.className='pcard owned';
     updateCardPrice(card.id);
+    const condEl=document.getElementById('cond_'+card.id);
+    if(condEl)condEl.innerHTML=condBreakdown(card.id);
   }
   updateStats();
   saveOne(card.id);
@@ -613,6 +753,18 @@ function exportCSV(){
   toast('Exported '+(rows.length-1)+' cards.');
 }
 
+
+
+function showPreview(src){
+  const img=document.getElementById('previewImg');
+  img.src=src.replace('/small/','/large/').replace('.png','_hires.png');
+  // fallback to small if large fails
+  img.onerror=()=>{img.src=src;img.onerror=null;};
+  img.classList.add('visible');
+}
+function hidePreview(){
+  document.getElementById('previewImg').classList.remove('visible');
+}
 
 function openImport(){
   document.getElementById('importModal').style.display='flex';
