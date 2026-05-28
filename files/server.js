@@ -38,6 +38,22 @@ function saveCollection(user, data) {
   fs.writeFileSync(colFile(user), JSON.stringify(data, null, 2));
 }
 
+// TEMP: Test TCGTracking Base Set SKUs for 1st edition
+app.get('/api/test-tcgtracking', async (req, res) => {
+  try {
+    // First find Base Set ID
+    const sets = await fetch('https://tcgtracking.com/tcgapi/v1/3/sets').then(r=>r.json());
+    const base = sets.sets.find(s => s.name.toLowerCase() === 'base set');
+    if (!base) return res.json({ error: 'Base Set not found', sets: sets.sets.slice(0,5).map(s=>s.name) });
+    // Fetch SKUs for Base Set
+    const skus = await fetch('https://tcgtracking.com' + base.skus_url).then(r=>r.json());
+    // Find Charizard SKUs
+    const charizard = Object.entries(skus.products || {})
+      .find(([id, p]) => p.name?.toLowerCase().includes('charizard'));
+    res.json({ base_set_id: base.id, charizard: charizard?.[1] || 'not found', sample_keys: Object.keys(skus.products||{}).slice(0,3) });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // TEMP: Test PokéWallet prices endpoint
 app.get('/api/test-pokewallet', async (req, res) => {
   const key = process.env.POKEWALLET_API_KEY;
