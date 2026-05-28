@@ -12,6 +12,12 @@ const TCG_TRACK = 'https://tcgtracking.com/tcgapi/v1';
 const apiHeaders = () => process.env.POKEMONTCG_API_KEY ? { 'X-Api-Key': process.env.POKEMONTCG_API_KEY } : {};
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
+
+// Clear cache if CLEAR_CACHE env var is set
+if (process.env.CLEAR_CACHE === 'true') {
+  try { fs.unlinkSync(CACHE_FILE); console.log('   ✓ Cache cleared.'); } catch {}
+}
+
 app.use(express.json());
 app.use(express.static(__dirname));
 
