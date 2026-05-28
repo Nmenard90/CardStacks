@@ -119,6 +119,34 @@ async function fetchSkuPrices(tcgTrackId) {
 
 // ── API routes ─────────────────────────────────────────────────────────────
 
+// TEMP: Debug SKU prices for a card
+app.get('/api/debug-prices/:setId', async (req, res) => {
+  try {
+    const { setId } = req.params;
+    // Get set meta from cache or fetch
+    let setMeta = null;
+    if (cache.cards[setId]) {
+      setMeta = cache.cards[setId].data[0]?.set;
+    } else {
+      const r = await fetch(`${API}/cards?q=set.id:${setId}&orderBy=number&pageSize=1`, { headers: apiHeaders() });
+      const d = await r.json();
+      setMeta = d.data?.[0]?.set;
+    }
+    const tcgId = setMeta ? await resolveTcgTrackId(setMeta) : null;
+    const skuPrices = tcgId ? await fetchSkuPrices(tcgId) : {};
+    // Show first 3 card numbers and their prices
+    const sample = Object.entries(skuPrices).slice(0, 3);
+    // Also show what the cached card looks like
+    const cachedCard = cache.cards[setId]?.data?.[0];
+    res.json({
+      setId, setMeta: setMeta?.name, tcgId,
+      skuPriceSample: sample,
+      firstCardSkuPrices: cachedCard?.skuPrices,
+      firstCardNumber: cachedCard?.number
+    });
+  } catch(e) { res.status(500).json({ error: e.message, stack: e.stack }); }
+});
+
 // GET /api/users
 app.get('/api/users', (req, res) => {
   const files = fs.readdirSync(DATA_DIR).filter(f => f.startsWith('collection_'));
