@@ -38,6 +38,17 @@ function saveCollection(user, data) {
   fs.writeFileSync(colFile(user), JSON.stringify(data, null, 2));
 }
 
+// TEMP: Test PokéWallet prices endpoint
+app.get('/api/test-pokewallet', async (req, res) => {
+  const key = process.env.POKEWALLET_API_KEY;
+  if (!key) return res.json({ error: 'No POKEWALLET_API_KEY set' });
+  try {
+    const r = await fetch('https://api.pokewallet.io/prices/MEW?source=tcg', { headers: { 'X-API-Key': key } });
+    const d = await r.json();
+    res.json({ total: d.total, success: d.success, sample: d.data?.slice(0, 3) });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // List users
 app.get('/api/users', (req, res) => {
   const files = fs.readdirSync(DATA_DIR).filter(f => f.startsWith('collection_'));
