@@ -1270,7 +1270,10 @@ function quickAdd(e){
   const cond=document.getElementById('condSelect')?.value||'NM';
   const firstEd=document.getElementById('firstEdCheck')?.checked||false;
   const condKey=firstEd?cond+' 1st Ed':cond;
+  // Guard: ensure collection entry exists
+  if(!collection[card.id]) collection[card.id]={qty:0,price:0,setId:currentSetId,name:card.name,conditions:{},condPrices:{}};
   if(!collection[card.id].conditions) collection[card.id].conditions={};
+  if(!collection[card.id].condPrices) collection[card.id].condPrices={};
   collection[card.id].conditions[condKey]=(collection[card.id].conditions[condKey]||0)+1;
   collection[card.id].qty=condTotalQty(card.id);
   // Look up real SKU price for this condition
