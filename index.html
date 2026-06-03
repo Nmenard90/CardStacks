@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pokémon Card Tracker</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap');
+  :root {
+    --bg:#0f0f11; --surface:#18181c; --surface2:#222228; --border:#2e2e38;
+    --accent:#ffcb05; --accent2:#3b5bdb; --text:#f0f0f2; --muted:#888896;
+    --green:#51cf66; --red:#ff6b6b; --radius:10px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+
+  /* ── Login screen ── */
+  #loginScreen{
+    display:flex;align-items:center;justify-content:center;
+    min-height:100vh;flex-direction:column;gap:24px;
+  }
+  .login-box{
+    background:var(--surface);border:1px solid var(--border);border-radius:16px;
+    padding:36px 40px;width:100%;max-width:400px;text-align:center;
+  }
+  .login-box h1{font-family:'Space Mono',monospace;font-size:20px;color:var(--accent);margin-bottom:6px;}
+  .login-box p{font-size:14px;color:var(--muted);margin-bottom:24px;}
+  .login-box input{
+    width:100%;padding:10px 14px;font-size:16px;font-family:'DM Sans',sans-serif;
+    background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);
+    color:var(--text);outline:none;margin-bottom:12px;text-align:center;
+  }
+  .login-box input:focus{border-color:var(--accent);}
+  .login-box button{
+    width:100%;padding:11px;font-size:15px;font-weight:600;font-family:'DM Sans',sans-serif;
+    background:var(--accent);border:none;border-radius:var(--radius);color:#111;cursor:pointer;
+    display:block;text-align:center;
+  }
+  .login-box button:hover{background:#e6b800;}
+  .existing-users{margin-top:20px;}
+  .existing-users p{font-size:12px;color:var(--muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:.07em;}
+  .user-chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;}
+  .user-chip{
+    padding:5px 14px;border-radius:99px;background:var(--surface2);
+    border:1px solid var(--border);font-size:13px;color:var(--text);cursor:pointer;
+  }
+  .user-chip:hover{border-color:var(--accent);color:var(--accent);}
+
+  /* ── App ── */
+  #app{display:none;}
+  header{
+    background:var(--surface);border-bottom:1px solid var(--border);
+    padding:.85rem 1.5rem;display:flex;align-items:center;gap:1rem;
+    flex-wrap:wrap;position:sticky;top:0;z-index:100;
+  }
+  .logo{font-family:'Space Mono',monospace;font-size:15px;font-weight:700;color:var(--accent);white-space:nowrap;}
+  .logo span{color:var(--muted);font-weight:400;}
+  .user-badge{
+    font-size:12px;padding:4px 12px;border-radius:99px;
+    background:var(--surface2);border:1px solid var(--border);color:var(--muted);
+    display:flex;align-items:center;gap:6px;
+  }
+  .user-badge b{color:var(--text);}
+  select,input[type="text"]{
+    background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);
+    color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;
+    padding:7px 12px;outline:none;transition:border-color .15s;
+  }
+  select:focus,input[type="text"]:focus{border-color:var(--accent2);}
+  #setSelect{min-width:240px;cursor:pointer;}
+  .header-right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  button{
+    background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);
+    color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;
+    padding:7px 14px;cursor:pointer;display:flex;align-items:center;gap:5px;
+    transition:background .15s;white-space:nowrap;
+  }
+  button:hover{background:var(--border);}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#111;font-weight:600;}
+  button.primary:hover{background:#e6b800;}
+  button.active{background:var(--accent2);border-color:var(--accent2);color:#fff;}
+
+  .stats-bar{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+    gap:1px;background:var(--border);border-bottom:1px solid var(--border);
+  }
+  .stat{background:var(--surface);padding:10px 18px;}
+  .stat-label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:3px;}
+  .stat-value{font-size:20px;font-weight:600;}
+  .stat-value.gold{color:var(--accent);}
+
+  .toolbar{
+    display:flex;gap:8px;padding:9px 18px;background:var(--surface);
+    border-bottom:1px solid var(--border);align-items:center;flex-wrap:wrap;
+  }
+  .sort-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;}
+  .tb-btn{font-size:12px;padding:5px 11px;}
+
+  #main{padding:14px 18px;}
+
+  .quick-entry{
+    display:flex;align-items:center;gap:10px;margin-bottom:14px;
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;
+  }
+  .quick-entry label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;white-space:nowrap;font-family:'Space Mono',monospace;}
+  .quick-entry input{
+    width:90px;font-family:'Space Mono',monospace;font-size:18px;font-weight:700;
+    padding:5px 10px;background:var(--surface2);border:1px solid var(--border);
+    border-radius:8px;color:var(--accent);outline:none;transition:border-color .15s;
+  }
+  .quick-entry input:focus{border-color:var(--accent);}
+  .quick-entry input.flash-ok{border-color:var(--green)!important;background:#0e2a16;}
+  .quick-entry input.flash-err{border-color:var(--red)!important;background:#2a0e0e;}
+  .quick-confirm{font-size:13px;color:var(--green);font-family:'Space Mono',monospace;opacity:0;transition:opacity .2s;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis;}
+  .quick-confirm.show{opacity:1;}
+  .quick-confirm.err{color:var(--red);}
+  .quick-hint{font-size:12px;color:var(--muted);margin-left:auto;white-space:nowrap;}
+  .quick-hint b{color:var(--text);font-weight:500;}
+
+  .set-info{display:flex;align-items:center;gap:12px;margin-bottom:12px;}
+  .set-logo{height:34px;object-fit:contain;}
+  .set-name{font-size:17px;font-weight:600;}
+  .set-meta{font-size:12px;color:var(--muted);margin-top:2px;}
+
+  .card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:9px;}
+  .pcard{
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    padding:9px;display:flex;align-items:center;gap:9px;transition:border-color .15s;
+  }
+  .pcard:hover{border-color:#3e3e4e;background:var(--surface2);}
+  .pcard.owned{border-color:#2a3a6e;background:#16192a;}
+  .thumb{width:64px;height:89px;object-fit:contain;border-radius:4px;background:var(--surface2);flex-shrink:0;transition:transform 0.15s;cursor:zoom-in;}
+  .thumb-placeholder{width:64px;height:89px;background:var(--surface2);border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:18px;}
+  .cinfo{flex:1;min-width:0;}
+  .cname{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:1px;}
+  .cmeta{font-size:11px;color:var(--muted);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .cprice{font-size:11px;color:var(--green);font-family:'Space Mono',monospace;margin-bottom:5px;min-height:14px;}
+  .cprice.no-price{color:var(--muted);}
+  .qty-row{display:flex;align-items:center;gap:5px;}
+  .qbtn{
+    width:22px;height:22px;border-radius:50%;background:var(--surface2);
+    border:1px solid var(--border);color:var(--text);font-size:14px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;padding:0;flex-shrink:0;
+  }
+  .qbtn:hover{background:var(--border);}
+  input.qty{
+    width:38px;text-align:center;font-size:13px;padding:2px 4px;height:24px;
+    border-radius:6px;background:var(--surface2);border:1px solid var(--border);
+    color:var(--text);font-family:'Space Mono',monospace;
+  }
+  input.qty.has-qty{border-color:var(--accent2);color:var(--accent);background:#1a1f3a;font-weight:700;}
+
+  .loading{text-align:center;padding:4rem 0;color:var(--muted);font-size:15px;}
+  .loading::after{
+    content:'';display:block;width:32px;height:32px;
+    border:2px solid var(--border);border-top-color:var(--accent);
+    border-radius:50%;animation:spin .7s linear infinite;margin:16px auto 0;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .empty{text-align:center;padding:3rem 0;color:var(--muted);font-size:14px;}
+
+  .toast{
+    position:fixed;bottom:24px;right:24px;background:var(--surface2);
+    border:1px solid var(--border);border-radius:var(--radius);padding:10px 16px;
+    font-size:13px;color:var(--text);opacity:0;transform:translateY(8px);
+    transition:opacity .2s,transform .2s;pointer-events:none;z-index:999;
+  }
+  .toast.show{opacity:1;transform:translateY(0);}
+  .progress-wrap{height:3px;background:var(--border);border-radius:2px;margin-top:5px;overflow:hidden;}
+  .progress-bar{height:100%;background:var(--accent);border-radius:2px;transition:width .3s;}
+
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;}
+  .modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px;width:100%;max-width:520px;}
+  .modal h3{font-family:'Space Mono',monospace;font-size:14px;color:var(--accent);margin-bottom:8px;}
+  .modal p{font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.6;}
+  .modal textarea{width:100%;height:160px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:'Space Mono',monospace;font-size:12px;padding:10px;outline:none;resize:vertical;margin-bottom:12px;}
+  .modal textarea:focus{border-color:var(--accent2);}
+  .modal-btns{display:flex;gap:8px;justify-content:flex-end;}
+  .modal input[type=file]{display:none;}
+  .import-result{font-size:13px;margin-bottom:12px;padding:8px 12px;border-radius:var(--radius);background:var(--surface2);display:none;}
+  .import-result.ok{color:var(--green);display:block;}
+  .import-result.err{color:var(--red);display:block;}
+
+  .cond-select{
+    background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);
+    color:var(--accent);font-family:'Space Mono',monospace;font-size:13px;font-weight:700;
+    padding:5px 8px;outline:none;cursor:pointer;height:36px;
+  }
+  .cond-select:focus{border-color:var(--accent);}
+  .cond-breakdown{font-size:11px;color:var(--muted);margin-bottom:5px;min-height:13px;font-family:'Space Mono',monospace;}
+  .cond-breakdown span{color:var(--text);}
+
+  .card-preview-overlay{
+    position:fixed;inset:0;z-index:300;pointer-events:none;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .card-preview-img{
+    max-width:min(360px,90vw);max-height:90vh;
+    border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,0.8);
+    pointer-events:none;opacity:0;transition:opacity 0.15s;
+  }
+  .card-preview-img.visible{opacity:1;}
+
+  .first-ed-label{
+    display:flex;align-items:center;gap:6px;font-size:13px;
+    color:var(--muted);cursor:pointer;white-space:nowrap;
+    font-family:'Space Mono',monospace;
+  }
+  .first-ed-label input{
+    width:15px;height:15px;cursor:pointer;accent-color:var(--accent);
+  }
+  .first-ed-label:has(input:checked){color:var(--accent);}
+</style>
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div id="loginScreen">
+  <div class="login-box">
+    <h1>POKÉDEX TRACKER</h1>
+    <p>Enter your name to load your collection</p>
+    <input type="text" id="nameInput" placeholder="Your name" maxlength="30" autocomplete="off"
+      onkeydown="if(event.key==='Enter')startSession()">
+    <button onclick="startSession()">Let's Go →</button>
+    <div class="existing-users" id="existingUsers" style="display:none">
+      <p>Or pick an existing user</p>
+      <div class="user-chips" id="userChips"></div>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app">
+  <header>
+    <div class="logo">POKÉDEX <span>TRACKER</span></div>
+    <div class="user-badge">👤 <b id="userLabel"></b></div>
+    <select id="setSelect"><option>Loading sets…</option></select>
+    <input type="text" id="searchBox" placeholder="Search cards…" oninput="renderCards()" style="width:160px">
+    <div class="header-right">
+      <a id="binderLink" href="/shelf" class="tb-btn" style="text-decoration:none">📒 Binders</a>
+      <button class="tb-btn" id="ownedBtn" onclick="toggleOwned()">Owned only</button>
+      <button class="tb-btn" onclick="exportCSV()">⬇ Export CSV</button>
+      <button class="tb-btn" onclick="openImport()">⬆ Import CSV</button>
+      <button class="tb-btn primary" onclick="clearSet()">Clear set</button>
+      <button class="tb-btn" onclick="switchUser()" style="color:var(--muted)">Switch user</button>
+    </div>
+  </header>
+
+  <div class="stats-bar">
+    <div class="stat"><div class="stat-label">Cards owned</div><div class="stat-value" id="sOwned">—</div></div>
+    <div class="stat"><div class="stat-label">Set completion</div><div class="stat-value" id="sCompletion">—</div></div>
+    <div class="stat"><div class="stat-label">Set value</div><div class="stat-value gold" id="sValue">—</div></div>
+    <div class="stat"><div class="stat-label">Total collection</div><div class="stat-value gold" id="sTotal">—</div></div>
+    <div class="stat"><div class="stat-label">Sets entered</div><div class="stat-value" id="sSets">—</div></div>
+  </div>
+
+  <div class="toolbar">
+    <span class="sort-label">Sort:</span>
+    <button class="tb-btn active" id="sort-number" onclick="setSort('number')">Card #</button>
+    <button class="tb-btn" id="sort-value" onclick="setSort('value')">Value ↓</button>
+    <button class="tb-btn" id="sort-qty" onclick="setSort('qty')">Quantity ↓</button>
+    <button class="tb-btn" id="sort-name" onclick="setSort('name')">Name</button>
+  </div>
+
+  <div id="main"><div class="loading">Loading</div></div>
+</div>
+
+
+<!-- IMPORT MODAL -->
+<div id="importModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeImport()">
+  <div class="modal">
+    <h3>⬆ IMPORT CSV</h3>
+    <p>Paste a CSV or upload a file. Expected columns: <b>Card ID</b> and <b>Quantity</b> (minimum). Also accepts <b>Market Price</b> if present.<br><br>
+    Card IDs look like <b>sv1-1</b>, <b>base1-4</b> etc. — same format as the Export CSV.</p>
+    <input type="file" id="importFile" accept=".csv" onchange="handleImportFile(event)">
+    <textarea id="importText" placeholder="Card ID,Quantity
+sv1-1,2
+base1-4,1"></textarea>
+    <div id="importResult" class="import-result"></div>
+    <div class="modal-btns">
+      <button class="tb-btn" onclick="document.getElementById('importFile').click()">📁 Upload file</button>
+      <button class="tb-btn" onclick="closeImport()">Cancel</button>
+      <button class="tb-btn primary" onclick="runImport()">Import</button>
+    </div>
+  </div>
+</div>
+
+<div class="card-preview-overlay" id="previewOverlay"><img class="card-preview-img" id="previewImg" src="" alt=""></div>
+<div class="toast" id="toast"></div>
+
+<script>
+let sets=[],cards=[],collection={},ownedOnly=false,currentSetId=null,sortMode='number',currentUser=null;
+let confirmTimer=null;
+
+async function api(path,opts){
+  const r=await fetch(path,opts);
+  if(!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+function toast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2000);
+}
+
+// ── Login ──
+async function initLogin(){
+  try{
+    const users=await api('/api/users');
+    if(users.length>0){
+      const wrap=document.getElementById('existingUsers');
+      const chips=document.getElementById('userChips');
+      wrap.style.display='block';
+      chips.innerHTML=users.map(u=>`<div class="user-chip" onclick="loginAs('${u}')">${u}</div>`).join('');
+    }
+  }catch(e){}
+  document.getElementById('nameInput').focus();
+}
+
+function startSession(){
+  const name=document.getElementById('nameInput').value.trim();
+  if(!name){document.getElementById('nameInput').focus();return;}
+  loginAs(name);
+}
+
+function loginAs(name){
+  currentUser=name;
+  document.getElementById('userLabel').textContent=name;
+  document.getElementById('loginScreen').style.display='none';
+  document.getElementById('app').style.display='block';
+  document.getElementById('binderLink').href='/shelf?user='+encodeURIComponent(name);
+  initApp();
+}
+
+function switchUser(){
+  currentUser=null;
+  collection={};cards=[];sets=[];
+  document.getElementById('loginScreen').style.display='flex';
+  document.getElementById('app').style.display='none';
+  document.getElementById('nameInput').value='';
+  
+
+function showPreview(src){
+  const img=document.getElementById('previewImg');
+  img.src=src.replace('/small/','/large/').replace('.png','_hires.png');
+  // fallback to small if large fails
+  img.onerror=()=>{img.src=src;img.onerror=null;};
+  img.classList.add('visible');
+}
+function hidePreview(){
+  document.getElementById('previewImg').classList.remove('visible');
+}
+
+function openImport(){
+  document.getElementById('importModal').style.display='flex';
+  document.getElementById('importText').value='';
+  document.getElementById('importResult').className='import-result';
+}
+function closeImport(){document.getElementById('importModal').style.display='none';}
+
+function handleImportFile(e){
+  const file=e.target.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=ev=>document.getElementById('importText').value=ev.target.result;
+  reader.readAsText(file);
+}
+
+async function runImport(){
+  const text=document.getElementById('importText').value.trim();
+  const result=document.getElementById('importResult');
+  if(!text){result.textContent='Paste some CSV data first.';result.className='import-result err';return;}
+
+  const lines=text.split('\n').map(l=>l.trim()).filter(Boolean);
+  if(lines.length<2){result.textContent='Need at least a header row and one data row.';result.className='import-result err';return;}
+
+  // parse header
+  const headers=lines[0].split(',').map(h=>h.replace(/"/g,'').trim().toLowerCase());
+  const idCol=headers.findIndex(h=>h.includes('card id')||h==='id');
+  const qtyCol=headers.findIndex(h=>h.includes('quantity')||h==='qty');
+  const priceCol=headers.findIndex(h=>h.includes('market price')||h.includes('price'));
+
+  if(idCol===-1||qtyCol===-1){
+    result.textContent='Could not find "Card ID" and "Quantity" columns.';
+    result.className='import-result err';return;
+  }
+
+  const bulk=[];let skipped=0;
+  for(let i=1;i<lines.length;i++){
+    const cols=lines[i].split(',').map(c=>c.replace(/"/g,'').trim());
+    const id=cols[idCol];
+    const qty=parseInt(cols[qtyCol])||0;
+    const price=priceCol>=0?parseFloat(cols[priceCol])||0:0;
+    if(!id||qty===0){skipped++;continue;}
+    if(!collection[id]) collection[id]={qty:0,price:0,setId:'',name:id};
+    collection[id].qty=qty;
+    if(price>0) collection[id].price=price;
+    bulk.push({id,qty,price:collection[id].price,setId:collection[id].setId,name:collection[id].name});
+  }
+
+  if(bulk.length===0){result.textContent='No valid rows found.';result.className='import-result err';return;}
+
+  try{
+    await api('/api/collection/'+currentUser+'/bulk',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(bulk)
+    });
+    result.textContent='✓ Imported '+bulk.length+' cards'+(skipped>0?' ('+skipped+' skipped)':'')+'. Reload the set to see changes.';
+    result.className='import-result ok';
+    updateStats();
+  }catch(e){
+    result.textContent='Save failed: '+e.message;
+    result.className='import-result err';
+  }
+}
+
+initLogin();
+}
+
+// ── App ──
+function getPrice(c){
+  // Prefer TCGTracking SKU prices (NM/Normal or NM/Holofoil)
+  if(c.skuPrices){
+    const nmKeys=Object.keys(c.skuPrices).filter(k=>k.startsWith('NM/'));
+    if(nmKeys.length>0) return c.skuPrices[nmKeys[0]];
+  }
+  // Fall back to pokemontcg.io tcgplayer prices
+  const tp=c.tcgplayer?.prices;
+  if(tp){
+    const order=['holofoil','normal','1stEditionHolofoil','1stEditionNormal','unlimitedHolofoil','unlimitedNormal','reverseHolofoil'];
+    for(const k of order) if(tp[k]?.market) return tp[k].market;
+    for(const k of Object.keys(tp)){
+      if(tp[k]?.market) return tp[k].market;
+      if(tp[k]?.low) return tp[k].low;
+    }
+  }
+  const cm=c.cardmarket?.prices;
+  if(cm) return cm.averageSellPrice||cm.avg1||cm.avg7||0;
+  return 0;
+}
+
+// Get price for a specific condition+variant from SKU prices
+function getSkuPrice(skuPrices, cond, firstEd){
+  if(!skuPrices) return 0;
+  // Build search key — try 1st edition variants first if checked
+  const variants=['Holofoil','Normal','Reverse Holofoil','1st Edition Holofoil','1st Edition Normal'];
+  if(firstEd){
+    const edKeys=Object.keys(skuPrices).filter(k=>k.startsWith(cond+'/') && k.toLowerCase().includes('1st'));
+    if(edKeys.length>0) return skuPrices[edKeys[0]]||0;
+  }
+  // Non-1st edition: prefer non-1st variants
+  const nonEdKeys=Object.keys(skuPrices).filter(k=>k.startsWith(cond+'/') && !k.toLowerCase().includes('1st'));
+  if(nonEdKeys.length>0) return skuPrices[nonEdKeys[0]]||0;
+  // fallback to any matching condition
+  const anyKeys=Object.keys(skuPrices).filter(k=>k.startsWith(cond+'/'));
+  if(anyKeys.length>0) return skuPrices[anyKeys[0]]||0;
+  return 0;
+}
+
+// Build all available prices for a card as an object { "NM/Holofoil": 12.50, ... }
+function getAllSkuPrices(skuPrices){
+  if(!skuPrices) return null;
+  return skuPrices;
+}
+
+function totalValue(){
+  return Object.values(collection).reduce((s,c)=>{
+    const conds=c.conditions||{};
+    const condPrices=c.condPrices||{};
+    const hasConds=Object.values(conds).some(v=>v>0);
+    if(hasConds){
+      return s+Object.entries(conds).reduce((cs,[k,v])=>{
+        const p=condPrices[k]||c.price||0;
+        return cs+p*v;
+      },0);
+    }
+    return s+(c.qty||0)*(c.price||0);
+  },0);
+}
+function setsEntered(){return new Set(Object.values(collection).filter(c=>c.qty>0).map(c=>c.setId)).size;}
+
+function updateStats(){
+  const owned=cards.filter(c=>(collection[c.id]?.qty||0)>0).length;
+  const pct=cards.length>0?Math.round((owned/cards.length)*100):0;
+  const setVal=cards.reduce((s,c)=>s+(collection[c.id]?.qty||0)*(collection[c.id]?.price||0),0);
+  document.getElementById('sOwned').textContent=owned+' / '+cards.length;
+  document.getElementById('sCompletion').innerHTML=pct+'%<div class="progress-wrap"><div class="progress-bar" style="width:'+pct+'%"></div></div>';
+  document.getElementById('sValue').textContent='$'+setVal.toFixed(2);
+  document.getElementById('sTotal').textContent='$'+totalValue().toFixed(2);
+  document.getElementById('sSets').textContent=setsEntered();
+}
+
+function updateCardPrice(id){
+  const el=document.getElementById('price_'+id);
+  if(!el)return;
+  const qty=collection[id]?.qty||0,price=collection[id]?.price||0;
+  el.className=price>0?'cprice':'cprice no-price';
+  el.textContent=price>0?'$'+price.toFixed(2)+(qty>1?' · $'+(price*qty).toFixed(2):''):'no price';
+}
+
+function setSort(mode){
+  sortMode=mode;
+  ['number','value','qty','name'].forEach(m=>document.getElementById('sort-'+m).classList.toggle('active',m===mode));
+  renderCards();
+}
+
+function getSortedCards(list){
+  return [...list].sort((a,b)=>{
+    if(sortMode==='number'){const na=parseInt(a.number)||0,nb=parseInt(b.number)||0;return na!==nb?na-nb:a.number.localeCompare(b.number);}
+    if(sortMode==='value') return(collection[b.id]?.price||0)-(collection[a.id]?.price||0);
+    if(sortMode==='qty')   return(collection[b.id]?.qty||0)-(collection[a.id]?.qty||0);
+    if(sortMode==='name')  return a.name.localeCompare(b.name);
+    return 0;
+  });
+}
+
+async function saveOne(id){
+  const c=collection[id];
+  await api('/api/collection/'+currentUser,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id,qty:c.qty,price:c.price,setId:c.setId,name:c.name,conditions:c.conditions,condPrices:c.condPrices})
+  });
+}
+
+async function initApp(){
+  try{
+    [sets,collection]=await Promise.all([api('/api/sets'),api('/api/collection/'+currentUser)]);
+    const sel=document.getElementById('setSelect');
+    sel.innerHTML=sets.map(s=>`<option value="${s.id}">${s.name} · ${s.series} (${s.total})</option>`).join('');
+    sel.addEventListener('change',()=>loadSet(sel.value));
+    loadSet(sets[0].id);
+  }catch(e){
+    document.getElementById('main').innerHTML=`<div class="empty">⚠ Server not reachable.<br>Make sure you ran <b>npm start</b> in the pokemon-tracker folder.</div>`;
+  }
+}
+
+async function loadSet(setId){
+  currentSetId=setId;cards=[];
+  document.getElementById('main').innerHTML=`<div class="loading">Loading cards</div>`;
+  try{
+    const raw=await api('/api/cards/'+setId);
+    cards=raw;
+    const bulk=[];
+    cards.forEach(c=>{
+      const price=getPrice(c);
+      if(!collection[c.id]) collection[c.id]={qty:0,price,setId,name:c.name};
+      else{collection[c.id].price=price;collection[c.id].setId=setId;collection[c.id].name=c.name;}
+      bulk.push({id:c.id,price,setId,name:c.name,qty:collection[c.id].qty});
+    });
+    await api('/api/collection/'+currentUser+'/bulk',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(bulk)
+    });
+    renderCards();
+  }catch(e){
+    document.getElementById('main').innerHTML=`<div class="empty">⚠ Failed to load cards: ${e.message}</div>`;
+  }
+}
+
+// Condition multipliers removed — using real TCGTracking prices
+
+function condBreakdown(id){
+  const conds=collection[id]?.condPrices||{};
+  const qty=collection[id]?.conditions||{};
+  const parts=Object.entries(qty).filter(([,v])=>v>0).map(([k,v])=>{
+    const p=conds[k]||0;
+    const val=p>0?' $'+(p*v).toFixed(2):'';
+    return `<span>${k}:${v}</span>${val}`;
+  });
+  return parts.length>0?parts.join(' · '):'';
+}
+
+function condTotalQty(id){
+  const conds=collection[id]?.conditions||{};
+  return Object.values(conds).reduce((s,v)=>s+v,0);
+}
+
+function condTotalValue(id,price){
+  const conds=collection[id]?.conditions||{};
+  return Object.entries(conds).reduce((s,[k,v])=>s+(price*(COND_MULT[k]||1)*v),0);
+}
+
+function renderCards(){
+  const q=(document.getElementById('searchBox')?.value||'').toLowerCase().trim();
+  let filtered=cards.filter(c=>{
+    if(ownedOnly&&!(collection[c.id]?.qty>0))return false;
+    if(q&&!c.name.toLowerCase().includes(q)&&!c.number.includes(q))return false;
+    return true;
+  });
+  filtered=getSortedCards(filtered);
+  const setData=sets.find(s=>s.id===currentSetId);
+  let html='';
+  if(setData){
+    html+=`<div class="set-info">`;
+    if(setData.images?.logo) html+=`<img class="set-logo" src="${setData.images.logo}" alt="${setData.name}">`;
+    html+=`<div><div class="set-name">${setData.name}</div><div class="set-meta">${setData.series} · ${setData.releaseDate} · ${setData.total} cards</div></div></div>`;
+  }
+  html+=`<div class="quick-entry">
+    <label>Quick add</label>
+    <input type="text" id="quickInput" placeholder="007" maxlength="10"
+      onkeydown="quickAdd(event)" autocomplete="off" spellcheck="false">
+    <select class="cond-select" id="condSelect">
+      <option value="NM">NM</option>
+      <option value="LP">LP</option>
+      <option value="MP">MP</option>
+      <option value="HP">HP</option>
+      <option value="DMG">DMG</option>
+    </select>
+    <label class="first-ed-label">
+      <input type="checkbox" id="firstEdCheck"> 1st Ed
+    </label>
+    <span id="quickConfirm" class="quick-confirm"></span>
+    <span class="quick-hint" style="margin-left:auto">Type card #, hit <b>Enter</b></span>
+  </div>`;
+  if(filtered.length===0){
+    html+=`<div class="empty">No cards match.</div>`;
+  }else{
+    html+=`<div class="card-grid">`;
+    filtered.forEach(c=>{
+      const qty=collection[c.id]?.qty||0,price=collection[c.id]?.price||0,conds=collection[c.id]?.conditions||{};
+      const priceStr=price>0?'$'+price.toFixed(2)+(qty>1?' · $'+(price*qty).toFixed(2):''):'no price';
+      html+=`<div class="pcard${qty>0?' owned':''}" id="pc_${c.id}">`;
+      html+=c.images?.small?`<img class="thumb" src="${c.images.small}" alt="${c.name}" loading="lazy" onmouseenter="showPreview('${c.images.small}')" onmouseleave="hidePreview()">`:`<div class="thumb-placeholder">🃏</div>`;
+      html+=`<div class="cinfo">
+        <div class="cname" title="${c.name}">${c.name}</div>
+        <div class="cmeta">#${c.number} · ${c.rarity||'?'}</div>
+        <div id="price_${c.id}" class="cprice${price===0?' no-price':''}">${priceStr}</div>
+        <div class="qty-row">
+          <button class="qbtn" onclick="adj('${c.id}',-1)">−</button>
+          <input class="qty${qty>0?' has-qty':''}" type="number" min="0" value="${qty}" id="q_${c.id}"
+            onchange="setQty('${c.id}',this.value)" onkeydown="if(event.key==='Enter')this.blur();"
+            aria-label="qty for ${c.name}">
+          <button class="qbtn" onclick="adj('${c.id}',1)">+</button>
+        </div>
+      </div></div>`;
+    });
+    html+=`</div>`;
+  }
+  document.getElementById('main').innerHTML=html;
+  updateStats();
+  const qi=document.getElementById('quickInput');
+  if(qi) qi.focus();
+}
+
+async function adj(id,delta){
+  const cur=collection[id]?.qty||0,next=Math.max(0,cur+delta);
+  collection[id].qty=next;
+  const inp=document.getElementById('q_'+id);
+  if(inp){inp.value=next;inp.className='qty'+(next>0?' has-qty':'');}
+  const pc=document.getElementById('pc_'+id);
+  if(pc) pc.className='pcard'+(next>0?' owned':'');
+  updateCardPrice(id);updateStats();
+  if(ownedOnly&&next===0)renderCards();
+  await saveOne(id);
+}
+
+async function setQty(id,val){
+  const n=Math.max(0,parseInt(val)||0);
+  collection[id].qty=n;
+  const inp=document.getElementById('q_'+id);
+  if(inp) inp.className='qty'+(n>0?' has-qty':'');
+  const pc=document.getElementById('pc_'+id);
+  if(pc) pc.className='pcard'+(n>0?' owned':'');
+  updateCardPrice(id);updateStats();
+  await saveOne(id);
+}
+
+function quickAdd(e){
+  if(e.key!=='Enter')return;
+  e.preventDefault();
+  const inp=document.getElementById('quickInput');
+  const confirm=document.getElementById('quickConfirm');
+  const raw=inp.value.trim();
+  if(!raw)return;
+  const card=cards.find(c=>c.number.toLowerCase()===raw.toLowerCase())
+    ||cards.find(c=>String(parseInt(c.number))===String(parseInt(raw)))
+    ||cards.find(c=>c.number.toLowerCase().startsWith(raw.toLowerCase()));
+  if(!card){
+    inp.classList.add('flash-err');
+    if(confirm){confirm.textContent='not found: '+raw;confirm.className='quick-confirm err show';}
+    setTimeout(()=>inp.classList.remove('flash-err'),600);
+    inp.value='';inp.focus();return;
+  }
+  const cond=document.getElementById('condSelect')?.value||'NM';
+  const firstEd=document.getElementById('firstEdCheck')?.checked||false;
+  const condKey=firstEd?cond+' 1st Ed':cond;
+  if(!collection[card.id].conditions) collection[card.id].conditions={};
+  collection[card.id].conditions[condKey]=(collection[card.id].conditions[condKey]||0)+1;
+  collection[card.id].qty=condTotalQty(card.id);
+  // Look up real SKU price for this condition
+  const cardData=cards.find(c=>c.id===card.id);
+  const skuPrice=cardData?.skuPrices?getSkuPrice(cardData.skuPrices,cond,firstEd):0;
+  if(!collection[card.id].condPrices) collection[card.id].condPrices={};
+  if(skuPrice>0) collection[card.id].condPrices[condKey]=skuPrice;
+  // Update default display price to NM price
+  if(cond==='NM'&&!firstEd&&skuPrice>0) collection[card.id].price=skuPrice;
+  inp.classList.add('flash-ok');
+  setTimeout(()=>inp.classList.remove('flash-ok'),400);
+  inp.value='';inp.focus();
+  if(confirm){
+    const price=collection[card.id]?.price||0;
+    const qty=collection[card.id]?.qty||0;
+    const priceStr=price>0?' · $'+price.toFixed(2)+(qty>1?' ea ($'+(price*qty).toFixed(2)+' total)':''):'';
+    const cond2=document.getElementById('condSelect')?.value||'NM';
+    const firstEd2=document.getElementById('firstEdCheck')?.checked||false;
+    const condLabel=firstEd2?cond2+' 1st Ed':cond2;
+    const cardData2=cards.find(c=>c.id===card.id);
+    const realPrice=cardData2?.skuPrices?getSkuPrice(cardData2.skuPrices,cond2,firstEd2):0;
+    const realPriceStr=realPrice>0?' · $'+realPrice.toFixed(2):'';
+    confirm.textContent='+ '+card.name+' (#'+card.number+') ['+condLabel+']'+realPriceStr;
+    confirm.className='quick-confirm show';
+    if(confirmTimer)clearTimeout(confirmTimer);
+    // don't auto-hide — stays until next card is added or error
+  }
+  const qEl=document.getElementById('q_'+card.id);
+  if(qEl){
+    qEl.value=collection[card.id].qty;qEl.className='qty has-qty';
+    const pcEl=document.getElementById('pc_'+card.id);
+    if(pcEl)pcEl.className='pcard owned';
+    updateCardPrice(card.id);
+    const condEl=document.getElementById('cond_'+card.id);
+    if(condEl)condEl.innerHTML=condBreakdown(card.id);
+  }
+  updateStats();
+  saveOne(card.id);
+}
+
+function toggleOwned(){
+  ownedOnly=!ownedOnly;
+  document.getElementById('ownedBtn').classList.toggle('active',ownedOnly);
+  renderCards();
+}
+
+function clearSet(){
+  if(!confirm('Clear all quantities for this set?'))return;
+  const bulk=[];
+  cards.forEach(c=>{if(collection[c.id]){collection[c.id].qty=0;bulk.push({id:c.id,qty:0});}});
+  api('/api/collection/'+currentUser+'/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(bulk)});
+  renderCards();toast('Set cleared.');
+}
+
+function exportCSV(){
+  const rows=[['Card ID','Name','Set','Number','Rarity','Quantity','Market Price','Total Value']];
+  Object.entries(collection).forEach(([id,c])=>{
+    if((c.qty||0)>0){
+      const card=cards.find(x=>x.id===id);
+      rows.push([id,c.name,c.setId,card?.number||'',card?.rarity||'',c.qty,(c.price||0).toFixed(2),((c.qty||0)*(c.price||0)).toFixed(2)]);
+    }
+  });
+  if(rows.length===1){toast('Nothing to export yet.');return;}
+  const csv=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download='pokemon_collection_'+currentUser+'_'+new Date().toISOString().slice(0,10)+'.csv';
+  a.click();
+  toast('Exported '+(rows.length-1)+' cards.');
+}
+
+
+
+function showPreview(src){
+  const img=document.getElementById('previewImg');
+  img.src=src.replace('/small/','/large/').replace('.png','_hires.png');
+  // fallback to small if large fails
+  img.onerror=()=>{img.src=src;img.onerror=null;};
+  img.classList.add('visible');
+}
+function hidePreview(){
+  document.getElementById('previewImg').classList.remove('visible');
+}
+
+function openImport(){
+  document.getElementById('importModal').style.display='flex';
+  document.getElementById('importText').value='';
+  document.getElementById('importResult').className='import-result';
+}
+function closeImport(){document.getElementById('importModal').style.display='none';}
+
+function handleImportFile(e){
+  const file=e.target.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=ev=>document.getElementById('importText').value=ev.target.result;
+  reader.readAsText(file);
+}
+
+async function runImport(){
+  const text=document.getElementById('importText').value.trim();
+  const result=document.getElementById('importResult');
+  if(!text){result.textContent='Paste some CSV data first.';result.className='import-result err';return;}
+
+  const lines=text.split('\n').map(l=>l.trim()).filter(Boolean);
+  if(lines.length<2){result.textContent='Need at least a header row and one data row.';result.className='import-result err';return;}
+
+  // parse header
+  const headers=lines[0].split(',').map(h=>h.replace(/"/g,'').trim().toLowerCase());
+  const idCol=headers.findIndex(h=>h.includes('card id')||h==='id');
+  const qtyCol=headers.findIndex(h=>h.includes('quantity')||h==='qty');
+  const priceCol=headers.findIndex(h=>h.includes('market price')||h.includes('price'));
+
+  if(idCol===-1||qtyCol===-1){
+    result.textContent='Could not find "Card ID" and "Quantity" columns.';
+    result.className='import-result err';return;
+  }
+
+  const bulk=[];let skipped=0;
+  for(let i=1;i<lines.length;i++){
+    const cols=lines[i].split(',').map(c=>c.replace(/"/g,'').trim());
+    const id=cols[idCol];
+    const qty=parseInt(cols[qtyCol])||0;
+    const price=priceCol>=0?parseFloat(cols[priceCol])||0:0;
+    if(!id||qty===0){skipped++;continue;}
+    if(!collection[id]) collection[id]={qty:0,price:0,setId:'',name:id};
+    collection[id].qty=qty;
+    if(price>0) collection[id].price=price;
+    bulk.push({id,qty,price:collection[id].price,setId:collection[id].setId,name:collection[id].name});
+  }
+
+  if(bulk.length===0){result.textContent='No valid rows found.';result.className='import-result err';return;}
+
+  try{
+    await api('/api/collection/'+currentUser+'/bulk',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(bulk)
+    });
+    result.textContent='✓ Imported '+bulk.length+' cards'+(skipped>0?' ('+skipped+' skipped)':'')+'. Reload the set to see changes.';
+    result.className='import-result ok';
+    updateStats();
+  }catch(e){
+    result.textContent='Save failed: '+e.message;
+    result.className='import-result err';
+  }
+}
+
+initLogin();
+</script>
+</body>
+</html>
