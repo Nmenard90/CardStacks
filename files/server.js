@@ -15,7 +15,15 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 
 // Clear cache if CLEAR_CACHE env var is set
 if (process.env.CLEAR_CACHE === 'true') {
-  try { fs.unlinkSync(CACHE_FILE); console.log('   ✓ Cache cleared.'); } catch {}
+  try { fs.unlinkSync(CACHE_FILE); console.log('   ✓ Cache file cleared.'); } catch {}
+  // Also clear all per-set card files
+  try {
+    const cacheDir = path.join(__dirname, 'cards_cache');
+    if (fs.existsSync(cacheDir)) {
+      fs.readdirSync(cacheDir).forEach(f => fs.unlinkSync(path.join(cacheDir, f)));
+      console.log('   ✓ Cards cache cleared.');
+    }
+  } catch(e) { console.log('   ⚠ Could not clear cards cache:', e.message); }
 }
 
 app.use(express.json({limit:'10mb'}));
@@ -378,7 +386,7 @@ app.get('/api/sets', async (req, res) => {
 
 // Fetch all cards for a set (parallel pages)
 async function fetchSet(setId) {
-  const first = await fetch(`${API}/cards?q=set.id:${setId}&orderBy=number&pageSize=250&page=1`, { headers: apiHeaders() });
+  const first = await fetch(`${API}/cards?q=set.id:${setId}&pageSize=250&page=1`, { headers: apiHeaders() });
   const firstData = await first.json();
   if (!firstData.data) throw new Error(JSON.stringify(firstData));
   let all = [...firstData.data];
@@ -389,7 +397,7 @@ async function fetchSet(setId) {
     console.log(`[fetchSet] ${setId}: fetching ${pages-1} more pages`);
     const rest = await Promise.all(
       Array.from({ length: pages - 1 }, (_, i) =>
-        fetch(`${API}/cards?q=set.id:${setId}&orderBy=number&pageSize=250&page=${i+2}`, { headers: apiHeaders() })
+        fetch(`${API}/cards?q=set.id:${setId}&pageSize=250&page=${i+2}`, { headers: apiHeaders() })
           .then(r => r.json())
           .then(d => { console.log(`[fetchSet] ${setId} page ${i+2}: got ${d.data?.length} cards`); return d; })
       )
