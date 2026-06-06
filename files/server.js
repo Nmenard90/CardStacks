@@ -359,25 +359,18 @@ async function fetchSet(setId) {
     );
     for (const r of rest) all = all.concat(r.data || []);
   }
-  // Deduplicate by card ID — API can return same card on multiple pages
-  const seen = new Set();
-  const deduped = all.filter(card => {
-    if(seen.has(card.id)) return false;
-    seen.add(card.id);
-    return true;
-  });
-  console.log(`[fetchSet] ${setId}: total fetched = ${all.length}, after dedup = ${deduped.length}`);
+  console.log(`[fetchSet] ${setId}: total fetched = ${all.length}`);
 
-  // Sort: numeric cards first by number, then non-numeric (promos etc) at end
-  return deduped.sort((a, b) => {
+  // Sort: numeric first, then non-numeric promos at end
+  return all.sort((a, b) => {
     const na = parseInt(a.number);
     const nb = parseInt(b.number);
     const aNum = !isNaN(na);
     const bNum = !isNaN(nb);
     if(aNum && bNum) return na !== nb ? na - nb : a.number.localeCompare(b.number);
-    if(aNum) return -1;  // numeric before non-numeric
+    if(aNum) return -1;
     if(bNum) return 1;
-    return a.number.localeCompare(b.number); // both non-numeric, alphabetical
+    return a.number.localeCompare(b.number);
   });
 }
 
@@ -386,14 +379,7 @@ app.get('/api/cards/:setId', async (req, res) => {
   const { setId } = req.params;
   const now = Date.now();
   if (cache.cards[setId] && (now - cache.cards[setId].at) < CACHE_TTL) {
-    // Validate cache is complete - check against set's reported total
-    const cachedCount = cache.cards[setId].data.length;
-    const setMeta = cache.sets?.find(s => s.id === setId);
-    if (!setMeta || cachedCount >= setMeta.total) {
-      return res.json(cache.cards[setId].data);
-    }
-    // Cache is stale/incomplete — re-fetch
-    console.log(`Cache incomplete for ${setId}: ${cachedCount}/${setMeta?.total} cards — re-fetching`);
+    return res.json(cache.cards[setId].data);
   }
   try {
     const cards = await fetchSet(setId);
