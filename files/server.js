@@ -31,10 +31,71 @@ app.get('/api/search', async (req, res) => {
   try{
     const url = `${API}/cards?q=name:"${q}*"&pageSize=30&orderBy=-set.releaseDate`;
     const data = await fetch(url, { headers: apiHeaders() }).then(r => r.json());
-    res.json(data.data || []);
+    const cards = data.data || [];
+
+    // Enrich with SKU prices for cards missing tcgplayer pricing
+    const enriched = await Promise.all(cards.map(async card => {
+      // Check if card already has price data
+      const t = card.tcgplayer?.prices;
+      let hasPrice = false;
+      if(t) {
+        for(const key of Object.keys(t)){
+          if(t[key]?.market > 0){ hasPrice = true; break; }
+        }
+      }
+      if(hasPrice) return card;
+
+      // Try to get SKU price from TCGTracking
+      try{
+        const tcgId = await mapSetToTcgTrackId(card.set?.id);
+        if(tcgId){
+          const skuPrices = await fetchSkuPrices(tcgId);
+          const num = card.number;
+          const numInt = parseInt(num);
+          let skuData = skuPrices[num] || skuPrices[numInt];
+          if(!skuData){
+            for(const key of Object.keys(skuPrices)){
+              if(parseInt(key) === numInt){ skuData = skuPrices[key]; break; }
+            }
+          }
+          if(skuData){
+            const nmPrice = skuData['NM/Normal'] || skuData['NM/Holofoil'] ||
+              Object.values(skuData).find(v=>typeof v==='number' && v>0) || 0;
+            if(nmPrice > 0){
+              card = { ...card, skuPrices: skuData, _nmPrice: nmPrice };
+            }
+          }
+        }
+      } catch(e){}
+      return card;
+    }));
+
+    res.json(enriched);
   } catch(e){
     res.status(500).json({ error: e.message });
   }
+});
+
+
+// Clear cache for a specific set (admin)
+app.get('/api/cache/clear/:setId', (req, res) => {
+  const { setId } = req.params;
+  if(cache.cards[setId]){
+    delete cache.cards[setId];
+    saveCache(cache);
+    res.json({ ok: true, message: `Cache cleared for ${setId}` });
+  } else {
+    res.json({ ok: false, message: `No cache found for ${setId}` });
+  }
+});
+
+// Clear ALL card caches
+app.get('/api/cache/clear-all', (req, res) => {
+  cache.cards = {};
+  cache.sets = null;
+  cache.setsAt = 0;
+  saveCache(cache);
+  res.json({ ok: true, message: 'All caches cleared' });
 });
 
 app.get('/analyzer', (req, res) => res.sendFile(path.join(__dirname, 'analyzer.html')));
@@ -51,7 +112,7 @@ let cache = loadCache();
 if (!cache.prices)  cache.prices  = {};
 if (!cache.tcgSets) cache.tcgSets = null;
 if (!cache.tcgSetsAt) cache.tcgSetsAt = 0;
-const CACHE_TTL = 24 * 60 * 60 * 1000;
+const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
 
 // ── Collection helpers ─────────────────────────────────────────────────────
 function colFile(user) {
@@ -272,16 +333,21 @@ async function fetchSet(setId) {
   const firstData = await first.json();
   if (!firstData.data) throw new Error(JSON.stringify(firstData));
   let all = [...firstData.data];
-  if (firstData.totalCount > 250) {
-    const pages = Math.ceil(firstData.totalCount / 250);
+  const total = firstData.totalCount || firstData.count || 0;
+  console.log(`[fetchSet] ${setId}: got ${firstData.data.length} cards, totalCount=${firstData.totalCount}, count=${firstData.count}, total=${total}`);
+  if (total > 250) {
+    const pages = Math.ceil(total / 250);
+    console.log(`[fetchSet] ${setId}: fetching ${pages-1} more pages`);
     const rest = await Promise.all(
       Array.from({ length: pages - 1 }, (_, i) =>
         fetch(`${API}/cards?q=set.id:${setId}&orderBy=number&pageSize=250&page=${i+2}`, { headers: apiHeaders() })
           .then(r => r.json())
+          .then(d => { console.log(`[fetchSet] ${setId} page ${i+2}: got ${d.data?.length} cards`); return d; })
       )
     );
     for (const r of rest) all = all.concat(r.data || []);
   }
+  console.log(`[fetchSet] ${setId}: total fetched = ${all.length}`);
   return all.sort((a, b) => (parseInt(a.number) || 0) - (parseInt(b.number) || 0));
 }
 
@@ -289,8 +355,16 @@ async function fetchSet(setId) {
 app.get('/api/cards/:setId', async (req, res) => {
   const { setId } = req.params;
   const now = Date.now();
-  if (cache.cards[setId] && (now - cache.cards[setId].at) < CACHE_TTL)
-    return res.json(cache.cards[setId].data);
+  if (cache.cards[setId] && (now - cache.cards[setId].at) < CACHE_TTL) {
+    // Validate cache is complete - check against set's reported total
+    const cachedCount = cache.cards[setId].data.length;
+    const setMeta = cache.sets?.find(s => s.id === setId);
+    if (!setMeta || cachedCount >= setMeta.total) {
+      return res.json(cache.cards[setId].data);
+    }
+    // Cache is stale/incomplete — re-fetch
+    console.log(`Cache incomplete for ${setId}: ${cachedCount}/${setMeta?.total} cards — re-fetching`);
+  }
   try {
     const cards = await fetchSet(setId);
 
