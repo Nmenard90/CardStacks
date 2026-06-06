@@ -78,6 +78,18 @@ app.get('/api/search', async (req, res) => {
 
 
 // Clear cache for a specific set (admin)
+
+// Debug: check cache counts
+app.get('/api/debug/cache', (req, res) => {
+  const info = {
+    sets: cache.sets?.length || 0,
+    cards: Object.fromEntries(
+      Object.entries(cache.cards).map(([k,v]) => [k, v.data?.length || 0])
+    )
+  };
+  res.json(info);
+});
+
 app.get('/api/cache/clear/:setId', (req, res) => {
   const { setId } = req.params;
   if(cache.cards[setId]){
