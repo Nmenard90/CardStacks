@@ -116,6 +116,13 @@ html,body{width:100%;min-height:100%;background:#0f0e1a;font-family:'Inter',sans
   color:var(--muted);cursor:pointer;font-size:14px;display:flex;align-items:center;
   justify-content:center;transition:all .15s;flex-shrink:0}
 .tcard-rm:hover{background:rgba(239,68,68,0.15);color:#ef4444}
+.fed-toggle{
+  display:flex;align-items:center;gap:5px;margin-top:4px;cursor:pointer;
+  font-size:10px;font-weight:700;color:var(--muted);user-select:none;
+  padding:2px 0;
+}
+.fed-toggle input{accent-color:var(--accent);cursor:pointer;width:12px;height:12px}
+.fed-toggle.active{color:#fbbf24}
 
 /* Add button */
 .add-btn{
@@ -162,13 +169,15 @@ html,body{width:100%;min-height:100%;background:#0f0e1a;font-family:'Inter',sans
 .mx:hover{background:#ef4444;border-color:#ef4444;color:#fff}
 .msearch{padding:12px 22px;border-bottom:1px solid var(--border);display:flex;gap:8px}
 .msearch input,.msearch select{
-  padding:9px 13px;background:rgba(255,255,255,0.05);
+  padding:9px 13px;background:#1a1827;
   border:1px solid var(--border);border-radius:10px;
   color:#fff;font-family:'Inter',sans-serif;font-size:13px;outline:none;
+  -webkit-appearance:none;appearance:none;
 }
 .msearch input{flex:1}.msearch input:focus{border-color:var(--accent)}
 .msearch input::placeholder{color:var(--muted)}
-.msearch select{min-width:160px}.msearch select:focus{border-color:var(--accent)}
+.msearch select{min-width:160px;cursor:pointer}.msearch select:focus{border-color:var(--accent)}
+.msearch select option{background:#1a1827;color:#fff}
 #mresults{overflow-y:auto;flex:1;padding:10px 14px}
 .mcard{
   display:flex;align-items:center;gap:10px;padding:9px 10px;
@@ -226,8 +235,21 @@ html,body{width:100%;min-height:100%;background:#0f0e1a;font-family:'Inter',sans
       <p id="vDesc">Select the condition for each card — prices update automatically</p>
     </div>
     <div class="verdict-bar">
-      <div class="verdict-diff zero" id="vDiff">—</div>
-      <div class="verdict-pct" id="vPct"></div>
+      <div style="display:flex;gap:16px;align-items:center;justify-content:flex-end;flex-wrap:wrap">
+        <div style="text-align:center">
+          <div style="font-size:10px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:2px">You Give</div>
+          <div style="font-size:16px;font-weight:800" id="vGiveTotal">—</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:10px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:2px">You Get</div>
+          <div style="font-size:16px;font-weight:800" id="vGetTotal">—</div>
+        </div>
+        <div style="text-align:center;border-left:1px solid var(--border);padding-left:16px">
+          <div style="font-size:10px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:2px">Difference</div>
+          <div class="verdict-diff zero" id="vDiff">—</div>
+          <div class="verdict-pct" id="vPct"></div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -442,35 +464,49 @@ function addCardByIndex(i){
   if(card) addCard(card);
 }
 
-function extractPrices(c){
-  // Extract prices for all conditions
+function extractPrices(card){
   const prices = {};
-  const t = c.tcgplayer?.prices;
+  const t = card.tcgplayer?.prices;
   if(t){
-    const base = t.holofoil?.market || t.normal?.market || t.reverseHolofoil?.market || 0;
-    if(base>0){
-      prices.NM  = base;
+    // Try every price type to find a base NM price
+    const base =
+      t.holofoil?.market ||
+      t['1stEditionHolofoil']?.market ||
+      t.unlimitedHolofoil?.market ||
+      t.normal?.market ||
+      t.reverseHolofoil?.market ||
+      t.holofoil?.mid ||
+      t.normal?.mid || 0;
+    if(base > 0){
+      prices.NM  = parseFloat(base.toFixed(2));
       prices.LP  = parseFloat((base*0.85).toFixed(2));
       prices.MP  = parseFloat((base*0.70).toFixed(2));
       prices.HP  = parseFloat((base*0.50).toFixed(2));
       prices.DMG = parseFloat((base*0.30).toFixed(2));
     }
-    // Per-condition if available
-    if(t.normal)         prices.NM  = t.normal.market||prices.NM||0;
-    if(t.holofoil)       prices.NM  = t.holofoil.market||prices.NM||0;
+  }
+  // Also check cardmarket prices as fallback
+  if(!prices.NM && card.cardmarket?.prices){
+    const base = card.cardmarket.prices.averageSellPrice ||
+                 card.cardmarket.prices.avg7 || 0;
+    if(base > 0){
+      prices.NM  = parseFloat(base.toFixed(2));
+      prices.LP  = parseFloat((base*0.85).toFixed(2));
+      prices.MP  = parseFloat((base*0.70).toFixed(2));
+      prices.HP  = parseFloat((base*0.50).toFixed(2));
+      prices.DMG = parseFloat((base*0.30).toFixed(2));
+    }
   }
   return prices;
 }
 
-function getCardPrice(c, cond){
-  const t = c.tcgplayer?.prices;
-  if(!t) return 0;
-  const base = t.holofoil?.market || t.normal?.market || t.reverseHolofoil?.market || 0;
-  return parseFloat((base*(COND_MULT[cond]||1)).toFixed(2));
+function getCardPrice(card, cond){
+  const prices = extractPrices(card);
+  return prices[cond] || 0;
 }
 
 function addCard(cardData){
-  const entry = { ...cardData, cond:'NM', price: cardData.prices?.NM||0 };
+  const entry = { ...cardData, cond:'NM', firstEd:false, price: cardData.prices?.NM||0 };
   if(currentSide==='give') giveSide.push(entry);
   else getSide.push(entry);
   closeModal();
@@ -511,9 +547,13 @@ function renderSide(side, items, gridId, totalId, titleId){
             <div class="tcard-cond ${cn}${item.cond===cn?' sel':''}"
               onclick="setCond('${side}',${i},'${cn}')"
               title="${cn}: ${item.prices?.[cn]?'$'+item.prices[cn]:'—'}">
-              ${cn}${item.prices?.[cn]?'':''}
+              ${cn}
             </div>`).join('')}
         </div>
+        <label class="fed-toggle${item.firstEd?' active':''}">
+          <input type="checkbox" ${item.firstEd?'checked':''} onchange="setFirstEd('${side}',${i},this.checked)">
+          1st Edition ${item.firstEd?'<span style="color:#fbbf24">★</span>':''}
+        </label>
       </div>
       <div class="tcard-val">${item.price>0?'$'+item.price.toFixed(2):'—'}</div>
       <button class="tcard-rm" onclick="removeCard('${side}',${i})" title="Remove">✕</button>
@@ -521,10 +561,24 @@ function renderSide(side, items, gridId, totalId, titleId){
   `).join('');
 }
 
+function getItemPrice(item){
+  // 1st Ed cards typically fetch 20-50% more — use 1.3x as estimate if no specific price
+  const basePrice = item.prices?.[item.cond] || 0;
+  return item.firstEd ? parseFloat((basePrice * 1.3).toFixed(2)) : basePrice;
+}
+
 function setCond(side, idx, cond){
   const arr = side==='give' ? giveSide : getSide;
   arr[idx].cond = cond;
-  arr[idx].price = arr[idx].prices?.[cond]||0;
+  arr[idx].price = getItemPrice(arr[idx]);
+  renderSides();
+  updateVerdict();
+}
+
+function setFirstEd(side, idx, checked){
+  const arr = side==='give' ? giveSide : getSide;
+  arr[idx].firstEd = checked;
+  arr[idx].price = getItemPrice(arr[idx]);
   renderSides();
   updateVerdict();
 }
@@ -561,7 +615,11 @@ function updateVerdict(){
   const diff = getTotal - giveTotal; // positive = you're getting more
   const pct  = giveTotal>0 ? Math.abs(diff/giveTotal*100) : 0;
 
-  vDiff.textContent = (diff>=0?'+':'')+diff.toFixed(2)!=='0.00'?'$'+Math.abs(diff).toFixed(2):'-';
+  // vDiff is set per-case below
+
+  // Always show totals
+  document.getElementById('vGiveTotal').textContent = giveTotal>0 ? '$'+giveTotal.toFixed(2) : '—';
+  document.getElementById('vGetTotal').textContent  = getTotal>0  ? '$'+getTotal.toFixed(2)  : '—';
 
   if(Math.abs(diff) < 0.50 || (giveTotal>0 && pct<3)){
     // Fair
