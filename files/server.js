@@ -359,8 +359,26 @@ async function fetchSet(setId) {
     );
     for (const r of rest) all = all.concat(r.data || []);
   }
-  console.log(`[fetchSet] ${setId}: total fetched = ${all.length}`);
-  return all.sort((a, b) => (parseInt(a.number) || 0) - (parseInt(b.number) || 0));
+  // Deduplicate by card ID — API can return same card on multiple pages
+  const seen = new Set();
+  const deduped = all.filter(card => {
+    if(seen.has(card.id)) return false;
+    seen.add(card.id);
+    return true;
+  });
+  console.log(`[fetchSet] ${setId}: total fetched = ${all.length}, after dedup = ${deduped.length}`);
+
+  // Sort: numeric cards first by number, then non-numeric (promos etc) at end
+  return deduped.sort((a, b) => {
+    const na = parseInt(a.number);
+    const nb = parseInt(b.number);
+    const aNum = !isNaN(na);
+    const bNum = !isNaN(nb);
+    if(aNum && bNum) return na !== nb ? na - nb : a.number.localeCompare(b.number);
+    if(aNum) return -1;  // numeric before non-numeric
+    if(bNum) return 1;
+    return a.number.localeCompare(b.number); // both non-numeric, alphabetical
+  });
 }
 
 // GET /api/cards/:setId  — returns cards + sku prices merged
