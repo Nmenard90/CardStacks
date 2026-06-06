@@ -106,6 +106,11 @@ app.get('/api/cache/clear-all', (req, res) => {
   cache.cards = {};
   cache.sets = null;
   cache.setsAt = 0;
+  // Also delete per-set card files
+  try {
+    const files = fs.readdirSync(CARDS_CACHE_DIR);
+    files.forEach(f => fs.unlinkSync(path.join(CARDS_CACHE_DIR, f)));
+  } catch(e) {}
   saveCache(cache);
   res.json({ ok: true, message: 'All caches cleared' });
 });
@@ -115,16 +120,48 @@ app.get('/analyzer', (req, res) => res.sendFile(path.join(__dirname, 'analyzer.h
 app.use(express.static(__dirname));
 
 // ── Cache ──────────────────────────────────────────────────────────────────
+const CARDS_CACHE_DIR = path.join(__dirname, 'cards_cache');
+if (!fs.existsSync(CARDS_CACHE_DIR)) fs.mkdirSync(CARDS_CACHE_DIR, { recursive: true });
+
 function loadCache() {
   try { return JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8')); }
   catch { return { sets: null, setsAt: 0, cards: {}, prices: {}, tcgSets: null, tcgSetsAt: 0 }; }
 }
-function saveCache(c) { fs.writeFileSync(CACHE_FILE, JSON.stringify(c)); }
+function saveCache(c) {
+  // Save everything EXCEPT card data (stored separately per set)
+  const toSave = { ...c, cards: {} };
+  // Save card timestamps only
+  for (const [setId, v] of Object.entries(c.cards || {})) {
+    toSave.cards[setId] = { at: v.at, count: v.data?.length || 0 };
+  }
+  fs.writeFileSync(CACHE_FILE, JSON.stringify(toSave));
+}
+
+// Save a single set's cards to its own file
+function saveSetCards(setId, data) {
+  const f = path.join(CARDS_CACHE_DIR, setId + '.json');
+  fs.writeFileSync(f, JSON.stringify(data));
+}
+
+// Load a single set's cards from its own file
+function loadSetCards(setId) {
+  try {
+    const f = path.join(CARDS_CACHE_DIR, setId + '.json');
+    return JSON.parse(fs.readFileSync(f, 'utf8'));
+  } catch { return null; }
+}
+
 let cache = loadCache();
+// Reload card data from per-set files into memory
+for (const setId of Object.keys(cache.cards || {})) {
+  const data = loadSetCards(setId);
+  if (data) cache.cards[setId].data = data;
+  else delete cache.cards[setId]; // file missing, will re-fetch
+}
 if (!cache.prices)  cache.prices  = {};
 if (!cache.tcgSets) cache.tcgSets = null;
 if (!cache.tcgSetsAt) cache.tcgSetsAt = 0;
-const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
+const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 // ── Collection helpers ─────────────────────────────────────────────────────
 function colFile(user) {
@@ -378,8 +415,15 @@ async function fetchSet(setId) {
 app.get('/api/cards/:setId', async (req, res) => {
   const { setId } = req.params;
   const now = Date.now();
-  if (cache.cards[setId] && (now - cache.cards[setId].at) < CACHE_TTL) {
+  // Serve from memory cache first (fastest)
+  if (cache.cards[setId]?.data) {
     return res.json(cache.cards[setId].data);
+  }
+  // Try disk cache (fast)
+  const diskData = loadSetCards(setId);
+  if (diskData) {
+    cache.cards[setId] = { data: diskData, at: now };
+    return res.json(diskData);
   }
   try {
     const cards = await fetchSet(setId);
@@ -417,6 +461,7 @@ app.get('/api/cards/:setId', async (req, res) => {
     }));
 
     cache.cards[setId] = { data: merged, at: now };
+    saveSetCards(setId, merged);
     saveCache(cache);
     res.json(merged);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -470,10 +515,14 @@ app.listen(PORT, () => {
       // Warm TCGTracking set map
       await getTcgTrackSets();
       console.log('   ✓ TCGTracking set map ready.');
-      // Pre-cache 3 most recent sets
-      const recent = cache.sets.slice(0, 3);
-      for (const s of recent) {
-        if (!cache.cards[s.id] || (Date.now() - cache.cards[s.id].at) >= CACHE_TTL) {
+      // Pre-cache most recent 10 sets immediately, rest in background
+      const allSets = cache.sets;
+      const immediate = allSets.slice(0, 10);
+      const background = allSets.slice(10);
+
+      // Cache first 10 sets immediately
+      for (const s of immediate) {
+        if (!cache.cards[s.id] || !cache.cards[s.id].data) {
           try {
             console.log(`   Pre-caching ${s.name}...`);
             const cards = await fetchSet(s.id);
@@ -490,12 +539,46 @@ app.listen(PORT, () => {
               }
               return null;
             }
-            cache.cards[s.id] = { data: cards.map(c => ({ ...c, skuPrices: findSkuPrice2(c.number) })), at: Date.now() };
+            const prewarmData = cards.map(c => ({ ...c, skuPrices: findSkuPrice2(c.number) }));
+            cache.cards[s.id] = { data: prewarmData, at: Date.now() };
+            saveSetCards(s.id, prewarmData);
             saveCache(cache);
-            console.log(`   ✓ ${s.name} (${cards.length} cards, prices: ${Object.keys(skuPrices).length})`);
+            console.log(`   ✓ ${s.name} (${cards.length} cards)`);
           } catch(e) { console.log(`   ⚠ ${s.name}:`, e.message); }
+        } else {
+          console.log(`   ✓ ${s.name} (cached)`);
         }
       }
+
+      // Cache remaining sets in background without blocking
+      (async () => {
+        for (const s of background) {
+          if (!cache.cards[s.id] || !cache.cards[s.id].data) {
+            try {
+              const cards = await fetchSet(s.id);
+              const tcgId = await resolveTcgTrackId(s);
+              let skuPrices = {};
+              if (tcgId) skuPrices = await fetchSkuPrices(tcgId);
+              function findSkuPrice3(cardNumber) {
+                if (!cardNumber) return null;
+                const nInt = parseInt(cardNumber);
+                if (skuPrices[cardNumber]) return skuPrices[cardNumber];
+                for (const key of Object.keys(skuPrices)) {
+                  if (parseInt(key) === nInt) return skuPrices[key];
+                }
+                return null;
+              }
+              const data = cards.map(c => ({ ...c, skuPrices: findSkuPrice3(c.number) }));
+              cache.cards[s.id] = { data, at: Date.now() };
+              saveSetCards(s.id, data);
+              saveCache(cache);
+              // Small delay between sets to avoid rate limiting
+              await new Promise(r => setTimeout(r, 500));
+            } catch(e) {}
+          }
+        }
+        console.log('   ✓ All sets cached in background');
+      })();
     } catch(e) { console.log('   ⚠ Prewarm failed:', e.message); }
   }
   prewarm();
