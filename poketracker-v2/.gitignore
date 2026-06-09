@@ -1,0 +1,24 @@
+# SBT build output - never commit these
+target/
+project/target/
+project/project/
+
+# SBT managed dependencies
+lib_managed/
+src_managed/
+
+# IDE and editor files
+.idea/
+.idea_modules/
+*.iml
+.bsp/
+.metals/
+.bloop/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
