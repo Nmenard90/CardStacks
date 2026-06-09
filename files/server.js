@@ -35,7 +35,7 @@ app.use(express.json({limit:'10mb'}));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
 // Search cards by name across all sets
-// First searches in-memory cached sets (which have prices), then falls back to API
+// Searches in-memory cache AND disk files (which have prices merged in)
 app.get('/api/search', async (req, res) => {
   const q = (req.query.q || '').toLowerCase().trim();
   if(!q || q.length < 2) return res.json([]);
@@ -43,40 +43,43 @@ app.get('/api/search', async (req, res) => {
     const results = [];
     const seen = new Set();
 
-    // Search cached sets first — these have SKU prices already merged in
-    for(const setId of Object.keys(cache.cards)) {
-      const setCards = cache.cards[setId]?.data;
-      if(!setCards) continue;
+    // Get all available set IDs — from memory cache + disk files
+    const memorySetIds = new Set(Object.keys(cache.cards).filter(id => cache.cards[id]?.data));
+    let diskSetIds = new Set();
+    try {
+      if(fs.existsSync(CARD_DATA_DIR)) {
+        diskSetIds = new Set(
+          fs.readdirSync(CARD_DATA_DIR)
+            .filter(f => f.endsWith('.json') && f !== '_sets.json')
+            .map(f => f.replace('.json',''))
+        );
+      }
+    } catch(e) {}
+
+    const allSetIds = new Set([...memorySetIds, ...diskSetIds]);
+
+    for(const setId of allSetIds) {
+      // Get cards from memory first, then disk
+      let setCards = cache.cards[setId]?.data;
+      if(!setCards) {
+        try {
+          const f = path.join(CARD_DATA_DIR, setId + '.json');
+          setCards = JSON.parse(fs.readFileSync(f, 'utf8'));
+          // Load into memory cache for next time
+          cache.cards[setId] = { data: setCards, at: Date.now() };
+        } catch(e) { continue; }
+      }
+
       for(const card of setCards) {
         if(seen.has(card.id)) continue;
         if(card.name.toLowerCase().includes(q) || card.number === q) {
           results.push(card);
           seen.add(card.id);
-          if(results.length >= 60) break;
         }
       }
-      if(results.length >= 60) break;
     }
 
-    // If not enough results from cache, also hit the API
-    if(results.length < 10) {
-      try {
-        const url = `${API}/cards?q=name:"${q}*"&pageSize=20&orderBy=-set.releaseDate`;
-        const data = await fetch(url, { headers: apiHeaders() }).then(r => r.json());
-        for(const card of (data.data || [])) {
-          if(seen.has(card.id)) continue;
-          seen.add(card.id);
-          // Check if we have a cached version with prices
-          for(const setId of Object.keys(cache.cards)) {
-            const cached = cache.cards[setId]?.data?.find(c => c.id === card.id);
-            if(cached) { results.push(cached); break; }
-          }
-          if(!results.find(r => r.id === card.id)) results.push(card);
-        }
-      } catch(e) {}
-    }
-
-    // Sort by set release date (newest first)
+    // Sort newest sets first
     results.sort((a,b) => {
       const da = a.set?.releaseDate || '';
       const db = b.set?.releaseDate || '';
