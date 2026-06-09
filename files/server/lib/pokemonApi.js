@@ -4,12 +4,10 @@ const fetch = require('node-fetch');
 const BASE = 'https://api.pokemontcg.io/v2';
 
 class PokemonAPI {
-  constructor() {
-    this._key = process.env.POKEMONTCG_API_KEY || '';
-  }
-
   get _headers() {
-    return this._key ? { 'X-Api-Key': this._key } : {};
+    // Read env var each time so it's always current
+    const key = process.env.POKEMONTCG_API_KEY || '';
+    return key ? { 'X-Api-Key': key } : {};
   }
 
   async _get(url) {
