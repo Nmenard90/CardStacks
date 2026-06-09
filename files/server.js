@@ -5,8 +5,12 @@ const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const DATA_DIR = path.join(__dirname, 'data');
-const CACHE_FILE = path.join(__dirname, 'cache.json');
+// Use /data volume if available (Railway persistent storage), else local
+const PERSIST_DIR = fs.existsSync('/data') ? '/data' : __dirname;
+const DATA_DIR = path.join(PERSIST_DIR, 'data');
+const CARD_DATA_DIR = path.join(PERSIST_DIR, 'card-data');
+const CACHE_FILE_PATH_PATH = path.join(PERSIST_DIR, 'cache.json');
+// Cache file path defined after PERSIST_DIR
 const API = 'https://api.pokemontcg.io/v2';
 const TCG_TRACK = 'https://tcgtracking.com/tcgapi/v1';
 const apiHeaders = () => process.env.POKEMONTCG_API_KEY ? { 'X-Api-Key': process.env.POKEMONTCG_API_KEY } : {};
@@ -15,12 +19,10 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 
 // Clear cache if CLEAR_CACHE env var is set
 if (process.env.CLEAR_CACHE === 'true') {
-  try { fs.unlinkSync(CACHE_FILE); console.log('   ✓ Cache file cleared.'); } catch {}
-  // Also clear all per-set card files
+  try { fs.unlinkSync(CACHE_FILE_PATH); console.log('   ✓ Cache file cleared.'); } catch {}
   try {
-    const cacheDir = path.join(__dirname, 'cards_cache');
-    if (fs.existsSync(cacheDir)) {
-      fs.readdirSync(cacheDir).forEach(f => fs.unlinkSync(path.join(cacheDir, f)));
+    if (fs.existsSync(CARD_DATA_DIR)) {
+      fs.readdirSync(CARD_DATA_DIR).forEach(f => fs.unlinkSync(path.join(CARD_DATA_DIR, f)));
       console.log('   ✓ Cards cache cleared.');
     }
   } catch(e) { console.log('   ⚠ Could not clear cards cache:', e.message); }
@@ -33,52 +35,55 @@ app.use(express.json({limit:'10mb'}));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
 // Search cards by name across all sets
+// First searches in-memory cached sets (which have prices), then falls back to API
 app.get('/api/search', async (req, res) => {
-  const q = req.query.q || '';
+  const q = (req.query.q || '').toLowerCase().trim();
   if(!q || q.length < 2) return res.json([]);
   try{
-    const url = `${API}/cards?q=name:"${q}*"&pageSize=30&orderBy=-set.releaseDate`;
-    const data = await fetch(url, { headers: apiHeaders() }).then(r => r.json());
-    const cards = data.data || [];
+    const results = [];
+    const seen = new Set();
 
-    // Enrich with SKU prices for cards missing tcgplayer pricing
-    const enriched = await Promise.all(cards.map(async card => {
-      // Check if card already has price data
-      const t = card.tcgplayer?.prices;
-      let hasPrice = false;
-      if(t) {
-        for(const key of Object.keys(t)){
-          if(t[key]?.market > 0){ hasPrice = true; break; }
+    // Search cached sets first — these have SKU prices already merged in
+    for(const setId of Object.keys(cache.cards)) {
+      const setCards = cache.cards[setId]?.data;
+      if(!setCards) continue;
+      for(const card of setCards) {
+        if(seen.has(card.id)) continue;
+        if(card.name.toLowerCase().includes(q) || card.number === q) {
+          results.push(card);
+          seen.add(card.id);
+          if(results.length >= 60) break;
         }
       }
-      if(hasPrice) return card;
+      if(results.length >= 60) break;
+    }
 
-      // Try to get SKU price from TCGTracking
-      try{
-        const tcgId = await mapSetToTcgTrackId(card.set?.id);
-        if(tcgId){
-          const skuPrices = await fetchSkuPrices(tcgId);
-          const num = card.number;
-          const numInt = parseInt(num);
-          let skuData = skuPrices[num] || skuPrices[numInt];
-          if(!skuData){
-            for(const key of Object.keys(skuPrices)){
-              if(parseInt(key) === numInt){ skuData = skuPrices[key]; break; }
-            }
+    // If not enough results from cache, also hit the API
+    if(results.length < 10) {
+      try {
+        const url = `${API}/cards?q=name:"${q}*"&pageSize=20&orderBy=-set.releaseDate`;
+        const data = await fetch(url, { headers: apiHeaders() }).then(r => r.json());
+        for(const card of (data.data || [])) {
+          if(seen.has(card.id)) continue;
+          seen.add(card.id);
+          // Check if we have a cached version with prices
+          for(const setId of Object.keys(cache.cards)) {
+            const cached = cache.cards[setId]?.data?.find(c => c.id === card.id);
+            if(cached) { results.push(cached); break; }
           }
-          if(skuData){
-            const nmPrice = skuData['NM/Normal'] || skuData['NM/Holofoil'] ||
-              Object.values(skuData).find(v=>typeof v==='number' && v>0) || 0;
-            if(nmPrice > 0){
-              card = { ...card, skuPrices: skuData, _nmPrice: nmPrice };
-            }
-          }
+          if(!results.find(r => r.id === card.id)) results.push(card);
         }
-      } catch(e){}
-      return card;
-    }));
+      } catch(e) {}
+    }
 
-    res.json(enriched);
+    // Sort by set release date (newest first)
+    results.sort((a,b) => {
+      const da = a.set?.releaseDate || '';
+      const db = b.set?.releaseDate || '';
+      return db.localeCompare(da);
+    });
+
+    res.json(results.slice(0, 60));
   } catch(e){
     res.status(500).json({ error: e.message });
   }
@@ -88,6 +93,33 @@ app.get('/api/search', async (req, res) => {
 // Clear cache for a specific set (admin)
 
 // Debug: check cache counts
+// Admin: refresh card data for a specific set from API and save to file
+app.get('/api/admin/refresh-set/:setId', async (req, res) => {
+  const { setId } = req.params;
+  try {
+    const cardFile = path.join(CARD_DATA_DIR, setId + '.json');
+    if(fs.existsSync(cardFile)) fs.unlinkSync(cardFile);
+    delete cache.cards[setId];
+    const cards = await fetchSet(setId);
+    if(!fs.existsSync(CARD_DATA_DIR)) fs.mkdirSync(CARD_DATA_DIR, {recursive:true});
+    fs.writeFileSync(cardFile, JSON.stringify(cards));
+    res.json({ ok: true, set: setId, cards: cards.length });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Admin: refresh sets list from API
+app.get('/api/admin/refresh-sets', async (req, res) => {
+  try {
+    const r = await fetch(`${API}/sets?orderBy=-releaseDate&pageSize=250`, { headers: apiHeaders() });
+    const data = await r.json();
+    if(!fs.existsSync(CARD_DATA_DIR)) fs.mkdirSync(CARD_DATA_DIR, {recursive:true});
+    fs.writeFileSync(path.join(CARD_DATA_DIR, '_sets.json'), JSON.stringify(data.data, null, 2));
+    cache.sets = data.data; cache.setsAt = Date.now(); saveCache(cache);
+    res.json({ ok: true, sets: data.data.length });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+
 app.get('/api/debug/cache', (req, res) => {
   const info = {
     sets: cache.sets?.length || 0,
@@ -132,7 +164,7 @@ const CARDS_CACHE_DIR = path.join(__dirname, 'cards_cache');
 if (!fs.existsSync(CARDS_CACHE_DIR)) fs.mkdirSync(CARDS_CACHE_DIR, { recursive: true });
 
 function loadCache() {
-  try { return JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8')); }
+  try { return JSON.parse(fs.readFileSync(CACHE_FILE_PATH, 'utf8')); }
   catch { return { sets: null, setsAt: 0, cards: {}, prices: {}, tcgSets: null, tcgSetsAt: 0 }; }
 }
 function saveCache(c) {
@@ -142,7 +174,7 @@ function saveCache(c) {
   for (const [setId, v] of Object.entries(c.cards || {})) {
     toSave.cards[setId] = { at: v.at, count: v.data?.length || 0 };
   }
-  fs.writeFileSync(CACHE_FILE, JSON.stringify(toSave));
+  fs.writeFileSync(CACHE_FILE_PATH, JSON.stringify(toSave));
 }
 
 // Save a single set's cards to its own file
@@ -374,47 +406,70 @@ app.get('/api/users', (req, res) => {
 app.get('/api/sets', async (req, res) => {
   const now = Date.now();
   if (cache.sets && (now - cache.setsAt) < CACHE_TTL) return res.json(cache.sets);
+
+  // Try static sets file first
+  const setsFile = path.join(CARD_DATA_DIR, '_sets.json');
+  if (fs.existsSync(setsFile)) {
+    try {
+      const sets = JSON.parse(fs.readFileSync(setsFile, 'utf8'));
+      cache.sets = sets; cache.setsAt = now; saveCache(cache);
+      return res.json(sets);
+    } catch(e) {}
+  }
+
+  // Fall back to API
   try {
     const r = await fetch(`${API}/sets?orderBy=-releaseDate&pageSize=250`, { headers: apiHeaders() });
     const data = await r.json();
-    cache.sets = data.data;
-    cache.setsAt = now;
-    saveCache(cache);
+    cache.sets = data.data; cache.setsAt = now; saveCache(cache);
     res.json(data.data);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Fetch all cards for a set (parallel pages)
+// Fetch all cards for a set
+// Reads from card-data/[setId].json if available (fast, no API call)
+// Falls back to pokemontcg.io API if file not found
 async function fetchSet(setId) {
+  // Try static card data file first
+  const cardFile = path.join(CARD_DATA_DIR, setId + '.json');
+  if (fs.existsSync(cardFile)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(cardFile, 'utf8'));
+      console.log(`[fetchSet] ${setId}: loaded ${data.length} cards from file`);
+      return data;
+    } catch(e) {
+      console.log(`[fetchSet] ${setId}: file read failed, falling back to API`);
+    }
+  }
+
+  // Fall back to API
+  console.log(`[fetchSet] ${setId}: no local file, fetching from API...`);
   const first = await fetch(`${API}/cards?q=set.id:${setId}&pageSize=250&page=1`, { headers: apiHeaders() });
   const firstData = await first.json();
   if (!firstData.data) throw new Error(JSON.stringify(firstData));
   let all = [...firstData.data];
   const total = firstData.totalCount || firstData.count || 0;
-  console.log(`[fetchSet] ${setId}: got ${firstData.data.length} cards, totalCount=${firstData.totalCount}, count=${firstData.count}, total=${total}`);
   if (total > 250) {
     const pages = Math.ceil(total / 250);
-    console.log(`[fetchSet] ${setId}: fetching ${pages-1} more pages`);
     const rest = await Promise.all(
       Array.from({ length: pages - 1 }, (_, i) =>
         fetch(`${API}/cards?q=set.id:${setId}&pageSize=250&page=${i+2}`, { headers: apiHeaders() })
           .then(r => r.json())
-          .then(d => { console.log(`[fetchSet] ${setId} page ${i+2}: got ${d.data?.length} cards`); return d; })
       )
     );
     for (const r of rest) all = all.concat(r.data || []);
   }
-  console.log(`[fetchSet] ${setId}: total fetched = ${all.length}`);
 
-  // Sort: numeric first, then non-numeric promos at end
+  // Deduplicate
+  const seen = new Set();
+  all = all.filter(c => { if(seen.has(c.id)) return false; seen.add(c.id); return true; });
+
+  // Sort
   return all.sort((a, b) => {
-    const na = parseInt(a.number);
-    const nb = parseInt(b.number);
-    const aNum = !isNaN(na);
-    const bNum = !isNaN(nb);
+    const na = parseInt(a.number), nb = parseInt(b.number);
+    const aNum = !isNaN(na), bNum = !isNaN(nb);
     if(aNum && bNum) return na !== nb ? na - nb : a.number.localeCompare(b.number);
-    if(aNum) return -1;
-    if(bNum) return 1;
+    if(aNum) return -1; if(bNum) return 1;
     return a.number.localeCompare(b.number);
   });
 }
@@ -560,6 +615,7 @@ app.listen(PORT, () => {
 
       // Cache remaining sets in background without blocking
       (async () => {
+        let bgCount = 0;
         for (const s of background) {
           if (!cache.cards[s.id] || !cache.cards[s.id].data) {
             try {
@@ -580,12 +636,24 @@ app.listen(PORT, () => {
               cache.cards[s.id] = { data, at: Date.now() };
               saveSetCards(s.id, data);
               saveCache(cache);
-              // Small delay between sets to avoid rate limiting
-              await new Promise(r => setTimeout(r, 500));
-            } catch(e) {}
+              bgCount++;
+              // Delay to avoid rate limiting
+              await new Promise(r => setTimeout(r, 300));
+            } catch(e) {
+              // retry once after longer delay
+              await new Promise(r => setTimeout(r, 2000));
+              try {
+                const cards = await fetchSet(s.id);
+                cache.cards[s.id] = { data: cards, at: Date.now() };
+                saveSetCards(s.id, cards);
+                bgCount++;
+              } catch(e2) {}
+            }
+          } else {
+            bgCount++;
           }
         }
-        console.log('   ✓ All sets cached in background');
+        console.log(`   ✓ Background cache complete: ${bgCount} sets ready`);
       })();
     } catch(e) { console.log('   ⚠ Prewarm failed:', e.message); }
   }
