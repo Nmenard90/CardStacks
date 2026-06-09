@@ -41,7 +41,7 @@ async function startup() {
     console.log('   ✓ Cache cleared');
   }
 
-  // Load sets
+  // Load sets — try disk first, then API with retries
   let sets = cache.getSets();
   if (!sets || cache.setsExpired()) {
     const fromDisk = Storage.loadSetsFile();
@@ -50,12 +50,19 @@ async function startup() {
       sets = fromDisk;
       console.log(`   ✓ ${sets.length} sets loaded from disk`);
     } else {
-      try {
-        sets = await pokemonApi.fetchSets();
-        cache.setSets(sets);
-        Storage.saveSetsFile(sets);
-        console.log(`   ✓ ${sets.length} sets fetched from API`);
-      } catch (e) { console.error('   ✗ Could not load sets:', e.message); }
+      // Retry API up to 3 times with increasing delay
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          if (attempt > 1) await new Promise(r => setTimeout(r, attempt * 2000));
+          sets = await pokemonApi.fetchSets();
+          cache.setSets(sets);
+          Storage.saveSetsFile(sets);
+          console.log(`   ✓ ${sets.length} sets fetched from API`);
+          break;
+        } catch (e) {
+          console.error(`   ✗ Sets fetch attempt ${attempt}/3 failed: ${e.message}`);
+        }
+      }
     }
   } else {
     console.log(`   ✓ ${sets.length} sets in cache`);
