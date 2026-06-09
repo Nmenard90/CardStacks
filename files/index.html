@@ -1069,6 +1069,9 @@ async function initApp(){
   }
 }
 
+const CONDS = ['NM','LP','MP','HP','DMG'];
+const COND_COLORS = {NM:'#22c55e',LP:'#84cc16',MP:'#eab308',HP:'#f97316',DMG:'#ef4444'};
+
 async function loadSet(setId){
   currentSetId=setId;cards=[];
   document.getElementById('main').innerHTML=`<div class="loading">Loading cards</div>`;
@@ -1078,9 +1081,30 @@ async function loadSet(setId){
     const bulk=[];
     cards.forEach(c=>{
       const price=getPrice(c);
-      if(!collection[c.id]) collection[c.id]={qty:0,price,setId,name:c.name};
-      else{collection[c.id].price=price;collection[c.id].setId=setId;collection[c.id].name=c.name;}
-      bulk.push({id:c.id,price,setId,name:c.name,qty:collection[c.id].qty});
+      // Build per-condition prices from skuPrices (TCGTracking) or tcgplayer fallback
+      const condPrices={};
+      if(c.skuPrices){
+        // Use real per-condition prices from TCGTracking
+        CONDS.forEach(cond=>{
+          const p=getSkuPrice(c.skuPrices,cond,false);
+          if(p>0) condPrices[cond]=p;
+          const p1ed=getSkuPrice(c.skuPrices,cond,true);
+          if(p1ed>0) condPrices[cond+' 1st Ed']=p1ed;
+        });
+      } else {
+        // Fall back to tcgplayer prices with condition multipliers
+        const nmPrice=price||0;
+        if(nmPrice>0){
+          condPrices['NM'] =nmPrice;
+          condPrices['LP'] =parseFloat((nmPrice*0.85).toFixed(2));
+          condPrices['MP'] =parseFloat((nmPrice*0.70).toFixed(2));
+          condPrices['HP'] =parseFloat((nmPrice*0.50).toFixed(2));
+          condPrices['DMG']=parseFloat((nmPrice*0.30).toFixed(2));
+        }
+      }
+      if(!collection[c.id]) collection[c.id]={qty:0,price,setId,name:c.name,conditions:{},condPrices,selectedCond:'NM'};
+      else{collection[c.id].price=price;collection[c.id].setId=setId;collection[c.id].name=c.name;collection[c.id].condPrices=condPrices;}
+      bulk.push({id:c.id,price,setId,name:c.name,qty:collection[c.id].qty,condPrices});
     });
     await api('/api/collection/'+currentUser+'/bulk',{
       method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(bulk)
@@ -1092,10 +1116,7 @@ async function loadSet(setId){
 }
 
 
-const CONDS = ['NM','LP','MP','HP','DMG'];
-const COND_COLORS = {NM:'#22c55e',LP:'#84cc16',MP:'#eab308',HP:'#f97316',DMG:'#ef4444'};
-// condition multipliers for fallback pricing
-// Condition multipliers removed — using real TCGTracking prices
+// Condition constants moved to top of app section
 
 function condBreakdown(id){
   const conds=collection[id]?.condPrices||{};
@@ -1250,12 +1271,25 @@ function renderCards(){
 async function adj(id,delta){
   if(!collection[id]) collection[id]={qty:0,price:0,conditions:{},condPrices:{},selectedCond:'NM'};
   if(!collection[id].conditions) collection[id].conditions={};
+  if(!collection[id].condPrices) collection[id].condPrices={};
   const selCond=getSelCond(id);
   const cur=(collection[id].conditions[selCond])||0;
   const next=Math.max(0,cur+delta);
   if(next===0) delete collection[id].conditions[selCond];
   else collection[id].conditions[selCond]=next;
   collection[id].qty=condTotalQty(id);
+  // Update condPrices for selected condition
+  const card=cards.find(c=>c.id===id);
+  if(card?.skuPrices){
+    const firstEd=selCond.includes('1st Ed');
+    const baseCond=selCond.replace(' 1st Ed','');
+    const p=getSkuPrice(card.skuPrices,baseCond,firstEd);
+    if(p>0) collection[id].condPrices[selCond]=p;
+  } else if(collection[id].price>0){
+    const mult={NM:1,LP:0.85,MP:0.70,HP:0.50,DMG:0.30};
+    const baseCond=selCond.replace(' 1st Ed','');
+    collection[id].condPrices[selCond]=parseFloat((collection[id].price*(mult[baseCond]||1)).toFixed(2));
+  }
   const inp=document.getElementById('q_'+id);
   if(inp){inp.value=next;inp.className='qty'+(next>0?' has-qty':'');}
   const pc=document.getElementById('pc_'+id);
@@ -1263,6 +1297,11 @@ async function adj(id,delta){
     pc.className='pcard'+(collection[id].qty>0?' owned':'')+' '+cardCondClass(id);
     const cs=pc.querySelector('.cond-section');
     if(cs) cs.innerHTML=renderCondButtons(id)+renderCondBreakdown(id);
+  }
+  // Add to sidebar when increasing qty
+  if(delta>0 && card){
+    const price=collection[id].condPrices[selCond]||collection[id].price||0;
+    addToSession(card, selCond, price);
   }
   updateCardPrice(id);updateStats();
   if(ownedOnly&&collection[id].qty===0)renderCards();
