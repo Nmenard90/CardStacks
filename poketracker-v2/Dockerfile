@@ -15,8 +15,7 @@
 # ── Stage 1: Build ────────────────────────────────────────────────────────────
 # Official sbtscala image — Alpine-based, updated daily, Java 21 + SBT 1.12.8
 # Tag format: <base>-<java>_<sbt>_<scala>
-FROM sbtscala/scala-sbt:eclipse-temurin-alpine-21.0.7_6_1.12.8_3.3.7 AS builder
-
+FROM sbtscala/scala-sbt:eclipse-temurin-alpine-21.0.8_9_1.12.11_3.3.7 AS builder
 WORKDIR /app
 
 # Copy dependency files first so Docker caches the download step.
