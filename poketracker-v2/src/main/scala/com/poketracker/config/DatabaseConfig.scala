@@ -161,13 +161,17 @@ object DatabaseConfig:
        * This gives us a clear, specific error message if a variable is missing,
        * instead of a confusing NullPointerException later.
        */
-      url <- System.env("DATABASE_URL").someOrFail(
-               new IllegalArgumentException(
-                 "DATABASE_URL environment variable is not set.\n" +
-                 "On Railway: add a PostgreSQL database to your project — Railway sets this automatically.\n" +
-                 "Locally: add DATABASE_URL=jdbc:postgresql://localhost:5432/poketracker to your .env file."
-               )
-             )
+      rawUrl <- System.env("DATABASE_URL").someOrFail(
+                  new IllegalArgumentException(
+                    "DATABASE_URL environment variable is not set.\n" +
+                    "On Railway: add a PostgreSQL database to your project — Railway sets this automatically.\n" +
+                    "Locally: add DATABASE_URL=jdbc:postgresql://localhost:5432/poketracker to your .env file."
+                  )
+                )
+      // Railway provides the URL as postgresql:// but JDBC requires jdbc:postgresql://
+      // We add the prefix if it is missing so both formats work.
+      url = if rawUrl.startsWith("jdbc:") then rawUrl
+            else "jdbc:" + rawUrl
 
       user <- System.env("DATABASE_USER").someOrFail(
                 new IllegalArgumentException(
