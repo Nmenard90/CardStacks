@@ -161,40 +161,40 @@ object DatabaseConfig:
        * This gives us a clear, specific error message if a variable is missing,
        * instead of a confusing NullPointerException later.
        */
-      rawUrl <- System.env("DATABASE_URL").someOrFail(
-                  new IllegalArgumentException(
-                    "DATABASE_URL environment variable is not set.\n" +
-                    "On Railway: add a PostgreSQL database to your project — Railway sets this automatically.\n" +
-                    "Locally: add DATABASE_URL=jdbc:postgresql://localhost:5432/poketracker to your .env file."
-                  )
+      // We build the JDBC URL from individual components rather than parsing
+      // a full connection string. Railway provides separate variables for each
+      // component which avoids URL parsing issues with special characters in passwords.
+      host <- System.env("DATABASE_HOST").someOrFail(
+                new IllegalArgumentException(
+                  "DATABASE_HOST is not set. In Railway set: DATABASE_HOST = ${{Postgres.PGHOST}}"
                 )
-      // Railway provides the URL as postgresql:// but JDBC requires jdbc:postgresql://
-      // We add the prefix if it is missing so both formats work.
-      url = if rawUrl.startsWith("jdbc:") then rawUrl
-            else "jdbc:" + rawUrl
+              )
+
+      port <- System.env("DATABASE_PORT")
+                .map(_.flatMap(_.toIntOption).getOrElse(5432))
+
+      name <- System.env("DATABASE_NAME").someOrFail(
+                new IllegalArgumentException(
+                  "DATABASE_NAME is not set. In Railway set: DATABASE_NAME = ${{Postgres.PGDATABASE}}"
+                )
+              )
 
       user <- System.env("DATABASE_USER").someOrFail(
                 new IllegalArgumentException(
-                  "DATABASE_USER environment variable is not set.\n" +
-                  "Set it to your PostgreSQL username, e.g. DATABASE_USER=postgres"
+                  "DATABASE_USER is not set. In Railway set: DATABASE_USER = ${{Postgres.PGUSER}}"
                 )
               )
 
       password <- System.env("DATABASE_PASSWORD").someOrFail(
                     new IllegalArgumentException(
-                      "DATABASE_PASSWORD environment variable is not set.\n" +
-                      "Set it to your PostgreSQL password."
+                      "DATABASE_PASSWORD is not set. In Railway set: DATABASE_PASSWORD = ${{Postgres.PGPASSWORD}}"
                     )
                   )
 
-      /**
-       * DB_POOL_SIZE is optional so we use getOrElse instead of someOrFail.
-       * System.env returns Option[String].
-       * .map reads the Option if it exists and tries to convert it to an Int.
-       * .flatMap(_.toIntOption) safely parses the string — if it's not a valid
-       *   integer (e.g. someone set DB_POOL_SIZE=abc) we just use the default.
-       * .getOrElse(10) uses 10 if the variable was not set or was not a valid Int.
-       */
+      // Build JDBC URL from parts: jdbc:postgresql://hostname:port/database
+      url = s"jdbc:postgresql://$host:$port/$name"
+
+      // Optional — defaults to 10 connections if not set.
       poolSize <- System.env("DB_POOL_SIZE")
                     .map(_.flatMap(_.toIntOption).getOrElse(10))
 
