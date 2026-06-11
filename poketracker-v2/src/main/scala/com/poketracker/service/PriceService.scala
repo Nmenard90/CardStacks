@@ -192,6 +192,29 @@ object PriceService:
          .mapError(e => RuntimeException(s"JSON parse error: $e"))
 
     /**
+     * METHOD: normalizeCollectorNumber
+     * PURPOSE: Converts collector numbers from both APIs into the same shape
+     *          before matching cards to TCGTracking products.
+     *
+     * WHY THIS IS NEEDED:
+     *   pokemontcg.io can return numbers with leading zeroes, like "001".
+     *   TCGTracking usually returns numbers as "1/198". Without normalization,
+     *   cards 001-099 never match and therefore never receive prices.
+     *
+     * HOW IT WORKS:
+     *   1. Take only the part before "/" for TCGTracking numbers
+     *   2. Trim spaces
+     *   3. If the number is purely numeric, remove leading zeroes
+     *   4. Leave non-numeric promo numbers like "SWSH001" unchanged
+     *
+     * @param number  Collector number from either API
+     * @return        Normalized collector number used for matching
+     */
+    private def normalizeCollectorNumber(number: String): String =
+      val base = number.split("/").head.trim
+      base.toIntOption.map(_.toString).getOrElse(base)
+
+    /**
      * METHOD: findTcgSetId
      * PURPOSE: Finds the TCGTracking numeric set ID for a given CardSet.
      *          Tries to match by ptcgoCode (abbreviation) first, then by name.
@@ -252,15 +275,15 @@ object PriceService:
             // TCGTracking returns SKUs nested under product IDs, not as a flat list.
             pricesByProductId = buildPriceMap(skuResp.products)
 
-            // Build a map from collector number to productId
+            // Build a map from normalized collector number to productId
             // number is "161/162" format — take the part before "/" as collector number
             numberToProductId = products.products
-                                  .flatMap(p => p.number.map(n => n.split("/").head.trim -> p.id))
+                                  .flatMap(p => p.number.map(n => normalizeCollectorNumber(n) -> p.id))
                                   .toMap
 
             // For each card, find prices and save
             _ <- ZIO.foreach(cards) { card =>
-                   numberToProductId.get(card.number)
+                   numberToProductId.get(normalizeCollectorNumber(card.number))
                      .flatMap(pricesByProductId.get) match
                      case Some(prices) => repo.upsertPrices(card.id, prices)
                      case None         => ZIO.unit // No price data for this card
