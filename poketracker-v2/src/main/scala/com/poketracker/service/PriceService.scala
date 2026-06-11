@@ -111,7 +111,7 @@ object PriceService:
    * @param number  Collector number — used to match to our Card records
    * @param name    Card name — used as fallback match if number doesn't work
    */
-  private case class TcgProduct(id: Int, number: String, name: String)
+  private case class TcgProduct(id: Int, number: Int, name: String)
   private given JsonDecoder[TcgProduct] = DeriveJsonDecoder.gen
 
   /**
@@ -239,8 +239,9 @@ object PriceService:
             pricesByProductId = buildPriceMap(skuResp.skus.filter(_.language == "EN"))
 
             // Build a map from collector number to productId
+            // Convert number to String for matching against our card numbers
             numberToProductId = products.products
-                                  .map(p => p.number -> p.id)
+                                  .map(p => p.number.toString -> p.id)
                                   .toMap
 
             // For each card, find prices and save
