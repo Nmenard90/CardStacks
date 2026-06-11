@@ -345,12 +345,12 @@ object CardService:
 
     def getCardsBySet(setId: String): Task[List[Card]] =
       repo.findCardsBySet(setId).flatMap {
-        // If cards and prices are already cached, serve directly from the database.
-        case cards if cards.nonEmpty && cards.exists(_.prices.nonEmpty) =>
+        // If every cached card already has prices, serve directly from the database.
+        case cards if cards.nonEmpty && cards.forall(_.prices.nonEmpty) =>
           ZIO.succeed(cards)
 
-        // If cards are cached but prices are missing, try to fill prices from
-        // TCGTracking, then re-read the cards so the response includes prices.
+        // If cards are cached but any prices are missing, try to fill prices
+        // from TCGTracking, then re-read the cards so the response includes prices.
         case cards if cards.nonEmpty =>
           for
             setOpt <- repo.findSetById(setId)
