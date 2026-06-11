@@ -345,7 +345,23 @@ object CardService:
 
     def getCardsBySet(setId: String): Task[List[Card]] =
       repo.findCardsBySet(setId).flatMap {
-        case cards if cards.nonEmpty => ZIO.succeed(cards)
+        // If cards and prices are already cached, serve directly from the database.
+        case cards if cards.nonEmpty && cards.exists(_.prices.nonEmpty) =>
+          ZIO.succeed(cards)
+
+        // If cards are cached but prices are missing, try to fill prices from
+        // TCGTracking, then re-read the cards so the response includes prices.
+        case cards if cards.nonEmpty =>
+          for
+            setOpt <- repo.findSetById(setId)
+            _      <- setOpt match
+                        case Some(set) =>
+                          priceService.fetchAndStorePrices(set, cards)
+                            // Price failures are non-fatal: cards still load without prices.
+                            .catchAll(e => ZIO.logWarning(s"Price fetch failed for cached $setId: ${e.getMessage}"))
+                        case None => ZIO.unit
+            updated <- repo.findCardsBySet(setId)
+          yield updated
         case _ =>
           for
             cards  <- fetchPages(setId).map(_.map(toCard))
@@ -357,7 +373,7 @@ object CardService:
             _      <- setOpt match
                         case Some(set) =>
                           priceService.fetchAndStorePrices(set, result)
-                            // Price failures are non-fatal — cards still load without prices
+                            // Price failures are non-fatal: cards still load without prices.
                             .catchAll(e => ZIO.logWarning(s"Price fetch failed for $setId: ${e.getMessage}"))
                         case None => ZIO.unit
           yield result

@@ -80,27 +80,38 @@ object PriceService:
    * CASE CLASS: TcgSku
    * PURPOSE: One SKU from TCGTracking — a specific card in a specific condition.
    *
-   * @param productId  TCGTracking's numeric product ID for this card
+   * TCGTracking uses compact field names in the SKU response:
+   *   cnd = condition
+   *   var = printing / variant
+   *   lng = language
+   *   mkt = market price
+   *
    * @param condition  Condition string: "NM", "LP", "MP", "HP", "DMG", or "UNO" (ungraded)
-   * @param printing   The card finish: "Normal", "Foil", "Holo", "1st Edition" etc.
+   * @param printing   The card finish: "Normal", "Reverse Holofoil", "Holofoil", etc.
    * @param language   Language: "EN", "JP" etc. We only use EN prices.
-   * @param price      Market price in USD. None if no price data available.
+   * @param market     Market price in USD. None if no price data available.
    */
   private case class TcgSku(
-    productId: Int,
-    condition: String,
-    printing:  String,
-    language:  String,
-    price:     Option[Double]
+    @jsonField("cnd") condition: String,
+    @jsonField("var") printing:  String,
+    @jsonField("lng") language:  String,
+    @jsonField("mkt") market:    Option[Double]
   )
   private given JsonDecoder[TcgSku] = DeriveJsonDecoder.gen
 
   /**
    * CASE CLASS: TcgSkuResponse
    * PURPOSE: Wrapper around the TCGTracking SKU endpoint response.
-   * @param skus  List of all SKUs for the set
+   * HOW THE RESPONSE IS SHAPED:
+   *   TCGTracking nests SKUs by product ID and then SKU ID:
+   *     products -> productId -> skuId -> sku
+   *
+   *   Product IDs are JSON object keys, so they arrive as strings. We convert
+   *   them to Int later when building the lookup map.
+   *
+   * @param products  Product ID -> SKU ID -> SKU data
    */
-  private case class TcgSkuResponse(skus: List[TcgSku])
+  private case class TcgSkuResponse(products: Map[String, Map[String, TcgSku]])
   private given JsonDecoder[TcgSkuResponse] = DeriveJsonDecoder.gen
 
   /**
@@ -237,9 +248,9 @@ object PriceService:
             skusJson     <- get(s"$BASE/$POKEMON_CAT/sets/$tcgSetId/skus")
             skuResp      <- parse[TcgSkuResponse](skusJson)
 
-            // Build a map from productId to its English NM/LP/MP/HP/DMG prices
-            // We only use English (EN) language prices
-            pricesByProductId = buildPriceMap(skuResp.skus.filter(_.language == "EN"))
+            // Build a map from productId to English NM/LP/MP/HP/DMG prices.
+            // TCGTracking returns SKUs nested under product IDs, not as a flat list.
+            pricesByProductId = buildPriceMap(skuResp.products)
 
             // Build a map from collector number to productId
             // number is "161/162" format — take the part before "/" as collector number
@@ -266,19 +277,28 @@ object PriceService:
      *          If both exist, we take the higher (Holofoil) price as it's more common
      *          for valuable cards.
      *
-     * @param skus  All English SKUs for a set
-     * @return      Map from productId to CardPrices
+     * HOW TCGTRACKING RETURNS SKUS:
+     *   The /skus endpoint returns a nested object:
+     *     products -> productId -> skuId -> sku
+     *
+     *   We only keep English SKUs, then group prices back under the numeric
+     *   product ID so cards can be matched by collector number.
+     *
+     * @param products  Product ID -> SKU ID -> SKU data from TCGTracking
+     * @return          Map from productId to CardPrices
      */
-    private def buildPriceMap(skus: List[TcgSku]): Map[Int, CardPrices] =
-      skus
-        .groupBy(_.productId)
+    private def buildPriceMap(products: Map[String, Map[String, TcgSku]]): Map[Int, CardPrices] =
+      products
+        .flatMap { case (productId, skuMap) =>
+          productId.toIntOption.map(_ -> skuMap.values.filter(_.language == "EN").toList)
+        }
         .map { case (productId, productSkus) =>
           // For each condition, take the highest price across all printings
           // (Holofoil > Normal for cards that have both)
           def priceFor(cond: String): Option[Double] =
             productSkus
               .filter(_.condition == cond)
-              .flatMap(_.price)
+              .flatMap(_.market)
               .maxOption
 
           productId -> CardPrices(
