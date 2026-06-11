@@ -45,6 +45,7 @@ import com.poketracker.models.*
 import com.poketracker.repository.CardRepository
 import com.poketracker.service.PriceService
 import zio.*
+import zio.Schedule
 import zio.json.*
 import java.time.LocalDate
 
@@ -238,11 +239,13 @@ object CardService:
       ZIO.attemptBlocking {
         val conn = java.net.URI.create(url).toURL.openConnection()
         conn.setRequestProperty("X-Api-Key", apiKey)
-        conn.setConnectTimeout(10000)
-        conn.setReadTimeout(30000)
+        conn.setConnectTimeout(15000)
+        conn.setReadTimeout(60000)
         val stream = conn.getInputStream
         try new String(stream.readAllBytes()) finally stream.close()
       }.mapError(e => RuntimeException(s"GET $url failed: ${e.getMessage}"))
+        // Retry once on timeout before giving up
+        .retry(Schedule.once)
 
     /**
      * METHOD: parse
