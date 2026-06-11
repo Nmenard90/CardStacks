@@ -5,118 +5,126 @@
  *
  * PURPOSE:
  *   The entry point of the entire application.
- *   When Railway starts the server, this is the first code that runs.
- *   It reads configuration, connects to the database, and starts
- *   listening for HTTP requests.
+ *   Wires all layers together and starts the HTTP server.
+ *   This is the only file that knows how everything connects.
  *
- * WHY EXTEND ZIOAPPDEFAULT?
- *   ZIOAppDefault is ZIO's version of a main class.
- *   Instead of "def main(args: Array[String])" like regular Java/Scala,
- *   ZIO apps override "val run" which returns a ZIO effect.
- *   ZIO then manages the entire application lifecycle:
- *     - Starts the effect
- *     - Handles any errors that bubble up to the top
- *     - Shuts down cleanly when the process receives a termination signal
- *     - Guarantees all resources (database pool, HTTP server) are closed
+ * HOW THE APP STARTS:
+ *   1. Read database config from environment variables
+ *   2. Create the database connection pool (Transactor)
+ *   3. Build the dependency graph: Transactor → Repositories → Services → Routes
+ *   4. Start the HTTP server on the configured port
+ *
+ * WHAT IS A ZLAYER?
+ *   ZLayer is ZIO's dependency injection system.
+ *   Instead of passing dependencies manually through every function,
+ *   we define layers that declare what they need and what they provide.
+ *   ZIO wires them together automatically at startup.
+ *
+ *   Example chain:
+ *     Transactor (needs: DB config)
+ *       → CardRepository (needs: Transactor)
+ *         → CardService (needs: CardRepository)
+ *           → CardRoutes (needs: CardService)
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * IMPORTS EXPLAINED:
  *
+ *   com.poketracker.api.*
+ *     All route objects — CardRoutes, CollectionRoutes, UserRoutes, BinderRoutes.
+ *
  *   com.poketracker.config.DatabaseConfig
- *     Our configuration class that reads DATABASE_URL etc from environment
- *     variables and creates the database connection pool.
+ *     Reads DB connection settings and creates the connection pool.
+ *
+ *   com.poketracker.repository.*
+ *     All repository layers — CardRepository, CollectionRepository, etc.
+ *
+ *   com.poketracker.service.*
+ *     All service layers — CardService, CollectionService, etc.
  *
  *   zio.*
- *     ZIO core — ZIO, ZIOAppDefault, ZLayer, Scope, Console etc.
+ *     ZIO core — ZIOAppDefault, ZLayer, ZIO.logInfo, Scope etc.
  *
  *   zio.http.*
- *     ZIO HTTP server — Server, Routes, Handler etc.
+ *     Server — starts the HTTP server on the configured port.
+ *     Routes — combines multiple route sets into one.
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * DEPENDS ON: DatabaseConfig, all Route files (added as we build them)
+ * DEPENDS ON: All routes, services, repositories, DatabaseConfig
  */
 
 package com.poketracker
 
+import com.poketracker.api.*
 import com.poketracker.config.DatabaseConfig
+import com.poketracker.repository.*
+import com.poketracker.service.*
 import zio.*
 import zio.http.*
 
 /**
  * OBJECT: Main
- *
- * PURPOSE:
- *   The application entry point. Extends ZIOAppDefault which provides
- *   the ZIO runtime that executes our effects.
- *
- * WHY AN OBJECT AND NOT A CLASS?
- *   There is exactly one entry point to an application — it makes no
- *   sense to have multiple instances of it. An object enforces this.
+ * PURPOSE: Application entry point. Extends ZIOAppDefault which provides
+ *          the ZIO runtime and calls our run method automatically.
  */
 object Main extends ZIOAppDefault:
 
   /**
    * VALUE: run
-   *
-   * PURPOSE:
-   *   The root ZIO effect that represents the entire running application.
-   *   ZIOAppDefault calls this automatically when the process starts.
-   *   This effect never completes normally — it runs until the process
-   *   is killed or an unrecoverable error occurs.
-   *
-   * HOW THE APP STARTS:
-   *   1. Read database config from environment variables
-   *   2. Create the database connection pool
-   *   3. Define HTTP routes
-   *   4. Start the HTTP server
-   *   5. Wait forever (serving requests)
+   * PURPOSE: The root ZIO effect representing the entire running application.
+   *          Never completes normally — runs until the process is stopped.
    *
    * @return ZIO[Any, Throwable, Unit]
-   *         - Needs:       Nothing (ZIOAppDefault provides the environment)
-   *         - Fails with:  Throwable if startup fails
-   *                        (bad config, database unreachable, port in use)
-   *         - Produces:    Unit — this effect runs forever, it never
-   *                        "produces" a result, it just keeps running
+   *         Needs:       Nothing — ZIOAppDefault provides the environment
+   *         Fails with:  Throwable if startup fails (bad config, DB unreachable)
+   *         Produces:    Unit — runs forever serving requests
    */
   val run: ZIO[Any, Throwable, Unit] =
-    // ZIO.scoped creates a resource scope — any Scoped resources opened
-    // inside (like the database pool) will be automatically closed
-    // when this scope exits, even if we crash.
     ZIO.scoped {
       for
-        // Step 1: Read database configuration from environment variables.
-        // If any required variable is missing, this fails with a clear message
-        // and the app exits rather than starting in a broken state.
+        // Step 1: Read database connection settings from environment variables.
+        // Fails immediately with a clear message if any required variable is missing.
         config     <- DatabaseConfig.fromEnv
 
-        // Step 2: Create the database connection pool.
-        // Opens poolSize connections to PostgreSQL and keeps them ready.
-        // The pool stays open for the lifetime of the app (managed by Scope).
+        // Step 2: Open the database connection pool.
+        // Kept open for the entire lifetime of the app.
+        // Automatically closed when the app stops (managed by Scope).
         transactor <- DatabaseConfig.makeTransactor(config)
 
-        // Step 3: Log that we started successfully.
-        // ZIO.logInfo is ZIO's structured logging — better than println
-        // because it includes timestamps and log levels automatically.
         _          <- ZIO.logInfo("Database connection pool ready")
 
-        // Step 4: Define our HTTP routes.
-        // For now just a health check endpoint so Railway knows we're running.
-        // We will add real routes as we build each feature.
-        routes = Routes(
-                   // Health check: GET /health
-                   // Railway and load balancers ping this to verify the app is alive.
-                   // Returns 200 OK with a simple message.
-                   Method.GET / "health" -> Handler.ok
-                 )
-
-        // Step 5: Start the HTTP server.
-        // Server.serve never returns — it keeps running, handling requests.
-        // The port comes from the PORT environment variable which Railway
-        // sets automatically. We default to 8080 for local development.
+        // Step 3: Read the port from the PORT environment variable.
+        // Railway sets PORT automatically. Default to 8080 for local dev.
         port       <- System.env("PORT").map(_.flatMap(_.toIntOption).getOrElse(8080))
+
+        // Step 4: Build the dependency layers.
+        // Each layer declares what it needs and ZIO provides it automatically.
+        // The transactor is shared across all repositories.
+        appLayer    = ZLayer.succeed(transactor) >>>
+                      (CardRepository.layer ++
+                       CollectionRepository.layer ++
+                       UserRepository.layer ++
+                       BinderRepository.layer) >>>
+                      (CardService.layer ++
+                       CollectionService.layer ++
+                       UserService.layer ++
+                       BinderService.layer)
+
+        // Step 5: Combine all routes into one.
+        // The health check is defined inline — no service needed for it.
+        // All other routes are defined in their respective route files.
+        allRoutes   = Routes(Method.GET / "health" -> Handler.ok) ++
+                      CardRoutes.routes ++
+                      CollectionRoutes.routes ++
+                      UserRoutes.routes ++
+                      BinderRoutes.routes
+
         _          <- ZIO.logInfo(s"Starting PokéTracker API on port $port")
-        _          <- Server.serve(routes).provide(
-                        Server.defaultWithPort(port)
-                      )
+
+        // Step 6: Start the HTTP server.
+        // Server.serve blocks forever — it keeps running and handling requests.
+        // We provide both the app layer (services/repos) and the server config.
+        _          <- Server.serve(allRoutes)
+                        .provide(appLayer, Server.defaultWithPort(port))
+
       yield ()
     }

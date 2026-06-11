@@ -1,0 +1,419 @@
+/**
+ * FILE: CardRepository.scala
+ * PACKAGE: com.poketracker.repository
+ * LOCATION: src/main/scala/com/poketracker/repository/CardRepository.scala
+ *
+ * PURPOSE:
+ *   Handles all database read and write operations for cards and sets.
+ *   This is the ONLY place in the codebase that contains SQL queries for cards.
+ *   No other file should query the cards or card_sets tables directly.
+ *
+ * WHY REPOSITORY PATTERN?
+ *   The Repository pattern separates data access from business logic.
+ *   If we ever change from PostgreSQL to another database, we only change
+ *   this file — nothing else in the codebase needs to change.
+ *   It also makes testing easy — we can replace this with a fake repository
+ *   that returns test data without needing a real database.
+ *
+ * HOW DOOBIE WORKS:
+ *   Doobie uses sql string interpolation to build type-safe queries.
+ *   Example:
+ *     sql"SELECT id, name FROM cards WHERE set_id = $setId"
+ *       .query[(String, String)]  // maps each row to a (String, String) tuple
+ *       .to[List]                 // collects all rows into a List
+ *       .transact(transactor)     // runs the query using our connection pool
+ *
+ *   The $setId is automatically escaped — SQL injection is impossible.
+ *   The type parameter tells Doobie exactly how to map the result columns.
+ *   If the types don't match the actual columns, it fails at startup not runtime.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * IMPORTS EXPLAINED:
+ *
+ *   com.poketracker.models.*
+ *     Imports Card, CardSet, CardImage, CardPrices, SetImages —
+ *     the data types this repository reads and writes.
+ *
+ *   doobie.*
+ *     Core Doobie imports:
+ *       sql          — the string interpolator for writing SQL queries
+ *       Query0[T]    — a query that takes no parameters and returns T
+ *       Update0      — an update/insert/delete that takes no parameters
+ *       ConnectionIO — a database operation that needs a connection to run
+ *
+ *   doobie.implicits.*
+ *     Provides implicit conversions that let Doobie map SQL result columns
+ *     to Scala types automatically. Without this, Doobie would not know how
+ *     to convert a VARCHAR column to a Scala String, for example.
+ *
+ *   doobie.postgres.implicits.*
+ *     Adds PostgreSQL-specific type mappings. Needed for:
+ *       - UUID columns → String
+ *       - TIMESTAMPTZ columns → java.time.Instant
+ *       - JSONB columns → String (we parse JSON ourselves)
+ *       - DATE columns → java.time.LocalDate
+ *
+ *   zio.*
+ *     ZIO core — ZIO[R,E,A] effect type and Task shorthand.
+ *
+ *   zio.interop.catz.*
+ *     Allows Doobie's .transact(xa) to work with ZIO's Task type.
+ *     Without this import, the compiler cannot convert
+ *     ConnectionIO[T] to Task[T].
+ *
+ *   java.time.{Instant, LocalDate}
+ *     Standard JVM date/time types used in our models.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * USED BY: CardService
+ * DEPENDS ON: Doobie, ZIO, PostgreSQL, Card model, CardSet model
+ */
+
+package com.poketracker.repository
+
+import com.poketracker.models.*
+import cats.syntax.all.*
+import doobie.*
+import doobie.implicits.*
+import doobie.postgres.implicits.*
+import doobie.util.transactor.Transactor
+import zio.*
+import zio.interop.catz.*
+import java.time.{Instant, LocalDate}
+
+/**
+ * TRAIT: CardRepository
+ *
+ * PURPOSE:
+ *   Defines the interface (contract) for card data access.
+ *   A trait in Scala is like an interface in Java — it declares what methods
+ *   exist without implementing them.
+ *
+ * WHY A TRAIT INSTEAD OF DIRECTLY IMPLEMENTING?
+ *   Having a trait means we can have multiple implementations:
+ *     - CardRepositoryLive: the real implementation that queries PostgreSQL
+ *     - CardRepositoryMock: a fake implementation for unit tests
+ *   Both implement the same trait so they are interchangeable.
+ *   Code that uses CardRepository never needs to know which one it has.
+ *
+ * WHAT IS TASK[T]?
+ *   Task[T] is shorthand for ZIO[Any, Throwable, T].
+ *   It means: an effect that needs nothing special to run, can fail with
+ *   any Throwable, and produces T on success.
+ *   All repository methods return Task because database queries can fail
+ *   (connection lost, query error, etc.) and we want those failures typed.
+ */
+trait CardRepository:
+
+  /**
+   * METHOD: findSetById
+   * PURPOSE: Fetches a single set by its ID.
+   * @param id  Set ID from the Pokémon TCG API e.g. "sv1", "base1"
+   * @return    Some(set) if found, None if no set has that ID
+   */
+  def findSetById(id: String): Task[Option[CardSet]]
+
+  /**
+   * METHOD: findAllSets
+   * PURPOSE: Fetches all sets ordered by release date, newest first.
+   *          Used to populate the set dropdown in the UI.
+   * @return  All sets in the database, newest first
+   */
+  def findAllSets: Task[List[CardSet]]
+
+  /**
+   * METHOD: findCardsBySet
+   * PURPOSE: Fetches all cards belonging to a set, with their prices.
+   *          Used when a user selects a set to view.
+   * @param setId  Which set's cards to fetch
+   * @return       All cards in the set, ordered by collector number
+   */
+  def findCardsBySet(setId: String): Task[List[Card]]
+
+  /**
+   * METHOD: findCardById
+   * PURPOSE: Fetches a single card by its ID, with its prices.
+   * @param id  Card ID e.g. "sv1-1", "base1-4"
+   * @return    Some(card) if found, None if no card has that ID
+   */
+  def findCardById(id: String): Task[Option[Card]]
+
+  /**
+   * METHOD: searchCards
+   * PURPOSE: Full-text search across all card names.
+   *          Used by the trade analyzer search box.
+   * @param query  Search term e.g. "Charizard" or "Pikachu"
+   * @param limit  Maximum number of results to return (prevents huge responses)
+   * @return       Matching cards ordered by relevance, newest sets first
+   */
+  def searchCards(query: String, limit: Int = 60): Task[List[Card]]
+
+  /**
+   * METHOD: upsertSet
+   * PURPOSE: Inserts a set if it does not exist, updates it if it does.
+   *          "Upsert" = Update + Insert combined.
+   *          Used when refreshing set data from the Pokémon TCG API.
+   * @param set  The set data to save
+   * @return     Unit — we do not need a return value from write operations
+   */
+  def upsertSet(set: CardSet): Task[Unit]
+
+  /**
+   * METHOD: upsertCard
+   * PURPOSE: Inserts a card if it does not exist, updates it if it does.
+   * @param card  The card data to save
+   * @return      Unit
+   */
+  def upsertCard(card: Card): Task[Unit]
+
+  /**
+   * METHOD: upsertPrices
+   * PURPOSE: Inserts or updates prices for a card.
+   *          Prices change frequently so this is called more often than upsertCard.
+   * @param cardId  Which card's prices to update
+   * @param prices  The new price data
+   * @return        Unit
+   */
+  def upsertPrices(cardId: String, prices: CardPrices): Task[Unit]
+
+/**
+ * OBJECT: CardRepository
+ *
+ * PURPOSE:
+ *   Contains the live implementation of CardRepository and the ZLayer
+ *   that provides it as a dependency.
+ *
+ * WHAT IS A ZLAYER?
+ *   ZLayer is ZIO's dependency injection system.
+ *   Instead of passing a database connection to every function manually,
+ *   we define a ZLayer that says "to create a CardRepository, you need
+ *   a Transactor". ZIO then wires everything together automatically.
+ *   This is cleaner than passing dependencies manually through every function.
+ */
+object CardRepository:
+
+  /**
+   * CLASS: Live
+   *
+   * PURPOSE:
+   *   The real implementation of CardRepository that queries PostgreSQL.
+   *   All SQL queries live here and nowhere else.
+   *
+   * @param xa  The database Transactor — our connection pool.
+   *            Injected by ZIO's dependency system, not passed manually.
+   */
+  final class Live(xa: Transactor[Task]) extends CardRepository:
+
+    /**
+     * HOW DOOBIE MAPS ROWS TO CASE CLASSES:
+     *   Doobie can automatically map SQL result columns to a case class
+     *   if the columns are in the same order as the case class fields.
+     *   We use Read[T] instances which Doobie derives automatically
+     *   for case classes whose fields have known mappings.
+     *
+     *   For nested case classes (like Card which contains CardImage),
+     *   we map to a flat tuple first then construct the nested object.
+     */
+
+    def findSetById(id: String): Task[Option[CardSet]] =
+      sql"""
+        SELECT id, name, series, printed_total, total,
+               release_date, symbol_url, logo_url, ptcgo_code
+        FROM card_sets
+        WHERE id = $id
+      """
+        // .query[T] tells Doobie what type to map each row to.
+        // We map to a flat tuple matching the SELECT columns exactly.
+        .query[(String, String, String, Int, Int, LocalDate, String, String, Option[String])]
+        // .option returns Some(row) if found, None if not found.
+        // Alternative to .to[List] when we expect at most one result.
+        .option
+        // .map transforms the Option[tuple] into Option[CardSet].
+        // We construct the nested SetImages object here.
+        .map(_.map { case (id, name, series, printed, total, date, sym, logo, ptcgo) =>
+          CardSet(id, name, series, printed, total, date, SetImages(sym, logo), ptcgo)
+        })
+        // .transact(xa) runs this ConnectionIO on our connection pool
+        // and converts it to a Task[Option[CardSet]].
+        .transact(xa)
+
+    def findAllSets: Task[List[CardSet]] =
+      sql"""
+        SELECT id, name, series, printed_total, total,
+               release_date, symbol_url, logo_url, ptcgo_code
+        FROM card_sets
+        ORDER BY release_date DESC
+      """
+        .query[(String, String, String, Int, Int, LocalDate, String, String, Option[String])]
+        // .to[List] collects all result rows into a Scala List.
+        .to[List]
+        .map(_.map { case (id, name, series, printed, total, date, sym, logo, ptcgo) =>
+          CardSet(id, name, series, printed, total, date, SetImages(sym, logo), ptcgo)
+        })
+        .transact(xa)
+
+    def findCardsBySet(setId: String): Task[List[Card]] =
+      sql"""
+        SELECT c.id, c.set_id, c.name, c.number, c.rarity, c.artist,
+               c.image_small, c.image_large,
+               p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg
+        FROM cards c
+        LEFT JOIN card_prices p ON p.card_id = c.id
+        WHERE c.set_id = $setId
+        ORDER BY
+          -- Sort numerically when possible, alphabetically for non-numeric numbers
+          CASE WHEN c.number ~ '^[0-9]+$$' THEN LPAD(c.number, 10, '0')
+               ELSE c.number
+          END
+      """
+        .query[(String, String, String, String, Option[String], Option[String],
+                String, String,
+                Option[Double], Option[Double], Option[Double], Option[Double], Option[Double])]
+        .to[List]
+        .map(_.map { case (id, setId, name, number, rarity, artist,
+                           imgSmall, imgLarge,
+                           nm, lp, mp, hp, dmg) =>
+          val prices = if nm.orElse(lp).orElse(mp).orElse(hp).orElse(dmg).isDefined
+                       then Some(CardPrices(nm, lp, mp, hp, dmg))
+                       else None
+          Card(id, setId, name, number, rarity, artist,
+               CardImage(imgSmall, imgLarge), prices)
+        })
+        .transact(xa)
+
+    def findCardById(id: String): Task[Option[Card]] =
+      sql"""
+        SELECT c.id, c.set_id, c.name, c.number, c.rarity, c.artist,
+               c.image_small, c.image_large,
+               p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg
+        FROM cards c
+        LEFT JOIN card_prices p ON p.card_id = c.id
+        WHERE c.id = $id
+      """
+        .query[(String, String, String, String, Option[String], Option[String],
+                String, String,
+                Option[Double], Option[Double], Option[Double], Option[Double], Option[Double])]
+        .option
+        .map(_.map { case (id, setId, name, number, rarity, artist,
+                           imgSmall, imgLarge,
+                           nm, lp, mp, hp, dmg) =>
+          val prices = if nm.orElse(lp).orElse(mp).orElse(hp).orElse(dmg).isDefined
+                       then Some(CardPrices(nm, lp, mp, hp, dmg))
+                       else None
+          Card(id, setId, name, number, rarity, artist,
+               CardImage(imgSmall, imgLarge), prices)
+        })
+        .transact(xa)
+
+    def searchCards(query: String, limit: Int = 60): Task[List[Card]] =
+      // to_tsvector/plainto_tsquery is PostgreSQL's full-text search.
+      // It handles stemming (searching "Charizard" finds "Charizards"),
+      // ranking by relevance, and is much faster than LIKE '%query%'.
+      // likeQuery wraps the search term with % wildcards for the ILIKE fallback.
+      val likeQuery = s"%$query%"
+      sql"""
+        SELECT c.id, c.set_id, c.name, c.number, c.rarity, c.artist,
+               c.image_small, c.image_large,
+               p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg
+        FROM cards c
+        LEFT JOIN card_prices p ON p.card_id = c.id
+        LEFT JOIN card_sets s ON s.id = c.set_id
+        WHERE to_tsvector('english', c.name) @@ plainto_tsquery('english', $query)
+           OR c.name ILIKE $likeQuery
+        ORDER BY s.release_date DESC, c.number
+        LIMIT $limit
+      """
+        .query[(String, String, String, String, Option[String], Option[String],
+                String, String,
+                Option[Double], Option[Double], Option[Double], Option[Double], Option[Double])]
+        .to[List]
+        .map(_.map { case (id, setId, name, number, rarity, artist,
+                           imgSmall, imgLarge,
+                           nm, lp, mp, hp, dmg) =>
+          val prices = if nm.orElse(lp).orElse(mp).orElse(hp).orElse(dmg).isDefined
+                       then Some(CardPrices(nm, lp, mp, hp, dmg))
+                       else None
+          Card(id, setId, name, number, rarity, artist,
+               CardImage(imgSmall, imgLarge), prices)
+        })
+        .transact(xa)
+
+    def upsertSet(set: CardSet): Task[Unit] =
+      // ON CONFLICT DO UPDATE means: if a set with this id already exists,
+      // update its fields instead of failing with a duplicate key error.
+      // This is the "upsert" pattern — safe to call repeatedly.
+      sql"""
+        INSERT INTO card_sets (id, name, series, printed_total, total,
+                               release_date, symbol_url, logo_url, ptcgo_code)
+        VALUES (${set.id}, ${set.name}, ${set.series}, ${set.printedTotal}, ${set.total},
+                ${set.releaseDate}, ${set.images.symbol}, ${set.images.logo}, ${set.ptcgoCode})
+        ON CONFLICT (id) DO UPDATE SET
+          name          = EXCLUDED.name,
+          series        = EXCLUDED.series,
+          printed_total = EXCLUDED.printed_total,
+          total         = EXCLUDED.total,
+          release_date  = EXCLUDED.release_date,
+          symbol_url    = EXCLUDED.symbol_url,
+          logo_url      = EXCLUDED.logo_url,
+          ptcgo_code    = EXCLUDED.ptcgo_code
+      """
+        .update
+        // .run executes the update and returns the number of affected rows.
+        // We discard the row count with .void since we do not need it.
+        .run
+        .void
+        .transact(xa)
+
+    def upsertCard(card: Card): Task[Unit] =
+      sql"""
+        INSERT INTO cards (id, set_id, name, number, rarity, artist,
+                           image_small, image_large, updated_at)
+        VALUES (${card.id}, ${card.setId}, ${card.name}, ${card.number},
+                ${card.rarity}, ${card.artist},
+                ${card.images.small}, ${card.images.large}, NOW())
+        ON CONFLICT (id) DO UPDATE SET
+          name        = EXCLUDED.name,
+          number      = EXCLUDED.number,
+          rarity      = EXCLUDED.rarity,
+          artist      = EXCLUDED.artist,
+          image_small = EXCLUDED.image_small,
+          image_large = EXCLUDED.image_large,
+          updated_at  = NOW()
+      """
+        .update.run.void.transact(xa)
+
+    def upsertPrices(cardId: String, prices: CardPrices): Task[Unit] =
+      sql"""
+        INSERT INTO card_prices (card_id, price_nm, price_lp, price_mp,
+                                  price_hp, price_dmg, fetched_at)
+        VALUES ($cardId, ${prices.nm}, ${prices.lp}, ${prices.mp},
+                ${prices.hp}, ${prices.dmg}, NOW())
+        ON CONFLICT (card_id) DO UPDATE SET
+          price_nm   = EXCLUDED.price_nm,
+          price_lp   = EXCLUDED.price_lp,
+          price_mp   = EXCLUDED.price_mp,
+          price_hp   = EXCLUDED.price_hp,
+          price_dmg  = EXCLUDED.price_dmg,
+          fetched_at = NOW()
+      """
+        .update.run.void.transact(xa)
+
+  /**
+   * VALUE: layer
+   *
+   * PURPOSE:
+   *   Creates a ZLayer that provides a CardRepository.
+   *   ZLayer.fromFunction creates a layer by calling a function with
+   *   its dependencies already provided.
+   *
+   * HOW TO READ ZLayer[Transactor[Task], Nothing, CardRepository]:
+   *   Transactor[Task]  = what this layer needs to create a CardRepository
+   *   Nothing           = this layer cannot fail (construction is safe)
+   *   CardRepository    = what this layer provides
+   *
+   * USAGE IN Main.scala:
+   *   We will provide this layer to our app so ZIO can inject it wherever
+   *   a CardRepository is needed.
+   */
+  val layer: ZLayer[Transactor[Task], Nothing, CardRepository] =
+    ZLayer.fromFunction(new Live(_))
