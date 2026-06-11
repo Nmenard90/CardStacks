@@ -367,9 +367,16 @@ object CardService:
       repo.searchCards(q, n)
 
     def refreshSet(setId: String): Task[Unit] =
-      fetchPages(setId)
-        .flatMap(cards => ZIO.foreach(cards.map(toCard))(repo.upsertCard))
-        .unit
+      for
+        cards  <- fetchPages(setId).map(_.map(toCard))
+        _      <- ZIO.foreach(cards)(repo.upsertCard)
+        setOpt <- repo.findSetById(setId)
+        _      <- setOpt match
+                    case Some(set) =>
+                      priceService.fetchAndStorePrices(set, cards)
+                        .catchAll(e => ZIO.logWarning(s"Price refresh failed for $setId: ${e.getMessage}"))
+                    case None => ZIO.unit
+      yield ()
 
   /**
    * VALUE: layer
