@@ -111,7 +111,10 @@ object PriceService:
    * @param number  Collector number — used to match to our Card records
    * @param name    Card name — used as fallback match if number doesn't work
    */
-  private case class TcgProduct(id: Int, number: Option[Int], name: String)
+  // number field can be Int, String, or null in TCGTracking API
+  // We parse the whole product as a Map to handle this inconsistency
+  // number is a String like "161/162" — we take the part before "/" to get collector number
+  private case class TcgProduct(id: Int, name: String, number: Option[String])
   private given JsonDecoder[TcgProduct] = DeriveJsonDecoder.gen
 
   /**
@@ -239,10 +242,9 @@ object PriceService:
             pricesByProductId = buildPriceMap(skuResp.skus.filter(_.language == "EN"))
 
             // Build a map from collector number to productId
-            // Convert number to String for matching against our card numbers
-            // number is Option[Int] — skip products with no collector number
+            // number is "161/162" format — take the part before "/" as collector number
             numberToProductId = products.products
-                                  .flatMap(p => p.number.map(n => n.toString -> p.id))
+                                  .flatMap(p => p.number.map(n => n.split("/").head.trim -> p.id))
                                   .toMap
 
             // For each card, find prices and save
