@@ -43,6 +43,7 @@ package com.poketracker.service
 
 import com.poketracker.models.*
 import com.poketracker.repository.CardRepository
+import com.poketracker.service.PriceService
 import zio.*
 import zio.json.*
 import java.time.LocalDate
@@ -219,7 +220,7 @@ object CardService:
    * @param apiKey  Pokémon TCG API key from POKEMONTCG_API_KEY env var.
    *                Empty string = no key, requests will be rate limited.
    */
-  final class Live(repo: CardRepository, apiKey: String) extends CardService:
+  final class Live(repo: CardRepository, priceService: PriceService, apiKey: String) extends CardService:
 
     /** Base URL for the Pokémon TCG API v2. */
     private val base = "https://api.pokemontcg.io/v2"
@@ -347,6 +348,15 @@ object CardService:
             cards  <- fetchPages(setId).map(_.map(toCard))
             result  = sorted(cards)
             _      <- ZIO.foreach(result)(repo.upsertCard)
+            // Fetch and store prices from TCGTracking after caching cards.
+            // We look up the set metadata to help match the TCGTracking set.
+            setOpt <- repo.findSetById(setId)
+            _      <- setOpt match
+                        case Some(set) =>
+                          priceService.fetchAndStorePrices(set, result)
+                            // Price failures are non-fatal — cards still load without prices
+                            .catchAll(e => ZIO.logWarning(s"Price fetch failed for $setId: ${e.getMessage}"))
+                        case None => ZIO.unit
           yield result
       }
 
@@ -371,10 +381,11 @@ object CardService:
    *         Fails:    Throwable (very unlikely — only if env reading fails)
    *         Provides: CardService ready to use
    */
-  val layer: ZLayer[CardRepository, Throwable, CardService] =
+  val layer: ZLayer[CardRepository & PriceService, Throwable, CardService] =
     ZLayer.fromZIO {
       for
-        repo   <- ZIO.service[CardRepository]
-        apiKey <- System.env("POKEMONTCG_API_KEY").map(_.getOrElse(""))
-      yield new Live(repo, apiKey)
+        repo         <- ZIO.service[CardRepository]
+        priceService <- ZIO.service[PriceService]
+        apiKey       <- System.env("POKEMONTCG_API_KEY").map(_.getOrElse(""))
+      yield new Live(repo, priceService, apiKey)
     }

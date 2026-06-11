@@ -99,11 +99,18 @@ object Main extends ZIOAppDefault:
         // Step 4: Build the dependency layers.
         // Each layer declares what it needs and ZIO provides it automatically.
         // The transactor is shared across all repositories.
-        appLayer    = ZLayer.succeed(transactor) >>>
+        // Build repositories from transactor
+        repoLayer   = ZLayer.succeed(transactor) >>>
                       (CardRepository.layer ++
                        CollectionRepository.layer ++
                        UserRepository.layer ++
-                       BinderRepository.layer) >>>
+                       BinderRepository.layer)
+
+        // PriceService needs CardRepository — built separately so CardService can use it
+        priceLayer  = repoLayer >>> PriceService.layer
+
+        // Build services from repositories + PriceService
+        appLayer    = (repoLayer ++ priceLayer) >>>
                       (CardService.layer ++
                        CollectionService.layer ++
                        UserService.layer ++
