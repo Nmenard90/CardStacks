@@ -125,12 +125,23 @@ object Main extends ZIOAppDefault:
                       UserRoutes.routes ++
                       BinderRoutes.routes
 
+        // CORS middleware so the React frontend (different Railway domain) can call this API.
+        // Allows all origins — tighten to specific frontend URL once we know it.
+        cors        = Middleware.cors(Middleware.CorsConfig(
+                        allowedOrigin    = _ => Some(Header.AccessControlAllowOrigin.All),
+                        allowedMethods   = Header.AccessControlAllowMethods.All,
+                        allowedHeaders   = Header.AccessControlAllowHeaders.All,
+                        allowCredentials = Header.AccessControlAllowCredentials.Allow,
+                        exposedHeaders   = Header.AccessControlExposeHeaders.None,
+                        maxAge           = None
+                      ))
+
         _          <- ZIO.logInfo(s"Starting PokéTracker API on port $port")
 
         // Step 6: Start the HTTP server.
         // Server.serve blocks forever — it keeps running and handling requests.
         // We provide both the app layer (services/repos) and the server config.
-        _          <- Server.serve(allRoutes)
+        _          <- Server.serve(allRoutes @@ cors)
                         .provide(appLayer, Server.defaultWithPort(port))
 
       yield ()
