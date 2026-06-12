@@ -45,6 +45,7 @@ import com.poketracker.models.*
 import com.poketracker.repository.CardRepository
 import zio.*
 import zio.json.*
+import zio.json.ast.Json
 
 /**
  * TRAIT: PriceService
@@ -126,7 +127,28 @@ object PriceService:
   // We parse the whole product as a Map to handle this inconsistency
   // number is a String like "161/162" — we take the part before "/" to get collector number
   private case class TcgProduct(id: Int, name: String, number: Option[String])
-  private given JsonDecoder[TcgProduct] = DeriveJsonDecoder.gen
+
+  private given JsonDecoder[TcgProduct] = JsonDecoder[Json].mapOrFail { json =>
+    json.asObject.toRight("TcgProduct must be an object").flatMap { obj =>
+      def jsonToInt(value: Json): Either[String, Int] =
+        value.asNumber
+          .flatMap(num => scala.util.Try(num.toString.toInt).toOption)
+          .toRight("id must be an integer")
+
+      for
+        idJson   <- obj.get("id").toRight("Missing id field")
+        id       <- jsonToInt(idJson)
+        nameJson <- obj.get("name").toRight("Missing name field")
+        name     <- nameJson.asString.toRight("name must be a string")
+      yield
+        val number = obj.get("number").flatMap {
+          case Json.Str(s) => Some(s)
+          case Json.Num(n) => scala.util.Try(n.toString.toInt).toOption.map(_.toString)
+          case _           => None
+        }
+        TcgProduct(id, name, number)
+    }
+  }
 
   /**
    * CASE CLASS: TcgProductResponse
