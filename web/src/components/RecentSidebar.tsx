@@ -5,18 +5,25 @@
  * PURPOSE:
  *   The "Recently Added" panel from the old tracker. Every quick-add or +
  *   during the session lands here; entries can be checked and pushed into a
- *   binder's first empty slots ("Add selected" / "Add all").
+ *   binder's first empty slots ("Add selected" / "Add all"). Rows that were
+ *   successfully placed are removed from the list, like the old page did.
+ *
+ *   Selection is keyed by each row's uid — a stable id minted when the row
+ *   is created — never by list position, so checkmarks stay on the right
+ *   card as rows are added and removed.
  *
  * USED BY: CollectionPage
+ * DEPENDS ON: api/binders, lib/conditions, components/Toast
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { getBinder, listBinders, setSlot } from '../api/binders'
 import { baseCond } from '../lib/conditions'
 import { useToast } from './Toast'
 import type { Binder, Card } from '../types'
 
-/** One sidebar row: the card, the condition it was added as, its price. */
+/** One sidebar row: a stable id, the card, its condition, its price. */
 export interface SessionCard {
+  uid: string      // stable per-row id (same card can appear twice)
   card: Card
   condKey: string
   price: number
@@ -27,40 +34,45 @@ interface Props {
   open: boolean
   items: SessionCard[]
   onClose: () => void
-  onRemove: (idx: number) => void
+  /** Remove one row by its uid (the ✕ button). */
+  onRemove: (uid: string) => void
+  /** Remove several rows at once — called with the uids actually placed. */
+  onRemoveMany: (uids: string[]) => void
   onClear: () => void
 }
 
-export function RecentSidebar({ userId, open, items, onClose, onRemove, onClear }: Props) {
+export function RecentSidebar({ userId, open, items, onClose, onRemove, onRemoveMany, onClear }: Props) {
   const toast = useToast()
   const [binders, setBinders] = useState<Binder[]>([])
   const [binderId, setBinderId] = useState('')
-  // Which rows are checked, by index into items.
-  const [checked, setChecked] = useState<Set<number>>(new Set())
+  // Checked rows, by uid. Uids of removed rows simply never match again,
+  // so no pruning state-sync is needed.
+  const [checked, setChecked] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
 
-  // Load the binder list once the panel first opens.
+  // Load the binder list whenever the panel opens (picks up new binders).
   useEffect(() => {
     if (open) listBinders(userId).then(setBinders).catch(() => {})
   }, [open, userId])
 
-  // Indexes drift as items are removed — stale checks are filtered out
-  // here at render time rather than synced back into state by an effect.
-  const validChecked = useMemo(
-    () => new Set([...checked].filter(i => i < items.length)),
-    [checked, items.length],
-  )
+  // How many checked rows still exist in the list.
+  const checkedCount = items.filter(sc => checked.has(sc.uid)).length
 
-  const toggle = (i: number) =>
+  const toggle = (uid: string) =>
     setChecked(prev => {
       const next = new Set(prev)
-      if (next.has(i)) next.delete(i); else next.add(i)
+      if (next.has(uid)) next.delete(uid); else next.add(uid)
       return next
     })
 
-  /** Push the given rows into the chosen binder's first empty slots. */
-  const addToBinder = async (indices: number[]) => {
-    if (!binderId || indices.length === 0) return
+  /**
+   * Push the given rows into the chosen binder's first empty slots,
+   * then remove the placed rows from the session list.
+   * @param uids  The rows to place, in list order
+   */
+  const addToBinder = async (uids: string[]) => {
+    const rows = items.filter(sc => uids.includes(sc.uid))
+    if (!binderId || rows.length === 0) return
     setBusy(true)
     try {
       const binder = await getBinder(userId, binderId)
@@ -69,23 +81,26 @@ export function RecentSidebar({ userId, open, items, onClose, onRemove, onClear 
       // from 0. The backend allows indexes 0–1999.
       const used = new Set(binder.slots.filter(s => s.cardId).map(s => s.slotIndex))
       const empty: number[] = []
-      for (let i = 0; i < 2000 && empty.length < indices.length; i++) {
+      for (let i = 0; i < 2000 && empty.length < rows.length; i++) {
         if (!used.has(i)) empty.push(i)
       }
-      if (empty.length < indices.length) {
+      if (empty.length < rows.length) {
         toast(`Only ${empty.length} empty slot${empty.length === 1 ? '' : 's'} left in that binder.`)
       }
-      const todo = indices.slice(0, empty.length)
-      for (let i = 0; i < todo.length; i++) {
-        const sc = items[todo[i]]
+      const placed: string[] = []
+      for (let i = 0; i < Math.min(rows.length, empty.length); i++) {
+        const sc = rows[i]
         await setSlot(userId, binderId, empty[i], {
           cardId: sc.card.id,
           cardName: sc.card.name,
           imageUrl: sc.card.images?.small,
         })
+        placed.push(sc.uid)
       }
-      toast(`Added ${todo.length} card${todo.length === 1 ? '' : 's'} to ${binder.name}.`)
-      setChecked(new Set())
+      toast(`Added ${placed.length} card${placed.length === 1 ? '' : 's'} to ${binder.name}.`)
+      // The old page removed placed cards from the session list — same here.
+      onRemoveMany(placed)
+      setChecked(prev => new Set([...prev].filter(uid => !placed.includes(uid))))
     } catch {
       toast('Could not add to binder — try again.')
     } finally {
@@ -113,32 +128,32 @@ export function RecentSidebar({ userId, open, items, onClose, onRemove, onClear 
         <div className="sb-binder-row" style={{ gap: 5 }}>
           <button
             className="sb-add-btn" style={{ flex: 1 }}
-            disabled={!binderId || validChecked.size === 0 || busy}
-            onClick={() => addToBinder([...validChecked].sort((a, b) => a - b))}
+            disabled={!binderId || checkedCount === 0 || busy}
+            onClick={() => addToBinder(items.filter(sc => checked.has(sc.uid)).map(sc => sc.uid))}
           >
-            Add selected
+            {busy ? 'Adding…' : 'Add selected'}
           </button>
           <button
             className="sb-add-btn"
             style={{ flex: 1, background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)' }}
             disabled={!binderId || items.length === 0 || busy}
-            onClick={() => addToBinder(items.map((_, i) => i))}
+            onClick={() => addToBinder(items.map(sc => sc.uid))}
           >
-            Add all
+            {busy ? 'Adding…' : 'Add all'}
           </button>
         </div>
       </div>
       {items.length > 0 && (
         <div className="sb-sel-row">
-          <button className="sb-sel-all" onClick={() => setChecked(new Set(items.map((_, i) => i)))}>Select all</button>
+          <button className="sb-sel-all" onClick={() => setChecked(new Set(items.map(sc => sc.uid)))}>Select all</button>
           <button className="sb-sel-all" onClick={() => setChecked(new Set())}>Deselect all</button>
-          <span className="sb-sel-count">{validChecked.size > 0 ? `${validChecked.size} selected` : ''}</span>
+          <span className="sb-sel-count">{checkedCount > 0 ? `${checkedCount} selected` : ''}</span>
         </div>
       )}
       <div className="sb-list">
         {items.length === 0 && <div className="sb-empty">Cards you quick-add will appear here</div>}
-        {items.map((sc, i) => (
-          <div key={i} className={'sb-item' + (validChecked.has(i) ? ' checked' : '')} onClick={() => toggle(i)}>
+        {items.map(sc => (
+          <div key={sc.uid} className={'sb-item' + (checked.has(sc.uid) ? ' checked' : '')} onClick={() => toggle(sc.uid)}>
             {sc.card.images?.small && <img src={sc.card.images.small} alt="" />}
             <div className="sb-item-info">
               <div className="sb-item-name">{sc.card.name}</div>
@@ -150,7 +165,7 @@ export function RecentSidebar({ userId, open, items, onClose, onRemove, onClear 
             </div>
             <button
               className="sb-item-rm" title="Remove from list"
-              onClick={e => { e.stopPropagation(); onRemove(i) }}
+              onClick={e => { e.stopPropagation(); onRemove(sc.uid) }}
             >
               ✕
             </button>

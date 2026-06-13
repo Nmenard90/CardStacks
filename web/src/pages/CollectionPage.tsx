@@ -69,6 +69,18 @@ export function CollectionPage() {
 
   // ── Server data ────────────────────────────────────────────────────────
   const userId = user?.id ?? ''
+
+  // The session list belongs to one login — switching users must not
+  // carry the previous person's "Recently Added" cards over. Reset uses
+  // React's prev-value-during-render pattern rather than an effect, so
+  // the stale list never paints for the new user.
+  const [sessionOwner, setSessionOwner] = useState(userId)
+  if (sessionOwner !== userId) {
+    setSessionOwner(userId)
+    setSession([])
+    setSidebarOpen(false)
+  }
+
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets, enabled: !!user })
 
   // The active set: the stored choice when it's valid, else the newest set.
@@ -128,7 +140,7 @@ export function CollectionPage() {
       return e
     })
     if (delta > 0) {
-      setSession(s => [{ card, condKey: key, price: condPrice(card, key) }, ...s])
+      setSession(s => [{ uid: crypto.randomUUID(), card, condKey: key, price: condPrice(card, key) }, ...s])
       setSidebarOpen(true)
     }
   }
@@ -169,7 +181,7 @@ export function CollectionPage() {
     }
     const key = firstEd ? quickCond + ' 1st Ed' : quickCond
     mutate(card, e => { e.conds[key] = (e.conds[key] ?? 0) + 1; return e })
-    setSession(s => [{ card, condKey: key, price: condPrice(card, key) }, ...s])
+    setSession(s => [{ uid: crypto.randomUUID(), card, condKey: key, price: condPrice(card, key) }, ...s])
     setSidebarOpen(true)
     setQuickFlash('flash-ok')
     const p = condPrice(card, key)
@@ -352,7 +364,8 @@ export function CollectionPage() {
           <RecentSidebar
             userId={userId} open={sidebarOpen} items={session}
             onClose={() => setSidebarOpen(false)}
-            onRemove={i => setSession(s => s.filter((_, j) => j !== i))}
+            onRemove={uid => setSession(s => s.filter(sc => sc.uid !== uid))}
+            onRemoveMany={uids => setSession(s => s.filter(sc => !uids.includes(sc.uid)))}
             onClear={() => setSession([])}
           />
         </div>

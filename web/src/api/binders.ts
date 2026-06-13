@@ -24,10 +24,10 @@ export const createBinder = (userId: string, name: string, pocketSize: PocketSiz
 export const getBinder = (userId: string, binderId: string) =>
   api.get<Binder>(`/api/binders/${userId}/${binderId}`).then(r => r.data)
 
-/** Rename a binder and/or set its cover image (data URL). */
+/** Rename a binder, set its cover image (data URL), and/or resize it. */
 export const updateBinder = (
   userId: string, binderId: string,
-  patch: { name?: string; coverImage?: string },
+  patch: { name?: string; coverImage?: string; pocketSize?: PocketSize },
 ) => api.put(`/api/binders/${userId}/${binderId}`, patch).then(r => r.data)
 
 /** Delete a binder and all its slots. */

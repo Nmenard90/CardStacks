@@ -162,6 +162,22 @@ export function BinderViewPage() {
     }, 500)
   }
 
+  /**
+   * Changes the pocket size. Cards keep their slot indexes and re-flow
+   * across pages — same behavior as the old binder page. Optimistic
+   * local update; rolled back if the PUT fails.
+   */
+  const resize = (size: PocketSize) => {
+    if (!user || !binder || binder.pocketSize === size) return
+    const prevSize = binder.pocketSize
+    setBinder({ ...binder, pocketSize: size })
+    setSpread(0) // re-flow moves cards between pages — start from the cover
+    updateBinder(user.id, binderId, { pocketSize: size }).catch(() => {
+      setBinder(b => (b ? { ...b, pocketSize: prevSize } : b))
+      toast('Could not change pocket size.')
+    })
+  }
+
   // ── Picker data ─────────────────────────────────────────────────────────
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets, enabled: !!user })
   const { data: pickCards = [], isLoading: pickLoading } = useQuery({
@@ -265,9 +281,7 @@ export function BinderViewPage() {
         {(Object.keys(CFG) as PocketSize[]).map(s => (
           <button
             key={s} className={'sz' + (binder.pocketSize === s ? ' on' : '')}
-            onClick={() => {
-              if (binder.pocketSize !== s) toast('Pocket size is set when a binder is created.')
-            }}
+            onClick={() => resize(s)}
           >
             {CFG[s].num}-Pocket
           </button>
