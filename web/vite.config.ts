@@ -1,9 +1,15 @@
+/**
+ * FILE: vite.config.ts
+ * PURPOSE: Vite build + dev-server config for the PokéTracker frontend.
+ *          The dev proxy forwards /api to the Scala backend on Railway so
+ *          local development needs no CORS setup; production builds call
+ *          the backend directly via VITE_API_BASE (see src/api/client.ts).
+ */
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react()],
   server: {
     proxy: {
       '/api': {

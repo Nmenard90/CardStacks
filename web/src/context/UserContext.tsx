@@ -27,4 +27,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
   return <UserContext.Provider value={{ user, setUser }}>{children}</UserContext.Provider>
 }
 
+// Hook exported beside its provider on purpose — they are one unit.
+// Only HMR fast-refresh granularity is affected.
+// eslint-disable-next-line react-refresh/only-export-components
 export const useUser = () => useContext(UserContext)

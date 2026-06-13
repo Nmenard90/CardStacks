@@ -46,6 +46,15 @@ trait UserService:
   def findByUsername(username: String): Task[Option[User]]
 
   /**
+   * METHOD: listAll
+   * PURPOSE: Returns every registered user, ordered alphabetically.
+   *          Used by the login screen to render "pick an existing user" chips
+   *          so returning users can log in with one click instead of typing.
+   * @return  All users A→Z by username. Empty list if no one has registered.
+   */
+  def listAll: Task[List[User]]
+
+  /**
    * METHOD: updateLocation
    * PURPOSE: Saves a user's location for trade proximity matching.
    *          Location is stored at city level only — never exact address.
@@ -113,6 +122,9 @@ object UserService:
 
     def findByUsername(username: String): Task[Option[User]] =
       repo.findByUsername(username)
+
+    def listAll: Task[List[User]] =
+      repo.findAll
 
     def updateLocation(userId: String, location: String): Task[Unit] =
       // Validate location is not empty before saving

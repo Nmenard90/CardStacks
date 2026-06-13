@@ -1,17 +1,24 @@
-@import "tailwindcss";
+/* Global styles — design tokens ported verbatim from the old live app. */
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&family=Inter:wght@400;500;600;700;800&display=swap');
+@import './styles/tracker.css';
+@import './styles/shelf.css';
+@import './styles/binder.css';
+@import './styles/analyzer.css';
 
-body {
-  margin: 0;
-  background-color: #0f172a;
-  color: #e2e8f0;
-  font-family: system-ui, -apple-system, sans-serif;
-  -webkit-font-smoothing: antialiased;
+:root {
+  --bg:#0f0f11; --surface:#18181c; --surface2:#222228; --border:#2e2e38;
+  --accent:#ffcb05; --accent2:#3b5bdb; --text:#f0f0f2; --muted:#888896;
+  --green:#51cf66; --red:#ff6b6b; --radius:10px;
 }
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body,#root{min-height:100vh;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);}
 
-#root {
-  min-height: 100svh;
+/* Toast lives outside any page wrapper — defined once, old tracker styling */
+.toast{
+  position:fixed;bottom:24px;right:24px;background:var(--surface2);
+  border:1px solid var(--border);border-radius:var(--radius);padding:10px 16px;
+  font-size:13px;color:var(--text);opacity:0;transform:translateY(8px);
+  transition:opacity .2s,transform .2s;pointer-events:none;z-index:999;
 }
-
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #0f172a; }
-::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+.toast.show{opacity:1;transform:translateY(0);}

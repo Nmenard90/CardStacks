@@ -1,25 +1,33 @@
-import type { Toast } from '../hooks/useToast'
+/**
+ * FILE: Toast.tsx — the little bottom-right notification from the old app.
+ * One global toast; each call replaces the previous message.
+ * USED BY: every page, via useToast()
+ */
+import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react'
 
-interface Props {
-  toasts: Toast[]
-}
+const ToastContext = createContext<(msg: string) => void>(() => {})
 
-export function ToastContainer({ toasts }: Props) {
-  if (!toasts.length) return null
+export function ToastProvider({ children }: { children: ReactNode }) {
+  const [msg, setMsg] = useState('')
+  const [show, setShow] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const toast = useCallback((m: string) => {
+    setMsg(m)
+    setShow(true)
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(() => setShow(false), 2200)
+  }, [])
+
   return (
-    <div className="fixed bottom-5 right-5 flex flex-col gap-2 z-50">
-      {toasts.map(t => (
-        <div
-          key={t.id}
-          className={`px-4 py-3 rounded-lg text-sm font-medium shadow-lg animate-fade-in ${
-            t.type === 'success' ? 'bg-green-600 text-white' :
-            t.type === 'error'   ? 'bg-red-600 text-white' :
-                                   'bg-slate-700 text-white'
-          }`}
-        >
-          {t.message}
-        </div>
-      ))}
-    </div>
+    <ToastContext.Provider value={toast}>
+      {children}
+      <div className={'toast' + (show ? ' show' : '')}>{msg}</div>
+    </ToastContext.Provider>
   )
 }
+
+// Hook exported beside its provider on purpose — they are one unit.
+// Only HMR fast-refresh granularity is affected.
+// eslint-disable-next-line react-refresh/only-export-components
+export const useToast = () => useContext(ToastContext)

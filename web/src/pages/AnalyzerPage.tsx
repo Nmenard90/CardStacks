@@ -1,214 +1,324 @@
-import { useState, useMemo } from 'react'
+/**
+ * FILE: AnalyzerPage.tsx
+ * LOCATION: src/pages/AnalyzerPage.tsx
+ *
+ * PURPOSE:
+ *   The Trade Analyzer — a 1:1 port of the old analyzer.html. Two
+ *   columns (You Give / You Get), a per-card condition pill row and
+ *   1st Edition toggle, the live verdict banner with totals and a
+ *   lopsided-trade warning, and the Add-a-Card search modal (name
+ *   search across all sets, optional set filter, or browse a whole
+ *   set when no name is typed).
+ *
+ *   Pricing: per-condition prices come straight off the card's API
+ *   prices; 1st Edition applies the old 1.3× estimate on top.
+ *
+ * IMPORTS EXPLAINED:
+ *   searchCards/getCards/getSets — card lookup endpoints
+ *   condPrice                    — condition pricing shared with the tracker
+ *   useUser                      — shows the badge + collection hint panel
+ *
+ * USED BY: App (route "/analyzer")
+ * DEPENDS ON: api/cards, api/collection, lib/conditions, styles/analyzer.css
+ */
 import { useQuery } from '@tanstack/react-query'
-import { searchCards, getSets, getCardsBySet } from '../api/cards'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { getCards, getSets, searchCards } from '../api/cards'
+import { getStats } from '../api/collection'
+import { useUser } from '../context/UserContext'
+import { CONDS, condPrice, type Cond } from '../lib/conditions'
 import type { Card } from '../types'
 
-const CONDITIONS = ['NM', 'LP', 'MP', 'HP', 'DMG'] as const
-const COND_MULT: Record<string, number> = { NM: 1.0, LP: 0.85, MP: 0.70, HP: 0.50, DMG: 0.30 }
+/** Which column a card sits in. */
+type Side = 'give' | 'get'
 
-interface TradeCard {
+/** One card in the trade, with its chosen condition and edition. */
+interface TradeItem {
   card: Card
-  condition: string
+  setName: string
+  cond: Cond
+  firstEd: boolean
 }
 
-interface TradeCardPickerProps {
-  open: boolean
-  onClose: () => void
-  onPick: (card: Card) => void
-}
+/** Old page's estimate: 1st Edition copies fetch roughly 1.3× the base. */
+const FIRST_ED_MULT = 1.3
 
-function TradeCardPicker({ open, onClose, onPick }: TradeCardPickerProps) {
-  const [query, setQuery] = useState('')
-  const [setId, setSetId] = useState('')
-
-  const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets })
-  const { data: setCards = [] } = useQuery({
-    queryKey: ['cards', setId],
-    queryFn: () => getCardsBySet(setId),
-    enabled: !!setId,
-  })
-  const { data: searchResults = [] } = useQuery({
-    queryKey: ['search', query],
-    queryFn: () => searchCards(query),
-    enabled: query.length >= 2,
-  })
-
-  const results = query.length >= 2 ? searchResults : setCards
-
-  if (!open) return null
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm"
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
-    >
-      <div className="bg-[#1c1c24] border border-white/10 rounded-2xl w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col shadow-2xl">
-        <div className="flex items-center gap-3 p-4 border-b border-white/10">
-          <input
-            autoFocus
-            value={query}
-            onChange={e => { setQuery(e.target.value); if (e.target.value.length >= 2) setSetId('') }}
-            placeholder="Search by card name…"
-            className="flex-1 bg-[#13111e] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none"
-          />
-          <select
-            value={setId}
-            onChange={e => { setSetId(e.target.value); setQuery('') }}
-            className="bg-[#13111e] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none"
-          >
-            <option value="">All sets…</option>
-            {sets.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl leading-none">×</button>
-        </div>
-        <div className="overflow-y-auto p-3">
-          <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))' }}>
-            {results.map(card => (
-              <button
-                key={card.id}
-                onClick={() => { onPick(card); onClose() }}
-                className="group flex flex-col gap-1 p-1.5 rounded-lg hover:bg-white/5 transition-colors text-left"
-              >
-                <img src={card.images.small} alt={card.name} className="w-full rounded aspect-[2.5/3.5] object-cover" />
-                <span className="text-[10px] text-slate-400 truncate group-hover:text-white leading-tight">{card.name}</span>
-                {card.prices?.nm != null && (
-                  <span className="text-[10px] text-[#ffcb05]">${card.prices.nm.toFixed(2)}</span>
-                )}
-              </button>
-            ))}
-            {results.length === 0 && (query.length >= 2 || setId) && (
-              <div className="col-span-full text-center py-8 text-slate-500 text-sm">No cards found</div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function cardValue(tc: TradeCard): number {
-  const base = tc.card.prices?.nm ?? 0
-  return base * (COND_MULT[tc.condition] ?? 1)
+/** Dollar value of one trade item under its chosen condition/edition. */
+const itemPrice = (item: TradeItem): number => {
+  const base = condPrice(item.card, item.cond)
+  return item.firstEd ? +(base * FIRST_ED_MULT).toFixed(2) : base
 }
 
 export function AnalyzerPage() {
-  const [giving, setGiving] = useState<TradeCard[]>([])
-  const [getting, setGetting] = useState<TradeCard[]>([])
-  const [pickerTarget, setPickerTarget] = useState<'give' | 'get' | null>(null)
+  const { user } = useUser()
 
-  const givingTotal  = useMemo(() => giving.reduce((s, c) => s + cardValue(c), 0), [giving])
-  const gettingTotal = useMemo(() => getting.reduce((s, c) => s + cardValue(c), 0), [getting])
-  const diff         = gettingTotal - givingTotal
-  const pct          = givingTotal > 0 ? Math.abs(diff / givingTotal) * 100 : 0
+  // ── Trade state ─────────────────────────────────────────────────────────
+  const [give, setGive] = useState<TradeItem[]>([])
+  const [get, setGet] = useState<TradeItem[]>([])
+  // Which side the modal is adding to; null = closed.
+  const [modalSide, setModalSide] = useState<Side | null>(null)
 
-  const verdict = useMemo(() => {
-    if (giving.length === 0 && getting.length === 0)
-      return { label: 'Add cards to analyze', color: '#6366f1', icon: '⚖️', desc: 'Add cards to both sides to see if a trade is fair.' }
-    if (Math.abs(diff) < 0.5 || pct < 3)
-      return { label: 'Fair Trade', color: '#22c55e', icon: '✅', desc: 'Both sides are roughly equal in value.' }
-    if (diff < 0)
-      return { label: `You're Overpaying`, color: '#ef4444', icon: '⚠️', desc: `You're giving ${pct.toFixed(0)}% more than you're getting.` }
-    return { label: `You're Getting a Deal`, color: '#3b82f6', icon: '🎉', desc: `You're receiving ${pct.toFixed(0)}% more than you're giving.` }
-  }, [diff, pct, giving.length, getting.length])
+  // ── Search modal state ──────────────────────────────────────────────────
+  const [query, setQuery] = useState('')
+  const [filterSetId, setFilterSetId] = useState('')
+  const [results, setResults] = useState<Card[]>([])
+  const [searchMsg, setSearchMsg] = useState('Type to search for a card')
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
-  const renderSide = (_cards: TradeCard[], side: 'give' | 'get') => {
-    const list = side === 'give' ? giving : getting
-    const setList = side === 'give' ? setGiving : setGetting
-    const total = side === 'give' ? givingTotal : gettingTotal
+  const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets })
+  const setName = useMemo(() => new Map(sets.map(s => [s.id, s.name])), [sets])
 
+  // The hint panel shows once we know the user owns anything at all.
+  const { data: stats } = useQuery({
+    queryKey: ['stats', user?.id], queryFn: () => getStats(user!.id), enabled: !!user,
+  })
+
+  // ── Search (debounced 350 ms, like the old page) ────────────────────────
+  useEffect(() => {
+    if (modalSide === null) return
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    searchTimer.current = setTimeout(async () => {
+      const q = query.trim()
+      if (!q && !filterSetId) { setResults([]); setSearchMsg('Type a card name to search'); return }
+      if (q && q.length < 2) { setResults([]); setSearchMsg('Keep typing…'); return }
+      setResults([]); setSearchMsg('Searching…')
+      try {
+        // Name search across all sets — or browse the chosen set when no name.
+        let cards = q ? await searchCards(q) : await getCards(filterSetId)
+        if (q && filterSetId) cards = cards.filter(c => c.setId === filterSetId)
+        if (cards.length === 0) { setSearchMsg('No cards found — try a different name or set'); return }
+        setResults(cards.slice(0, 60))
+        setSearchMsg('')
+      } catch {
+        setSearchMsg('Search failed — check your connection')
+      }
+    }, 350)
+  }, [query, filterSetId, modalSide])
+
+  const openModal = (side: Side) => {
+    setModalSide(side)
+    setQuery('')
+    setResults([])
+    setSearchMsg('Type to search for a card')
+    setTimeout(() => inputRef.current?.focus(), 50)
+  }
+  const closeModal = () => setModalSide(null)
+
+  // Escape closes the modal — like the old page.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeModal() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // ── Mutations on the two sides ──────────────────────────────────────────
+  const addCard = (card: Card) => {
+    const item: TradeItem = { card, setName: setName.get(card.setId) ?? card.setId, cond: 'NM', firstEd: false }
+    if (modalSide === 'give') setGive(s => [...s, item])
+    else setGet(s => [...s, item])
+    closeModal()
+  }
+  const update = (side: Side, idx: number, patch: Partial<TradeItem>) => {
+    const setter = side === 'give' ? setGive : setGet
+    setter(items => items.map((it, i) => (i === idx ? { ...it, ...patch } : it)))
+  }
+  const remove = (side: Side, idx: number) => {
+    const setter = side === 'give' ? setGive : setGet
+    setter(items => items.filter((_, i) => i !== idx))
+  }
+
+  // ── Verdict — port of the old updateVerdict() ───────────────────────────
+  const giveTotal = give.reduce((s, i) => s + itemPrice(i), 0)
+  const getTotal = get.reduce((s, i) => s + itemPrice(i), 0)
+  const diff = getTotal - giveTotal // positive = you receive more
+  const pct = giveTotal > 0 ? Math.abs((diff / giveTotal) * 100) : 0
+  const empty = give.length === 0 && get.length === 0
+  const fair = !empty && (Math.abs(diff) < 0.5 || (giveTotal > 0 && pct < 3))
+
+  const verdictClass = empty ? '' : fair ? 'fair' : diff < 0 ? 'giving' : 'getting'
+  const verdictIcon = empty ? '⚖️' : fair ? '✅' : diff < 0 ? '⚠️' : '🎉'
+  const verdictTitle = empty
+    ? 'Add cards to both sides to analyze the trade'
+    : fair ? 'Fair Trade'
+    : diff < 0 ? `You're giving $${Math.abs(diff).toFixed(2)} more than you're getting`
+    : `You're getting $${diff.toFixed(2)} more than you're giving`
+  const verdictDesc = empty
+    ? 'Select the condition for each card — prices update automatically'
+    : fair ? 'Both sides are within $0.50 of each other. This is a solid deal.'
+    : diff < 0 ? `Your cards are worth ${pct.toFixed(0)}% more. Make sure you're ok with this difference.`
+    : `You're receiving ${pct.toFixed(0)}% more value. Good deal for you!`
+  const showWarn = !empty && !fair && diff < 0 && pct > 15
+
+  // ── One trade column ────────────────────────────────────────────────────
+  const renderColumn = (side: Side, items: TradeItem[]) => {
+    const total = items.reduce((s, i) => s + itemPrice(i), 0)
     return (
-      <div className="flex-1 bg-[#1c1c24] rounded-xl border border-white/10 p-4 flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-300">{side === 'give' ? '🔴 You Give' : '🟢 You Get'}</h2>
-          <span className="text-sm font-bold text-[#ffcb05]">${total.toFixed(2)}</span>
+      <div className="trade-col">
+        <div className="col-head">
+          <span className={`col-badge ${side === 'give' ? 'giving' : 'getting'}`}>
+            {side === 'give' ? 'You Give' : 'You Get'}
+          </span>
+          <h3>{items.length === 0 ? 'Nothing yet' : `${items.length} card${items.length !== 1 ? 's' : ''}`}</h3>
+          <span className="col-total">{total > 0 ? '$' + total.toFixed(2) : ''}</span>
         </div>
-
-        {list.map((tc, i) => (
-          <div key={tc.card.id + i} className="flex items-center gap-3 bg-[#13111e] rounded-lg p-2">
-            <img src={tc.card.images.small} alt={tc.card.name} className="w-10 h-14 object-contain rounded shrink-0" />
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium text-white truncate">{tc.card.name}</div>
-              <div className="text-xs text-slate-500 truncate">{tc.card.setId}</div>
-              <div className="flex gap-1 mt-1">
-                {CONDITIONS.map(c => (
-                  <button
-                    key={c}
-                    onClick={() => {
-                      const updated = [...list]
-                      updated[i] = { ...tc, condition: c }
-                      setList(updated)
-                    }}
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border transition-colors ${
-                      tc.condition === c
-                        ? 'bg-white/10 border-white/30 text-white'
-                        : 'border-white/10 text-slate-500 hover:text-white'
-                    }`}
-                  >
-                    {c}
-                  </button>
-                ))}
+        <div className="col-cards">
+          {items.length === 0 && (
+            <div className="empty-col">
+              <div className="ei">{side === 'give' ? '📤' : '📥'}</div>
+              {side === 'give' ? "Cards you're offering" : "Cards you're receiving"}
+            </div>
+          )}
+          {items.map((item, i) => {
+            const price = itemPrice(item)
+            return (
+              <div className="tcard" key={`${item.card.id}-${i}`}>
+                {item.card.images?.small
+                  ? <img className="tcard-img" src={item.card.images.small} alt={item.card.name} />
+                  : <div className="tcard-img" />}
+                <div className="tcard-info">
+                  <div className="tcard-name">{item.card.name}</div>
+                  <div className="tcard-set">#{item.card.number} · {item.setName}</div>
+                  <div className="tcard-prices">
+                    {CONDS.map(cn => (
+                      <div
+                        key={cn}
+                        className={`tcard-cond ${cn}${item.cond === cn ? ' sel' : ''}`}
+                        title={`${cn}: ${condPrice(item.card, cn) > 0 ? '$' + condPrice(item.card, cn).toFixed(2) : '—'}`}
+                        onClick={() => update(side, i, { cond: cn })}
+                      >
+                        {cn}
+                      </div>
+                    ))}
+                  </div>
+                  <label className={'fed-toggle' + (item.firstEd ? ' active' : '')}>
+                    <input
+                      type="checkbox" checked={item.firstEd}
+                      onChange={e => update(side, i, { firstEd: e.target.checked })}
+                    />
+                    1st Edition {item.firstEd && <span style={{ color: '#fbbf24' }}>★</span>}
+                  </label>
+                </div>
+                <div className="tcard-val">{price > 0 ? '$' + price.toFixed(2) : '—'}</div>
+                <button className="tcard-rm" title="Remove" onClick={() => remove(side, i)}>✕</button>
               </div>
-            </div>
-            <div className="text-right shrink-0">
-              <div className="text-xs text-[#ffcb05] font-bold">${cardValue(tc).toFixed(2)}</div>
-              <button
-                onClick={() => setList(list.filter((_, j) => j !== i))}
-                className="text-slate-600 hover:text-red-400 text-sm mt-1 transition-colors"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        ))}
-
-        <button
-          onClick={() => setPickerTarget(side)}
-          className="w-full py-2 border border-dashed border-white/10 hover:border-white/20 rounded-lg text-xs text-slate-500 hover:text-white transition-colors"
-        >
-          + Add a card
-        </button>
+            )
+          })}
+        </div>
+        <div style={{ padding: '0 10px 10px' }}>
+          <button className="add-btn" onClick={() => openModal(side)}>+ Add a card</button>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6 flex flex-col gap-6">
-      {/* Verdict banner */}
-      <div
-        className="rounded-xl p-5 border text-center"
-        style={{ borderColor: `${verdict.color}33`, backgroundColor: `${verdict.color}11` }}
-      >
-        <div className="text-3xl mb-1">{verdict.icon}</div>
-        <div className="text-lg font-bold" style={{ color: verdict.color }}>{verdict.label}</div>
-        <div className="text-sm text-slate-400 mt-1">{verdict.desc}</div>
-        {giving.length > 0 && getting.length > 0 && (
-          <div className="flex justify-center gap-8 mt-3 text-sm">
-            <span>You give: <strong className="text-white">${givingTotal.toFixed(2)}</strong></span>
-            <span>You get: <strong className="text-white">${gettingTotal.toFixed(2)}</strong></span>
-            <span>Difference: <strong style={{ color: diff >= 0 ? '#22c55e' : '#ef4444' }}>{diff >= 0 ? '+' : ''}{diff.toFixed(2)}</strong></span>
+    <div className="page-analyzer">
+      <div id="bar">
+        <Link className="back" to="/">← Collection</Link>
+        <span className="bar-title">Trade <span>Analyzer</span></span>
+        <div className="gap" />
+        {user && <span className="bar-user">{user.username}</span>}
+      </div>
+
+      <div id="page">
+        {/* Verdict */}
+        <div id="verdict" className={verdictClass}>
+          <div className="verdict-icon">{verdictIcon}</div>
+          <div className="verdict-text">
+            <h2>{verdictTitle}</h2>
+            <p>{verdictDesc}</p>
+          </div>
+          <div className="verdict-bar">
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 10, color: 'var(--muted)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 2 }}>You Give</div>
+                <div style={{ fontSize: 16, fontWeight: 800 }}>{giveTotal > 0 ? '$' + giveTotal.toFixed(2) : '—'}</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 10, color: 'var(--muted)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 2 }}>You Get</div>
+                <div style={{ fontSize: 16, fontWeight: 800 }}>{getTotal > 0 ? '$' + getTotal.toFixed(2) : '—'}</div>
+              </div>
+              <div style={{ textAlign: 'center', borderLeft: '1px solid var(--border)', paddingLeft: 16 }}>
+                <div style={{ fontSize: 10, color: 'var(--muted)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 2 }}>Difference</div>
+                <div className={'verdict-diff ' + (empty || fair ? 'zero' : diff < 0 ? 'neg' : 'pos')}>
+                  {empty ? '—' : fair ? '~Even' : (diff < 0 ? '-' : '+') + '$' + Math.abs(diff).toFixed(2)}
+                </div>
+                <div className="verdict-pct">
+                  {!empty && !fair && (diff < 0 ? `You overpay by ${pct.toFixed(0)}%` : `You get ${pct.toFixed(0)}% more value`)}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Trade columns */}
+        <div id="cols">
+          {renderColumn('give', give)}
+          <div id="vs">
+            <div className="vs-circle">VS</div>
+            <div className="vs-arrow">⇄</div>
+          </div>
+          {renderColumn('get', get)}
+        </div>
+
+        {/* Lopsided-trade warning */}
+        <div className={'warn-banner' + (showWarn ? ' show' : '')}>
+          ⚠️ <strong>Heads up:</strong> You're giving significantly more than you're receiving.
+          Make sure the other party isn't taking advantage. Always verify card values on TCGPlayer before trading.
+        </div>
+
+        {/* Collection hint panel — shown once the user owns anything */}
+        {user && (stats?.totalCards ?? 0) > 0 && (
+          <div id="collPanel" className="show">
+            <div className="cp-head">Quick Add from Your Collection</div>
+            <div className="cp-grid">
+              <div style={{ color: 'var(--muted)', fontSize: 12, padding: '4px 0' }}>
+                Search for a card above to quickly add from your collection
+              </div>
+            </div>
           </div>
         )}
       </div>
 
-      {/* Two sides */}
-      <div className="flex gap-4 items-start">
-        {renderSide(giving, 'give')}
-
-        <div className="w-10 h-10 rounded-full bg-[#1c1c24] border border-white/10 flex items-center justify-center text-slate-400 shrink-0 mt-16 text-lg">
-          ⇄
+      {/* Add-a-card search modal */}
+      <div id="modal" className={modalSide !== null ? 'open' : ''} onClick={e => { if (e.target === e.currentTarget) closeModal() }}>
+        <div id="mbox">
+          <div className="mh">
+            <h3>{modalSide === 'give' ? "Add Card You're Giving" : "Add Card You're Getting"}</h3>
+            <button className="mx" onClick={closeModal}>✕</button>
+          </div>
+          <div className="msearch">
+            <input
+              ref={inputRef} placeholder="Search by name e.g. Charizard ex…"
+              value={query} onChange={e => setQuery(e.target.value)}
+            />
+            <select value={filterSetId} onChange={e => setFilterSetId(e.target.value)}>
+              <option value="">All sets (filter optional)</option>
+              {sets.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+          <div id="mresults">
+            {searchMsg && <div id="mloading">{searchMsg}</div>}
+            {!searchMsg && results.map(c => {
+              const price = condPrice(c, 'NM')
+              return (
+                <div className="mcard" key={c.id} onClick={() => addCard(c)}>
+                  {c.images?.small
+                    ? <img src={c.images.small} alt={c.name} loading="lazy" />
+                    : <div style={{ width: 36, height: 50, background: 'var(--surface2)', borderRadius: 4, flexShrink: 0 }} />}
+                  <div className="mcard-info">
+                    <div className="mcard-name">{c.name}</div>
+                    <div className="mcard-meta">#{c.number} · {setName.get(c.setId) ?? c.setId}{c.rarity ? ' · ' + c.rarity : ''}</div>
+                  </div>
+                  <div className="mcard-price">{price > 0 ? '$' + price.toFixed(2) : '—'}</div>
+                </div>
+              )
+            })}
+          </div>
         </div>
-
-        {renderSide(getting, 'get')}
       </div>
-
-      <TradeCardPicker
-        open={!!pickerTarget}
-        onClose={() => setPickerTarget(null)}
-        onPick={card => {
-          if (pickerTarget === 'give') setGiving(prev => [...prev, { card, condition: 'NM' }])
-          else if (pickerTarget === 'get') setGetting(prev => [...prev, { card, condition: 'NM' }])
-        }}
-      />
     </div>
   )
 }

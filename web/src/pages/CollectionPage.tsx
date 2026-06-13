@@ -1,493 +1,365 @@
-import { useState, useMemo, useRef, useCallback } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getSets, getCardsBySet } from '../api/cards'
-import { getCollection, getCollectionStats, updateCollectionEntry } from '../api/collection'
+/**
+ * FILE: CollectionPage.tsx
+ * LOCATION: src/pages/CollectionPage.tsx
+ *
+ * PURPOSE:
+ *   The main tracker — a full-parity port of the old index.html:
+ *   header (set selector, card search, page links, owned-only, CSV
+ *   export/import, clear set, switch user), the five-stat bar, sort
+ *   toolbar, set info + quick-add row, the condition-aware card grid,
+ *   the Recently Added sidebar, and the hover preview overlay.
+ *
+ *   Data model: a local map cardId → {conds, selCond} mirrors the
+ *   backend collection; every mutation updates the map optimistically
+ *   and POSTs the card's full condition list to the Scala API.
+ *
+ * USED BY: App (route "/")
+ */
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { getCards, getSets } from '../api/cards'
+import { bulkSave, getCollection, getStats, saveEntry } from '../api/collection'
+import { CardTile } from '../components/CardTile'
+import { usePreview } from '../components/CardPreview'
+import { ImportModal } from '../components/ImportModal'
+import { LoginScreen } from '../components/LoginScreen'
+import { RecentSidebar, type SessionCard } from '../components/RecentSidebar'
+import { SetSelector } from '../components/SetSelector'
+import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
-import { condColor } from '../components/ConditionBadge'
-import type { Card, CardSet, ConditionCount } from '../types'
+import {
+  basePrice, cardValue, condPrice, fromCondList, toCondList, totalQty, type CondMap,
+} from '../lib/conditions'
+import { downloadCSV, type ImportRow } from '../lib/csv'
+import type { Card } from '../types'
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+/** Local state for one card: counts per condition + the active condition. */
+interface Entry { conds: CondMap; selCond: string }
 
-const CONDITIONS = ['NM', 'LP', 'MP', 'HP', 'DMG'] as const
-type Condition = typeof CONDITIONS[number]
+type SortMode = 'number' | 'value' | 'qty' | 'name'
 
-type SortKey = 'number' | 'name' | 'value' | 'quantity'
-
-interface RecentCard {
-  card: Card
-  condition: Condition
-  qty: number
+/** Card numbers sort numerically when possible ("2" before "10"). */
+const numKey = (n: string) => {
+  const m = n.match(/\d+/)
+  return m ? parseInt(m[0], 10) : Number.MAX_SAFE_INTEGER
 }
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-// Strips leading zeros so "001" matches card number "1"
-const normalizeNum = (n: string) => n.split('/')[0].trim().replace(/^0+/, '') || '0'
-
-const condMult: Record<Condition, number> = { NM: 1, LP: 0.85, MP: 0.70, HP: 0.50, DMG: 0.30 }
-
-function cardConditionValue(card: Card, cond: Condition): number {
-  const nm = card.prices?.nm ?? 0
-  return +(nm * condMult[cond]).toFixed(2)
-}
-
-// ─── Set Selector ─────────────────────────────────────────────────────────────
-
-function SetSelector({
-  sets, selectedId, onSelect,
-}: { sets: CardSet[]; selectedId: string | null; onSelect: (id: string) => void }) {
-  const [open, setOpen] = useState(false)
-  const [search, setSearch] = useState('')
-
-  const grouped = useMemo(() => {
-    const q = search.toLowerCase()
-    const filtered = q ? sets.filter(s => s.name.toLowerCase().includes(q)) : sets
-    const map = new Map<string, CardSet[]>()
-    for (const s of filtered) {
-      const list = map.get(s.series) ?? []
-      list.push(s)
-      map.set(s.series, list)
-    }
-    return map
-  }, [sets, search])
-
-  const selected = sets.find(s => s.id === selectedId)
-
-  return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen(v => !v)}
-        className="flex items-center gap-2 bg-[#1c1c24] border border-white/10 rounded-lg px-3 py-2 text-sm text-white hover:border-white/20 min-w-[220px] text-left"
-      >
-        {selected ? (
-          <>
-            <img src={selected.images.symbol} alt="" className="w-5 h-5 object-contain shrink-0" />
-            <span className="truncate flex-1">{selected.name}</span>
-          </>
-        ) : (
-          <span className="text-slate-500 flex-1">Select a set…</span>
-        )}
-        <span className="text-slate-500">▾</span>
-      </button>
-
-      {open && (
-        <div className="absolute top-full mt-1 left-0 w-80 bg-[#1c1c24] border border-white/10 rounded-xl shadow-2xl z-30 overflow-hidden">
-          <div className="p-2 border-b border-white/10">
-            <input
-              autoFocus
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search sets…"
-              className="w-full bg-[#13111e] border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none"
-            />
-          </div>
-          <div className="overflow-y-auto max-h-80">
-            {Array.from(grouped.entries()).map(([series, list]) => (
-              <div key={series}>
-                <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider bg-black/20">{series}</div>
-                {list.map(s => (
-                  <button
-                    key={s.id}
-                    onClick={() => { onSelect(s.id); setOpen(false); setSearch('') }}
-                    className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-white/5 transition-colors ${s.id === selectedId ? 'text-[#ffcb05]' : 'text-white'}`}
-                  >
-                    <img src={s.images.symbol} alt="" className="w-5 h-5 object-contain shrink-0" />
-                    <span className="flex-1 text-left truncate">{s.name}</span>
-                    <span className="text-slate-600 text-xs">{s.total}</span>
-                  </button>
-                ))}
-              </div>
-            ))}
-            {grouped.size === 0 && <div className="px-4 py-6 text-center text-slate-500 text-sm">No sets found</div>}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Card Grid Item ────────────────────────────────────────────────────────────
-
-function CardGridItem({
-  card, conditions, onUpdate,
-}: {
-  card: Card
-  conditions: ConditionCount[]
-  onUpdate: (conds: ConditionCount[], sel: string) => void
-}) {
-  const [activeCond, setActiveCond] = useState<Condition>('NM')
-  const [hover, setHover] = useState(false)
-
-  const getQty = (c: Condition) => conditions.find(x => x.condition === c)?.quantity ?? 0
-  const totalOwned = conditions.reduce((s, c) => s + c.quantity, 0)
-
-  const dominantCond = [...CONDITIONS]
-    .filter(c => getQty(c) > 0)
-    .sort((a, b) => getQty(b) - getQty(a))[0]
-
-  const borderColor = dominantCond ? condColor(dominantCond) : undefined
-
-  const adjust = (cond: Condition, delta: number) => {
-    const next: ConditionCount[] = CONDITIONS.map(c => ({
-      condition: c,
-      quantity: Math.max(0, getQty(c) + (c === cond ? delta : 0)),
-      price: card.prices?.[c.toLowerCase() as keyof typeof card.prices] ?? undefined,
-    }))
-    onUpdate(next, activeCond)
-  }
-
-  const price = card.prices?.[activeCond.toLowerCase() as keyof typeof card.prices]
-
-  return (
-    <div
-      className="relative bg-[#1c1c24] rounded-xl border transition-all duration-150 hover:-translate-y-0.5 hover:shadow-lg"
-      style={{ borderColor: totalOwned > 0 ? (borderColor ?? '#6366f144') : '#ffffff14' }}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-    >
-      {hover && card.images.large && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-30 pointer-events-none">
-          <img src={card.images.large} alt={card.name} className="w-40 rounded-lg shadow-2xl border border-white/20" />
-        </div>
-      )}
-
-      <div className="p-3 flex gap-3">
-        <img src={card.images.small} alt={card.name} className="w-14 h-[78px] object-contain rounded shrink-0" />
-        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-          <div className="text-sm font-semibold text-white truncate leading-tight">{card.name}</div>
-          <div className="text-xs text-slate-500">#{card.number}{card.rarity ? ` · ${card.rarity}` : ''}</div>
-          {card.artist && <div className="text-xs text-slate-600 truncate">{card.artist}</div>}
-          {price != null && <div className="text-sm font-bold text-[#ffcb05] mt-auto">${price.toFixed(2)}</div>}
-        </div>
-      </div>
-
-      <div className="px-3 pb-1.5 flex flex-wrap gap-1">
-        {CONDITIONS.map(c => {
-          const qty = getQty(c)
-          const col = condColor(c)
-          const active = activeCond === c
-          return (
-            <button
-              key={c}
-              onClick={() => setActiveCond(c)}
-              style={active || qty > 0 ? { borderColor: col, color: col } : undefined}
-              className={`px-2 py-0.5 rounded text-[11px] font-semibold border transition-all ${active || qty > 0 ? 'bg-white/5' : 'border-white/10 text-slate-600 hover:text-slate-400'}`}
-            >
-              {c}{qty > 0 ? ` ${qty}` : ''}
-            </button>
-          )
-        })}
-      </div>
-
-      <div className="px-3 pb-3 flex items-center gap-2">
-        <button onClick={() => adjust(activeCond, -1)} className="w-7 h-7 rounded bg-white/5 hover:bg-white/10 text-white text-lg leading-none flex items-center justify-center transition-colors">−</button>
-        <span className="text-sm font-bold text-white w-5 text-center">{getQty(activeCond)}</span>
-        <button onClick={() => adjust(activeCond, 1)} className="w-7 h-7 rounded bg-white/5 hover:bg-white/10 text-white text-lg leading-none flex items-center justify-center transition-colors">+</button>
-        {totalOwned > 0 && <span className="ml-auto text-xs text-slate-500">{totalOwned} owned</span>}
-      </div>
-    </div>
-  )
-}
-
-// ─── Recently Added Sidebar ───────────────────────────────────────────────────
-
-function RecentSidebar({
-  recent, onClear, open,
-}: { recent: RecentCard[]; onClear: () => void; open: boolean }) {
-  const totalValue = recent.reduce((s, r) => s + cardConditionValue(r.card, r.condition) * r.qty, 0)
-
-  if (!open) return null
-
-  return (
-    <div className="w-72 shrink-0 bg-[#13111e] border-l border-white/[0.06] flex flex-col overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-white/[0.06]">
-        <span className="text-xs font-semibold text-slate-300">Recently Added ({recent.length})</span>
-        {recent.length > 0 && (
-          <button onClick={onClear} className="text-xs text-slate-500 hover:text-red-400 transition-colors">Clear</button>
-        )}
-      </div>
-
-      {recent.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center gap-2 text-slate-600 text-sm">
-          <span className="text-3xl">📥</span>
-          <span>Quick-add cards below</span>
-        </div>
-      ) : (
-        <>
-          <div className="flex-1 overflow-y-auto divide-y divide-white/[0.04]">
-            {recent.map((r, i) => {
-              const val = cardConditionValue(r.card, r.condition)
-              return (
-                <div key={i} className="flex items-center gap-2.5 px-3 py-2">
-                  <img src={r.card.images.small} alt={r.card.name} className="w-9 h-[50px] object-contain rounded shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium text-white truncate">{r.card.name}</div>
-                    <div className="text-[10px] text-slate-500">#{r.card.number}</div>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-[10px] font-semibold" style={{ color: condColor(r.condition) }}>{r.condition}</span>
-                      <span className="text-[10px] text-slate-500">×{r.qty}</span>
-                    </div>
-                  </div>
-                  <div className="text-xs font-bold text-[#ffcb05] shrink-0">${(val * r.qty).toFixed(2)}</div>
-                </div>
-              )
-            })}
-          </div>
-          <div className="px-3 py-2 border-t border-white/[0.06] flex justify-between items-center">
-            <span className="text-xs text-slate-500">Total</span>
-            <span className="text-sm font-bold text-[#ffcb05]">${totalValue.toFixed(2)}</span>
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
-
-// ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function CollectionPage() {
-  const { user } = useUser()
+  const { user, setUser } = useUser()
+  const toast = useToast()
   const qc = useQueryClient()
+  const preview = usePreview()
 
-  const [selectedSetId, setSelectedSetId] = useState<string | null>(null)
-  const [cardSearch, setCardSearch] = useState('')
-  const [sortKey, setSortKey] = useState<SortKey>('number')
+  // ── UI state, mirroring the old page's globals ─────────────────────────
+  const [setId, setSetId] = useState<string | null>(() => localStorage.getItem('poketracker_set'))
+  const [search, setSearch] = useState('')
   const [ownedOnly, setOwnedOnly] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [recent, setRecent] = useState<RecentCard[]>([])
-
-  // Quick-add input state
-  const [quickNum, setQuickNum] = useState('')
-  const [quickCond, setQuickCond] = useState<Condition>('NM')
-  const [quickFeedback, setQuickFeedback] = useState<'ok' | 'err' | null>(null)
+  const [sort, setSort] = useState<SortMode>('number')
+  const [importOpen, setImportOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [session, setSession] = useState<SessionCard[]>([])
+  // Quick-add row state.
+  const [quick, setQuick] = useState('')
+  const [quickCond, setQuickCond] = useState('NM')
+  const [firstEd, setFirstEd] = useState(false)
+  const [quickMsg, setQuickMsg] = useState<{ text: string; err: boolean } | null>(null)
+  const [quickFlash, setQuickFlash] = useState<'' | 'flash-ok' | 'flash-err'>('')
   const quickRef = useRef<HTMLInputElement>(null)
 
-  const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets })
+  // ── Server data ────────────────────────────────────────────────────────
+  const userId = user?.id ?? ''
+  const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets, enabled: !!user })
+
+  // The active set: the stored choice when it's valid, else the newest set.
+  // Derived rather than synced in an effect so there is no flash of nothing.
+  const activeSetId = useMemo(() => {
+    if (setId && sets.some(s => s.id === setId)) return setId
+    if (sets.length === 0) return null
+    return [...sets].sort((a, b) => b.releaseDate.localeCompare(a.releaseDate))[0].id
+  }, [sets, setId])
+  useEffect(() => { if (activeSetId) localStorage.setItem('poketracker_set', activeSetId) }, [activeSetId])
 
   const { data: cards = [], isLoading: cardsLoading } = useQuery({
-    queryKey: ['cards', selectedSetId],
-    queryFn: () => getCardsBySet(selectedSetId!),
-    enabled: !!selectedSetId,
+    queryKey: ['cards', activeSetId], queryFn: () => getCards(activeSetId!), enabled: !!user && !!activeSetId,
   })
-
-  const { data: collection = [] } = useQuery({
-    queryKey: ['collection', user?.id],
-    queryFn: () => getCollection(user!.id),
-    enabled: !!user,
-  })
-
   const { data: stats } = useQuery({
-    queryKey: ['collectionStats', user?.id],
-    queryFn: () => getCollectionStats(user!.id),
-    enabled: !!user,
+    queryKey: ['stats', userId], queryFn: () => getStats(userId), enabled: !!user,
   })
 
-  const updateMutation = useMutation({
-    mutationFn: ({ cardId, conditions, selectedCond }: { cardId: string; conditions: ConditionCount[]; selectedCond: string }) =>
-      updateCollectionEntry(user!.id, cardId, conditions, selectedCond),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['collection', user?.id] })
-      qc.invalidateQueries({ queryKey: ['collectionStats', user?.id] })
-    },
-  })
+  // Local collection map, seeded from the backend once per user.
+  const [coll, setColl] = useState<Record<string, Entry>>({})
+  useEffect(() => {
+    if (!userId) return
+    getCollection(userId)
+      .then(entries => {
+        const m: Record<string, Entry> = {}
+        for (const e of entries) m[e.cardId] = { conds: fromCondList(e.conditions), selCond: e.selectedCond || 'NM' }
+        setColl(m)
+      })
+      .catch(() => toast('Could not load your collection.'))
+  }, [userId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const entryMap = useMemo(() => new Map(collection.map(e => [e.cardId, e])), [collection])
+  const cardById = useMemo(() => new Map(cards.map(c => [c.id, c])), [cards])
 
-  const getConditions = useCallback((cardId: string): ConditionCount[] => {
-    return entryMap.get(cardId)?.conditions ?? []
-  }, [entryMap])
-
-  const handleUpdate = useCallback((cardId: string, conditions: ConditionCount[], sel: string) => {
-    if (!user) return
-    updateMutation.mutate({ cardId, conditions, selectedCond: sel })
-  }, [user, updateMutation])
-
-  // ── Quick add ────────────────────────────────────────────────────────────────
-
-  const handleQuickAdd = () => {
-    if (!user) { setQuickFeedback('err'); setTimeout(() => setQuickFeedback(null), 1500); return }
-    if (!selectedSetId || cards.length === 0) { setQuickFeedback('err'); setTimeout(() => setQuickFeedback(null), 1500); return }
-
-    const typed = normalizeNum(quickNum)
-    const card = cards.find(c => normalizeNum(c.number) === typed)
-
-    if (!card) {
-      setQuickFeedback('err')
-      setTimeout(() => setQuickFeedback(null), 1500)
-      return
-    }
-
-    const existing = entryMap.get(card.id)?.conditions ?? []
-    const next: ConditionCount[] = CONDITIONS.map(c => ({
-      condition: c,
-      quantity: (existing.find(x => x.condition === c)?.quantity ?? 0) + (c === quickCond ? 1 : 0),
-      price: card.prices?.[c.toLowerCase() as keyof typeof card.prices] ?? undefined,
-    }))
-    updateMutation.mutate({ cardId: card.id, conditions: next, selectedCond: quickCond })
-
-    setRecent(prev => {
-      const existing = prev.find(r => r.card.id === card.id && r.condition === quickCond)
-      if (existing) return prev.map(r => r === existing ? { ...r, qty: r.qty + 1 } : r)
-      return [{ card, condition: quickCond, qty: 1 }, ...prev].slice(0, 100)
-    })
-
-    setQuickFeedback('ok')
-    setTimeout(() => setQuickFeedback(null), 800)
-    setQuickNum('')
-    quickRef.current?.focus()
-    if (!sidebarOpen) setSidebarOpen(true)
+  // ── Persistence: optimistic local update + POST, like the old saveOne ──
+  const persist = (card: Card, entry: Entry) => {
+    saveEntry(userId, card.id, toCondList(entry.conds, card), entry.selCond)
+      .then(() => qc.invalidateQueries({ queryKey: ['stats', userId] }))
+      .catch(() => toast('Save failed — change not stored.'))
   }
 
-  // ── Filtered / sorted cards ──────────────────────────────────────────────────
-
-  const filteredCards = useMemo(() => {
-    let list = [...cards]
-    if (ownedOnly) list = list.filter(c => entryMap.has(c.id))
-    if (cardSearch.trim()) {
-      const q = cardSearch.toLowerCase()
-      list = list.filter(c => c.name.toLowerCase().includes(q) || normalizeNum(c.number).startsWith(normalizeNum(q)))
-    }
-    list.sort((a, b) => {
-      if (sortKey === 'number') return parseInt(normalizeNum(a.number)) - parseInt(normalizeNum(b.number))
-      if (sortKey === 'name')   return a.name.localeCompare(b.name)
-      if (sortKey === 'value')  return (b.prices?.nm ?? 0) - (a.prices?.nm ?? 0)
-      if (sortKey === 'quantity') {
-        const aq = entryMap.get(a.id)?.conditions.reduce((s, c) => s + c.quantity, 0) ?? 0
-        const bq = entryMap.get(b.id)?.conditions.reduce((s, c) => s + c.quantity, 0) ?? 0
-        return bq - aq
-      }
-      return 0
+  const mutate = (card: Card, fn: (e: Entry) => Entry) => {
+    setColl(prev => {
+      const cur = prev[card.id] ?? { conds: {}, selCond: 'NM' }
+      const next = fn({ conds: { ...cur.conds }, selCond: cur.selCond })
+      persist(card, next)
+      return { ...prev, [card.id]: next }
     })
-    return list
-  }, [cards, cardSearch, sortKey, ownedOnly, entryMap])
+  }
 
-  const ownedCount = cards.filter(c => entryMap.has(c.id)).length
-  const pct = cards.length > 0 ? Math.round((ownedCount / cards.length) * 100) : 0
+  /** +/− on the selected condition; + also feeds the session sidebar. */
+  const adj = (card: Card, delta: number) => {
+    const entry = coll[card.id] ?? { conds: {}, selCond: 'NM' }
+    const key = entry.selCond
+    mutate(card, e => {
+      const next = Math.max(0, (e.conds[key] ?? 0) + delta)
+      if (next === 0) delete e.conds[key]; else e.conds[key] = next
+      return e
+    })
+    if (delta > 0) {
+      setSession(s => [{ card, condKey: key, price: condPrice(card, key) }, ...s])
+      setSidebarOpen(true)
+    }
+  }
+
+  const setQty = (card: Card, qty: number) =>
+    mutate(card, e => {
+      if (qty === 0) delete e.conds[e.selCond]; else e.conds[e.selCond] = qty
+      return e
+    })
+
+  const selectCond = (card: Card, cond: string) =>
+    setColl(prev => ({
+      ...prev,
+      [card.id]: { conds: { ...(prev[card.id]?.conds ?? {}) }, selCond: cond },
+    }))
+
+  const adjCond = (card: Card, cond: string, delta: number) =>
+    mutate(card, e => {
+      const next = Math.max(0, (e.conds[cond] ?? 0) + delta)
+      if (next === 0) delete e.conds[cond]; else e.conds[cond] = next
+      return e
+    })
+
+  // ── Quick add: Enter on a card number adds one in the chosen condition ─
+  const quickAdd = () => {
+    const raw = quick.trim()
+    if (!raw) return
+    const card =
+      cards.find(c => c.number.toLowerCase() === raw.toLowerCase()) ||
+      cards.find(c => String(parseInt(c.number, 10)) === String(parseInt(raw, 10))) ||
+      cards.find(c => c.number.toLowerCase().startsWith(raw.toLowerCase()))
+    if (!card) {
+      setQuickFlash('flash-err')
+      setQuickMsg({ text: 'not found: ' + raw, err: true })
+      setTimeout(() => setQuickFlash(''), 600)
+      setQuick('')
+      return
+    }
+    const key = firstEd ? quickCond + ' 1st Ed' : quickCond
+    mutate(card, e => { e.conds[key] = (e.conds[key] ?? 0) + 1; return e })
+    setSession(s => [{ card, condKey: key, price: condPrice(card, key) }, ...s])
+    setSidebarOpen(true)
+    setQuickFlash('flash-ok')
+    const p = condPrice(card, key)
+    setQuickMsg({ text: `✓ #${card.number} ${card.name} (${key})${p > 0 ? ' · $' + p.toFixed(2) : ''}`, err: false })
+    setTimeout(() => setQuickFlash(''), 400)
+    setQuick('')
+    quickRef.current?.focus()
+  }
+
+  // ── CSV export / import / clear set ────────────────────────────────────
+  const exportCSV = () => {
+    const rows: (string | number)[][] = [['Card ID', 'Name', 'Set', 'Number', 'Rarity', 'Condition', 'Quantity', 'Market Price', 'Total Value']]
+    for (const [id, e] of Object.entries(coll)) {
+      const card = cardById.get(id)
+      for (const [cond, q] of Object.entries(e.conds)) {
+        if (q <= 0) continue
+        const p = condPrice(card, cond)
+        rows.push([id, card?.name ?? '', card?.setId ?? id.split('-')[0], card?.number ?? '', card?.rarity ?? '', cond, q, p.toFixed(2), (p * q).toFixed(2)])
+      }
+    }
+    if (rows.length === 1) { toast('Nothing to export yet.'); return }
+    downloadCSV(`pokemon_collection_${user!.username}_${new Date().toISOString().slice(0, 10)}.csv`, rows)
+    toast(`Exported ${rows.length - 1} rows.`)
+  }
+
+  const runImport = async (rows: ImportRow[]): Promise<string> => {
+    // Merge rows by card so multiple condition lines combine.
+    const byCard = new Map<string, CondMap>()
+    for (const r of rows) {
+      const m = byCard.get(r.cardId) ?? {}
+      if (r.quantity > 0) m[r.condition] = (m[r.condition] ?? 0) + r.quantity
+      byCard.set(r.cardId, m)
+    }
+    await bulkSave(userId, [...byCard.entries()].map(([cardId, conds]) => ({
+      cardId,
+      conditions: toCondList(conds, cardById.get(cardId)),
+      selectedCond: 'NM',
+    })))
+    setColl(prev => {
+      const next = { ...prev }
+      for (const [cardId, conds] of byCard) next[cardId] = { conds, selCond: prev[cardId]?.selCond ?? 'NM' }
+      return next
+    })
+    qc.invalidateQueries({ queryKey: ['stats', userId] })
+    return `Imported ${byCard.size} card${byCard.size === 1 ? '' : 's'}.`
+  }
+
+  const clearSet = async () => {
+    const ownedHere = cards.filter(c => totalQty(coll[c.id]?.conds ?? {}) > 0)
+    if (ownedHere.length === 0) { toast('Nothing to clear in this set.'); return }
+    if (!window.confirm(`Remove all ${ownedHere.length} owned cards in this set?`)) return
+    await bulkSave(userId, ownedHere.map(c => ({ cardId: c.id, conditions: [], selectedCond: 'NM' })))
+      .catch(() => toast('Clear failed.'))
+    setColl(prev => {
+      const next = { ...prev }
+      for (const c of ownedHere) delete next[c.id]
+      return next
+    })
+    qc.invalidateQueries({ queryKey: ['stats', userId] })
+    toast('Set cleared.')
+  }
+
+  // ── Derived view data ──────────────────────────────────────────────────
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim()
+    let list = cards.filter(c => {
+      if (ownedOnly && totalQty(coll[c.id]?.conds ?? {}) === 0) return false
+      if (q && !c.name.toLowerCase().includes(q) && !c.number.includes(q)) return false
+      return true
+    })
+    const val = (c: Card) => cardValue(coll[c.id]?.conds ?? {}, c) || basePrice(c)
+    const qty = (c: Card) => totalQty(coll[c.id]?.conds ?? {})
+    list = [...list]
+    if (sort === 'number') list.sort((a, b) => numKey(a.number) - numKey(b.number) || a.number.localeCompare(b.number))
+    if (sort === 'value') list.sort((a, b) => val(b) - val(a))
+    if (sort === 'qty') list.sort((a, b) => qty(b) - qty(a))
+    if (sort === 'name') list.sort((a, b) => a.name.localeCompare(b.name))
+    return list
+  }, [cards, coll, search, ownedOnly, sort])
+
+  const set = sets.find(s => s.id === activeSetId)
+  const ownedInSet = cards.filter(c => totalQty(coll[c.id]?.conds ?? {}) > 0).length
+  const setValue = cards.reduce((sum, c) => sum + cardValue(coll[c.id]?.conds ?? {}, c), 0)
+  const completion = set && set.total > 0 ? Math.round((ownedInSet / set.total) * 100) : 0
+
+  if (!user) return <div className="page-tracker"><LoginScreen /></div>
 
   return (
-    <div className="flex flex-col h-[calc(100vh-52px)]">
+    <div className="page-tracker">
+      <div id="app" style={{ display: 'block' }}>
+        <header>
+          <div className="logo">POKÉDEX <span>TRACKER</span></div>
+          <div className="user-badge">👤 <b>{user.username}</b></div>
+          <SetSelector sets={sets} selectedId={activeSetId} onSelect={setSetId} />
+          <input
+            type="text" placeholder="Search cards…" style={{ width: 160 }}
+            value={search} onChange={e => setSearch(e.target.value)}
+          />
+          <div className="header-right">
+            <Link to="/shelf" className="tb-btn" style={{ textDecoration: 'none' }}>📒 Binders</Link>
+            <Link to="/analyzer" className="tb-btn" style={{ textDecoration: 'none' }}>⚖️ Analyzer</Link>
+            <button className={'tb-btn' + (ownedOnly ? ' active' : '')} onClick={() => setOwnedOnly(o => !o)}>Owned only</button>
+            <button className="tb-btn" onClick={exportCSV}>⬇ Export CSV</button>
+            <button className="tb-btn" onClick={() => setImportOpen(true)}>⬆ Import CSV</button>
+            <button className="tb-btn primary" onClick={clearSet}>Clear set</button>
+            <button className="tb-btn" style={{ color: 'var(--muted)' }} onClick={() => setUser(null)}>Switch user</button>
+          </div>
+        </header>
 
-      {/* Stats bar */}
-      {user && stats && (
-        <div className="bg-[#13111e] border-b border-white/[0.06] px-4 py-1.5 flex gap-5 text-xs text-slate-400 overflow-x-auto shrink-0">
-          <span>Cards: <strong className="text-white">{stats.totalCards}</strong></span>
-          <span>Unique: <strong className="text-white">{stats.uniqueCards}</strong></span>
-          <span>Value: <strong className="text-[#ffcb05]">${stats.totalValue.toFixed(2)}</strong></span>
-          <span>Sets: <strong className="text-white">{stats.setsEntered}</strong></span>
-          {selectedSetId && cards.length > 0 && <>
-            <span className="border-l border-white/10 pl-5">Set: <strong className="text-white">{ownedCount}/{cards.length}</strong></span>
-            <span>Complete: <strong className="text-[#ffcb05]">{pct}%</strong></span>
-          </>}
+        <div className="stats-bar">
+          <div className="stat"><div className="stat-label">Cards owned</div><div className="stat-value">{ownedInSet}<span style={{ color: 'var(--muted)', fontSize: 13 }}> / {set?.total ?? '—'}</span></div></div>
+          <div className="stat"><div className="stat-label">Set completion</div><div className="stat-value">{completion}%<div className="progress-wrap"><div className="progress-bar" style={{ width: completion + '%' }} /></div></div></div>
+          <div className="stat"><div className="stat-label">Set value</div><div className="stat-value gold">${setValue.toFixed(2)}</div></div>
+          <div className="stat"><div className="stat-label">Total collection</div><div className="stat-value gold">${(stats?.totalValue ?? 0).toFixed(2)}</div></div>
+          <div className="stat"><div className="stat-label">Sets entered</div><div className="stat-value">{stats?.setsEntered ?? '—'}</div></div>
         </div>
-      )}
 
-      {/* Toolbar */}
-      <div className="bg-[#13111e]/70 border-b border-white/[0.06] px-3 py-2 flex items-center gap-2 shrink-0 flex-wrap">
-        <SetSelector sets={sets} selectedId={selectedSetId} onSelect={setSelectedSetId} />
-
-        <input
-          value={cardSearch}
-          onChange={e => setCardSearch(e.target.value)}
-          placeholder="Search cards…"
-          className="bg-[#1c1c24] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-white/20 w-40"
-        />
-
-        <div className="flex items-center gap-0.5 text-xs">
-          {(['number', 'name', 'value', 'quantity'] as SortKey[]).map(k => (
-            <button
-              key={k}
-              onClick={() => setSortKey(k)}
-              className={`px-2.5 py-1.5 rounded-lg transition-colors ${sortKey === k ? 'bg-white/10 text-white' : 'text-slate-500 hover:text-white'}`}
-            >
-              {k === 'number' ? '#' : k}
+        <div className="toolbar">
+          <span className="sort-label">Sort:</span>
+          {(['number', 'value', 'qty', 'name'] as SortMode[]).map(m => (
+            <button key={m} className={'tb-btn' + (sort === m ? ' active' : '')} onClick={() => setSort(m)}>
+              {m === 'number' ? 'Card #' : m === 'value' ? 'Value ↓' : m === 'qty' ? 'Quantity ↓' : 'Name'}
             </button>
           ))}
         </div>
 
-        <label className="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer select-none">
-          <input type="checkbox" checked={ownedOnly} onChange={e => setOwnedOnly(e.target.checked)} className="accent-[#ffcb05]" />
-          Owned only
-        </label>
+        <div id="app-wrap">
+          <div id="main">
+            {set && (
+              <div className="set-info">
+                {set.images?.logo && <img className="set-logo" src={set.images.logo} alt={set.name} />}
+                <div>
+                  <div className="set-name">{set.name}</div>
+                  <div className="set-meta">{set.series} · {set.releaseDate} · {set.total} cards</div>
+                </div>
+              </div>
+            )}
 
-        {/* Quick add */}
-        {selectedSetId && (
-          <div className="flex items-center gap-1.5 ml-auto">
-            <div className={`flex items-center gap-1.5 border rounded-lg px-2 py-1.5 transition-colors ${
-              quickFeedback === 'ok'  ? 'border-green-500/60 bg-green-500/10' :
-              quickFeedback === 'err' ? 'border-red-500/60 bg-red-500/10' :
-              'border-white/10 bg-[#1c1c24]'
-            }`}>
-              <span className="text-xs text-slate-500">#</span>
+            <div className="quick-entry">
+              <label>Quick add</label>
               <input
-                ref={quickRef}
-                value={quickNum}
-                onChange={e => setQuickNum(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleQuickAdd()}
-                placeholder="Card number"
-                className="bg-transparent text-sm text-white placeholder-slate-600 focus:outline-none w-24"
+                ref={quickRef} type="text" placeholder="007" maxLength={10}
+                autoComplete="off" spellCheck={false} className={quickFlash}
+                value={quick} onChange={e => setQuick(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); quickAdd() } }}
               />
-              <select
-                value={quickCond}
-                onChange={e => setQuickCond(e.target.value as Condition)}
-                className="bg-transparent text-xs font-semibold focus:outline-none"
-                style={{ color: condColor(quickCond) }}
-              >
-                {CONDITIONS.map(c => <option key={c} value={c}>{c}</option>)}
+              <select className="cond-select" value={quickCond} onChange={e => setQuickCond(e.target.value)}>
+                {['NM', 'LP', 'MP', 'HP', 'DMG'].map(c => <option key={c} value={c}>{c}</option>)}
               </select>
+              <label className="first-ed-label">
+                <input type="checkbox" checked={firstEd} onChange={e => setFirstEd(e.target.checked)} /> 1st Ed
+              </label>
+              <span className={'quick-confirm' + (quickMsg ? ' show' : '') + (quickMsg?.err ? ' err' : '')}>
+                {quickMsg?.text}
+              </span>
+              <span className="quick-hint">Type card #, hit <b>Enter</b></span>
             </div>
-            <button
-              onClick={handleQuickAdd}
-              className="px-3 py-1.5 bg-[#ffcb05] hover:bg-yellow-400 text-black text-xs font-bold rounded-lg transition-colors"
-            >
-              Add
-            </button>
-            <button
-              onClick={() => setSidebarOpen(v => !v)}
-              className={`px-2.5 py-1.5 rounded-lg text-xs transition-colors border ${sidebarOpen ? 'border-[#ffcb05]/40 text-[#ffcb05]' : 'border-white/10 text-slate-400 hover:text-white'}`}
-            >
-              {sidebarOpen ? '▶ Hide' : '◀ Recent'}
-            </button>
+
+            {cardsLoading && <div className="loading">Loading</div>}
+            {!cardsLoading && filtered.length === 0 && <div className="empty">No cards match.</div>}
+            {!cardsLoading && filtered.length > 0 && (
+              <div className="card-grid">
+                {filtered.map(c => {
+                  const entry = coll[c.id] ?? { conds: {}, selCond: 'NM' }
+                  return (
+                    <CardTile
+                      key={c.id} card={c} conds={entry.conds} selCond={entry.selCond}
+                      onAdj={d => adj(c, d)}
+                      onSetQty={q => setQty(c, q)}
+                      onSelectCond={cond => selectCond(c, cond)}
+                      onAdjCond={(cond, d) => adjCond(c, cond, d)}
+                      onPreview={src => (src ? preview.show(src) : preview.hide())}
+                    />
+                  )
+                })}
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      {/* Body: card grid + sidebar */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Card grid */}
-        <div className="flex-1 overflow-y-auto px-4 py-4">
-          {!selectedSetId ? (
-            <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-500">
-              <span className="text-5xl">🃏</span>
-              <p className="text-lg">Select a set to get started</p>
-              {!user && <p className="text-sm text-slate-600">Sign in to track your collection</p>}
-            </div>
-          ) : cardsLoading ? (
-            <div className="flex items-center justify-center h-full gap-3 text-slate-500">
-              <div className="w-6 h-6 border-2 border-slate-600 border-t-[#ffcb05] rounded-full animate-spin" />
-              <span>Loading cards…</span>
-            </div>
-          ) : filteredCards.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-500">
-              <span className="text-4xl">🔍</span>
-              <p>No cards match</p>
-            </div>
-          ) : (
-            <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))' }}>
-              {filteredCards.map(card => (
-                <CardGridItem
-                  key={card.id}
-                  card={card}
-                  conditions={getConditions(card.id)}
-                  onUpdate={(conds, sel) => handleUpdate(card.id, conds, sel)}
-                />
-              ))}
-            </div>
-          )}
+          <RecentSidebar
+            userId={userId} open={sidebarOpen} items={session}
+            onClose={() => setSidebarOpen(false)}
+            onRemove={i => setSession(s => s.filter((_, j) => j !== i))}
+            onClear={() => setSession([])}
+          />
         </div>
-
-        {/* Sidebar */}
-        <RecentSidebar recent={recent} onClear={() => setRecent([])} open={sidebarOpen && !!selectedSetId} />
       </div>
+
+      <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onImport={runImport} />
+      {preview.overlay}
     </div>
   )
 }

@@ -55,6 +55,14 @@ trait UserRepository:
   def findByEmail(email: String): Task[Option[User]]
 
   /**
+   * METHOD: findAll
+   * PURPOSE: Fetch every registered user, ordered alphabetically by username.
+   *          Used by the login screen to show "pick an existing user" chips.
+   * @return  All users, A→Z by username. Empty list if no one has registered.
+   */
+  def findAll: Task[List[User]]
+
+  /**
    * METHOD: create
    * PURPOSE: Inserts a new user into the database.
    * @param user  The user to create
@@ -135,6 +143,17 @@ object UserRepository:
       """
         .query[(String, String, String, String, Int, Option[String], Instant)]
         .option
+        .map(_.map(rowToUser.tupled))
+        .transact(xa)
+
+    def findAll: Task[List[User]] =
+      sql"""
+        SELECT id, username, email, role, reputation, location, created_at
+        FROM users
+        ORDER BY username ASC
+      """
+        .query[(String, String, String, String, Int, Option[String], Instant)]
+        .to[List]
         .map(_.map(rowToUser.tupled))
         .transact(xa)
 

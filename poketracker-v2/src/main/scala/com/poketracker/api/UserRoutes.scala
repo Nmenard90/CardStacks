@@ -7,6 +7,7 @@
  *   HTTP endpoints for user accounts — registration, lookup, profile updates.
  *
  * ENDPOINTS:
+ *   GET  /api/users                   — list all users (login screen chips)
  *   GET  /api/users/:username         — find user by username
  *   POST /api/users                   — register new user
  *   PUT  /api/users/:userId/location  — update location
@@ -51,6 +52,21 @@ object UserRoutes:
    * @return Routes[UserService, Nothing]
    */
   val routes: Routes[UserService, Nothing] = Routes(
+
+    /**
+     * ROUTE: GET /api/users
+     * PURPOSE: Lists every registered user, ordered alphabetically by username.
+     *          Used by the login screen to show "pick an existing user" chips.
+     *          This path has exactly two segments so it never conflicts with
+     *          GET /api/users/:username below, which requires three.
+     * RESPONSE: 200 JSON array of User objects (empty array if none exist)
+     *           500 on database error
+     */
+    Method.GET / "api" / "users" -> handler { (_: Request) =>
+      ZIO.serviceWithZIO[UserService](_.listAll)
+        .map(users => Response.json(users.toJson))
+        .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
+    },
 
     /**
      * ROUTE: GET /api/users/:username

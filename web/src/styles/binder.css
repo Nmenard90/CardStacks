@@ -1,0 +1,198 @@
+/* Ported verbatim from old binder.html — scoped under .page-binder */
+
+*{box-sizing:border-box;margin:0;padding:0}
+.page-binder,.page-binder{width:100%;height:100%;overflow:hidden;background:#1c1c24;font-family:'Inter',sans-serif;color:#fff}
+
+.page-binder #bar{
+  position:fixed;top:0;left:0;right:0;height:50px;z-index:100;
+  background:rgba(20,20,30,0.95);border-bottom:1px solid rgba(255,255,255,0.08);
+  display:flex;align-items:center;gap:12px;padding:0 20px;
+  backdrop-filter:blur(12px);
+}
+.page-binder .back{font-size:12px;font-weight:600;color:rgba(255,255,255,0.4);text-decoration:none;padding:5px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);transition:all .15s}
+.page-binder .back:hover{color:#fff;background:rgba(255,255,255,0.08)}
+.page-binder #bname{background:transparent;border:none;font-size:14px;font-weight:600;color:#fff;outline:none;width:160px;border-bottom:1px solid transparent;padding:2px 4px;transition:border-color .15s}
+.page-binder #bname:focus{border-bottom-color:#6366f1}
+.page-binder .sp{flex:1}
+.page-binder .sz{font-size:11px;font-weight:700;padding:5px 12px;border-radius:8px;cursor:pointer;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:rgba(255,255,255,0.4);transition:all .15s}
+.page-binder .sz:hover{color:#fff;background:rgba(255,255,255,0.1)}
+.page-binder .sz.on{background:#6366f1;border-color:#6366f1;color:#fff}
+.page-binder #pglbl{font-size:11px;font-weight:600;color:rgba(255,255,255,0.3);padding:5px 10px;border-radius:8px;background:rgba(255,255,255,0.05)}
+
+.page-binder #stage{
+  position:fixed;inset:50px 0 0;
+  display:flex;align-items:center;justify-content:center;
+}
+
+/* Binder shell */
+.page-binder #shell{
+  display:flex;
+  border-radius:4px 12px 12px 4px;
+  box-shadow:0 40px 100px rgba(0,0,0,0.8),0 0 0 1px rgba(255,255,255,0.04);
+}
+
+/* Spine */
+.page-binder #spine{
+  width:28px;flex-shrink:0;
+  border-radius:4px 0 0 4px;
+  background:linear-gradient(to right,#0e0c1a,#1e1a3a,#2a2460,#1e1a3a,#0e0c1a);
+  display:flex;flex-direction:column;align-items:center;justify-content:space-evenly;
+  box-shadow:inset -3px 0 8px rgba(0,0,0,0.5);
+}
+.page-binder .ring{
+  width:18px;height:18px;border-radius:50%;flex-shrink:0;
+  background:conic-gradient(from 0deg,#1e1b4b,#6366f1,#c7d2fe,#6366f1,#1e1b4b);
+  border:1.5px solid rgba(165,180,252,0.4);
+  box-shadow:0 0 10px rgba(99,102,241,0.5);
+}
+
+/* turn.js flipbook */
+.page-binder #book{border-radius:0 12px 12px 0;overflow:hidden}
+.page-binder #book .page{overflow:hidden}
+
+/* Page content */
+.page-binder .pg{
+  width:100%;height:100%;
+  position:relative;
+}
+.page-binder .pg.lp{background:linear-gradient(to right,#1a1828,#1e1c2e)}
+.page-binder .pg.rp{background:linear-gradient(to left,#1a1828,#1e1c2e)}
+.page-binder .pg.lp::after{content:'';position:absolute;right:0;top:0;bottom:0;width:20px;background:linear-gradient(to left,rgba(0,0,0,0.35),transparent);pointer-events:none}
+.page-binder .pg.rp::after{content:'';position:absolute;left:0;top:0;bottom:0;width:20px;background:linear-gradient(to right,rgba(0,0,0,0.35),transparent);pointer-events:none}
+
+/* Cover */
+.page-binder .cover{
+  width:100%;height:100%;
+  background:var(--cover-color,linear-gradient(150deg,#1e1b4b,#312e81,#4c1d95));
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
+  position:relative;overflow:hidden;
+}
+.page-binder .cover::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 70% 50% at 50% 40%,rgba(139,92,246,0.25),transparent 65%)}
+.page-binder .cover-ball{
+  width:100px;height:100px;border-radius:50%;
+  background:linear-gradient(180deg,#ef4444 0%,#ef4444 48%,#111827 48%,#111827 52%,#f9fafb 52%);
+  border:7px solid #0f172a;
+  box-shadow:0 0 0 2px rgba(255,255,255,0.1),0 20px 60px rgba(239,68,68,0.4);
+  position:relative;animation:binder-bob 3s ease-in-out infinite;
+}
+.page-binder .cover-ball::after{content:'';position:absolute;left:50%;top:50%;width:22px;height:22px;border-radius:50%;background:#f9fafb;border:6px solid #0f172a;transform:translate(-50%,-50%)}
+@keyframes binder-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+.page-binder .cover-title{font-size:15px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:rgba(255,255,255,0.75);text-align:center;padding:0 20px}
+
+/* Card grid */
+.page-binder .cgrid{
+  position:absolute;inset:0;
+  display:grid;padding:14px 12px;gap:8px;
+  z-index:1;
+}
+.page-binder .g3x3{grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr)}
+.page-binder .g2x2{grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr)}
+.page-binder .g4x3{grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(3,1fr)}
+
+/* Sleeve */
+.page-binder .slv{
+  border-radius:5px;position:relative;overflow:hidden;cursor:pointer;
+  background:rgba(99,102,241,0.1);
+  border:1.5px solid rgba(99,102,241,0.2);
+  transition:transform .15s,box-shadow .15s,border-color .15s;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.12);
+}
+.page-binder .slv::before{content:'';position:absolute;inset:0;z-index:2;pointer-events:none;background:linear-gradient(145deg,rgba(255,255,255,0.35) 0%,transparent 35%);border-radius:inherit}
+.page-binder .slv:hover{transform:scale(1.04);border-color:#6366f1;box-shadow:0 6px 20px rgba(0,0,0,0.3),0 0 0 1.5px #6366f1}
+.page-binder .slv img{width:100%;height:100%;object-fit:cover;border-radius:4px;display:block;position:relative;z-index:1}
+.page-binder .slv.mt{background:rgba(255,255,255,0.03);border:1.5px dashed rgba(99,102,241,0.3);box-shadow:none}
+.page-binder .slv.mt:hover{border-color:#6366f1;background:rgba(99,102,241,0.05)}
+.page-binder .slv.mt::after{content:'+';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:300;color:rgba(99,102,241,0.25);z-index:1}
+.page-binder .slv.mt:hover::after{color:rgba(99,102,241,0.6)}
+.page-binder .pgn{position:absolute;bottom:6px;z-index:3;font-size:9px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,0.2)}
+.page-binder .lp .pgn{left:10px}
+.page-binder .rp .pgn{right:10px}
+
+/* Arrows */
+.page-binder .arr{
+  position:fixed;top:50%;transform:translateY(-50%);
+  width:52px;height:52px;border-radius:50%;z-index:50;
+  background:rgba(20,20,30,0.9);border:1px solid rgba(255,255,255,0.1);
+  color:rgba(255,255,255,0.5);font-size:26px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .15s;user-select:none;line-height:1;
+}
+.page-binder .arr:hover{background:#6366f1;border-color:#6366f1;color:#fff;transform:translateY(-50%) scale(1.08)}
+.page-binder .arr:disabled{opacity:.12;pointer-events:none}
+.page-binder #aL{left:14px}
+.page-binder #aR{right:14px}
+
+/* Picker */
+.page-binder #picker{position:fixed;inset:0;z-index:500;background:rgba(0,0,0,0.75);display:none;align-items:center;justify-content:center;backdrop-filter:blur(10px)}
+.page-binder #picker.open{display:flex}
+.page-binder #pbox{background:#18181f;border:1px solid rgba(255,255,255,0.1);border-radius:16px;width:min(700px,95vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,0.8)}
+.page-binder .ph{padding:16px 20px 12px;border-bottom:1px solid rgba(255,255,255,0.07);display:flex;align-items:center;gap:10px}
+.page-binder .ph h3{font-size:14px;font-weight:700;letter-spacing:.06em;flex:1;text-transform:uppercase}
+.page-binder .px{width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.4);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.page-binder .px:hover{background:#ef4444;border-color:#ef4444;color:#fff}
+.page-binder .pc{padding:12px 20px;display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid rgba(255,255,255,0.07)}
+.page-binder .pc select,.page-binder .pc input{flex:1;min-width:150px;padding:8px 12px;background:#1c1a2a;border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-family:'Inter',sans-serif;font-size:13px;outline:none;-webkit-appearance:none;appearance:none}
+.page-binder .pc select:focus,.page-binder .pc input:focus{border-color:#6366f1}.page-binder .pc select option{background:#1c1a2a;color:#fff}
+.page-binder .pc input::placeholder{color:rgba(255,255,255,0.2)}
+.page-binder #pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:8px;padding:14px 20px 24px;overflow-y:auto;flex:1}
+.page-binder .pcd{border-radius:7px;overflow:hidden;cursor:pointer;border:2px solid transparent;aspect-ratio:2.5/3.5;background:rgba(255,255,255,0.04);display:flex;align-items:center;justify-content:center;transition:all .15s}
+.page-binder .pcd:hover{border-color:#6366f1;transform:scale(1.06) translateY(-2px);box-shadow:0 8px 20px rgba(0,0,0,0.5)}
+.page-binder .pcd img{width:100%;height:100%;object-fit:cover;border-radius:5px}
+.page-binder .pcd.clr{border:2px dashed rgba(255,255,255,0.1);flex-direction:column;gap:4px}
+.page-binder .pcd.clr:hover{border-color:#ef4444}
+.page-binder .pcd.clr .ci{font-size:20px;color:rgba(255,255,255,0.15)}
+.page-binder .pcd.clr .ct{font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,0.2)}
+.page-binder .pcd.clr:hover .ci,.page-binder .pcd.clr:hover .ct{color:#ef4444}
+.page-binder #pmsg{padding:2.5rem;text-align:center;color:rgba(255,255,255,0.25);font-size:13px}
+/* Hover zoom */
+.page-binder .pcd:hover{border-color:#6366f1;transform:scale(1.08) translateY(-2px);box-shadow:0 8px 20px rgba(0,0,0,0.5);z-index:10;}
+
+/* Card info panel */
+.page-binder #cardInfo{
+  padding:12px 20px;border-top:1px solid rgba(255,255,255,0.07);
+  min-height:72px;display:flex;align-items:center;gap:14px;
+  background:#111118;
+}
+.page-binder #cardInfo.empty{display:flex;align-items:center;justify-content:center}
+.page-binder #cardInfo.empty span{font-size:12px;color:rgba(255,255,255,0.2);font-style:italic}
+.page-binder #ciThumb{width:44px;height:62px;border-radius:4px;object-fit:cover;flex-shrink:0;display:none}
+.page-binder #ciText{flex:1;min-width:0}
+.page-binder #ciName{font-size:14px;font-weight:700;color:#fff;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.page-binder #ciSub{font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:6px}
+.page-binder #ciPills{display:flex;gap:6px;flex-wrap:wrap}
+.page-binder .cipill{font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;letter-spacing:0.04em}
+.page-binder .cipill.price{background:rgba(52,211,153,0.15);color:#34d399;border:1px solid rgba(52,211,153,0.25)}
+.page-binder .cipill.rarity{background:rgba(99,102,241,0.15);color:#a78bfa;border:1px solid rgba(99,102,241,0.25)}
+.page-binder .cipill.artist{background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.5);border:1px solid rgba(255,255,255,0.1)}
+.page-binder .cipill.type{background:rgba(251,191,36,0.12);color:#fbbf24;border:1px solid rgba(251,191,36,0.2)}
+
+
+/* ── React page-turn (replaces turn.js from the old page) ─────────────────
+   #book holds the two resting halves side by side; while a turn is in
+   flight, .leaf is an extra page hinged at the spine-side edge that
+   rotates 180° in 3D, front face showing the page lifting away and back
+   face the page it reveals. Duration matches TURN_MS in BinderViewPage. */
+.page-binder #book{display:flex;position:relative;perspective:2200px}
+.page-binder .leaf-half{height:100%;position:relative;overflow:hidden}
+.page-binder .leaf{
+  position:absolute;top:0;right:0;z-index:5;
+  transform-style:preserve-3d;
+  animation:leaf-fwd .6s ease-in-out forwards;
+}
+.page-binder .leaf.turning-back{
+  right:auto;left:0;
+  animation:leaf-back .6s ease-in-out forwards;
+}
+.page-binder .leaf.turning-fwd{transform-origin:left center}
+.page-binder .leaf.turning-back{transform-origin:right center}
+.page-binder .leaf-face{
+  position:absolute;inset:0;overflow:hidden;
+  backface-visibility:hidden;-webkit-backface-visibility:hidden;
+  background:#1a1828;
+}
+.page-binder .leaf-face.back{transform:rotateY(180deg)}
+@keyframes leaf-fwd{from{transform:rotateY(0)}to{transform:rotateY(-180deg)}}
+@keyframes leaf-back{from{transform:rotateY(0)}to{transform:rotateY(180deg)}}
+@media (prefers-reduced-motion: reduce){
+  .page-binder .leaf{animation-duration:.01s}
+}
