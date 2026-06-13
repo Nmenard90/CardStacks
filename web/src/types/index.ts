@@ -140,3 +140,35 @@ export interface TradeOffer {
   status: OfferStatus
   createdAt: string
 }
+
+
+// ─── Convention Mode ─────────────────────────────────────────────────────────
+
+export type PaymentType = 'cash' | 'card' | 'trade' | 'trade_credit' | 'unknown'
+export type ReportConfidence = 'local' | 'unverified' | 'event_verified' | 'trusted'
+
+export interface ConventionPriceReport {
+  id: string
+  cardId: string
+  cardName: string
+  setName?: string
+  imageUrl?: string
+  condition: Condition
+  askingPrice?: number
+  paidPrice: number
+  paymentType: PaymentType
+  eventName?: string
+  boothNumber?: string
+  note?: string
+  confidence: ReportConfidence
+  createdAt: string
+  userId?: string
+}
+
+export interface VendorNote {
+  id: string
+  eventName: string
+  boothNumber: string
+  note: string
+  createdAt: string
+}

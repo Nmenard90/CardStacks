@@ -25,6 +25,7 @@ import { CollectionPage } from './pages/CollectionPage'
 import { BinderShelfPage } from './pages/BinderShelfPage'
 import { BinderViewPage } from './pages/BinderViewPage'
 import { AnalyzerPage } from './pages/AnalyzerPage'
+import { ConventionModePage } from './pages/ConventionModePage'
 
 /**
  * VALUE: queryClient
@@ -58,6 +59,7 @@ export default function App() {
               <Route path="/shelf"             element={<BinderShelfPage />} />
               <Route path="/binder/:binderId"  element={<BinderViewPage />} />
               <Route path="/analyzer"          element={<AnalyzerPage />} />
+              <Route path="/convention"        element={<ConventionModePage />} />
             </Routes>
           </BrowserRouter>
         </ToastProvider>

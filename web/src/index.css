@@ -4,6 +4,7 @@
 @import './styles/shelf.css';
 @import './styles/binder.css';
 @import './styles/analyzer.css';
+@import './styles/convention.css';
 
 :root {
   --bg:#0f0f11; --surface:#18181c; --surface2:#222228; --border:#2e2e38;
