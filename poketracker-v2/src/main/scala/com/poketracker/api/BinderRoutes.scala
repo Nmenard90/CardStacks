@@ -43,11 +43,17 @@ object BinderRoutes:
 
   /**
    * CASE CLASS: UpdateBinderRequest
-   * PURPOSE: JSON body for updating binder metadata. Both fields optional.
+   * PURPOSE: JSON body for updating binder metadata. All fields optional —
+   *          only the fields present in the request are changed.
    * @param name        New display name, if changing
    * @param coverImage  New cover image URL, if changing
+   * @param pocketSize  New pocket size ("Four" | "Nine" | "Twelve"), if changing
    */
-  private case class UpdateBinderRequest(name: Option[String], coverImage: Option[String])
+  private case class UpdateBinderRequest(
+    name:       Option[String],
+    coverImage: Option[String],
+    pocketSize: Option[String]
+  )
   private given JsonDecoder[UpdateBinderRequest] = DeriveJsonDecoder.gen
 
   /**
@@ -130,7 +136,7 @@ object BinderRoutes:
 
     /**
      * ROUTE: PUT /api/binders/:userId/:binderId
-     * PURPOSE: Updates a binder's name and/or cover image.
+     * PURPOSE: Updates a binder's name, cover image, and/or pocket size.
      *          Only the fields present in the body are updated.
      * @param userId    The user
      * @param binderId  The binder to update
@@ -149,6 +155,18 @@ object BinderRoutes:
                     )
           _      <- ZIO.foreach(parsed.coverImage)(url =>
                       ZIO.serviceWithZIO[BinderService](_.setCover(binderId, url))
+                    )
+          // Resize, when requested. PocketSize.valueOf throws on anything
+          // other than "Four" | "Nine" | "Twelve" — mapped to a 400 below,
+          // same as the create route's validation.
+          _      <- ZIO.foreach(parsed.pocketSize)(s =>
+                      ZIO.attempt(PocketSize.valueOf(s))
+                        .mapError(_ => RuntimeException(
+                          s"Invalid pocket size '$s'. Must be Four, Nine, or Twelve."
+                        ))
+                        .flatMap(size =>
+                          ZIO.serviceWithZIO[BinderService](_.resizeBinder(binderId, size))
+                        )
                     )
         yield Response.json("""{"ok": true}""")
         ).catchAll(e => ZIO.succeed(Response.badRequest(e.getMessage)))

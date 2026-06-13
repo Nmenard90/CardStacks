@@ -97,6 +97,17 @@ trait BinderService:
   def setCover(id: String, imageUrl: String): Task[Unit]
 
   /**
+   * METHOD: resizeBinder
+   * PURPOSE: Changes a binder's pocket size after creation.
+   *          Placed cards are not touched — their slot indexes stay the
+   *          same and the pages simply re-flow at the new pockets-per-page.
+   * @param id          The binder to resize
+   * @param pocketSize  The new size (Four, Nine, or Twelve)
+   * @return            Unit
+   */
+  def resizeBinder(id: String, pocketSize: PocketSize): Task[Unit]
+
+  /**
    * METHOD: deleteBinder
    * PURPOSE: Permanently deletes a binder and all its slots.
    * @param id  The binder to delete
@@ -162,6 +173,9 @@ object BinderService:
 
     def setCover(id: String, imageUrl: String): Task[Unit] =
       repo.updateCover(id, imageUrl)
+
+    def resizeBinder(id: String, pocketSize: PocketSize): Task[Unit] =
+      repo.updatePocketSize(id, pocketSize)
 
     def deleteBinder(id: String): Task[Unit] =
       repo.delete(id)

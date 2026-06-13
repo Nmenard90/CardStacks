@@ -95,6 +95,17 @@ trait BinderRepository:
   def updateCover(id: String, imageUrl: String): Task[Unit]
 
   /**
+   * METHOD: updatePocketSize
+   * PURPOSE: Changes how many card pockets each binder page holds.
+   *          Slots keep their indexes — cards re-flow across pages in the
+   *          UI because a page simply shows a different range of indexes.
+   * @param id          The binder to update
+   * @param pocketSize  The new size (Four, Nine, or Twelve)
+   * @return            Unit
+   */
+  def updatePocketSize(id: String, pocketSize: PocketSize): Task[Unit]
+
+  /**
    * METHOD: delete
    * PURPOSE: Deletes a binder and all its slots.
    *          The ON DELETE CASCADE in the schema handles deleting slots automatically.
@@ -197,6 +208,14 @@ object BinderRepository:
     def updateCover(id: String, imageUrl: String): Task[Unit] =
       sql"""
         UPDATE binders SET cover_image = $imageUrl, updated_at = NOW() WHERE id = $id
+      """
+        .update.run.void.transact(xa)
+
+    def updatePocketSize(id: String, pocketSize: PocketSize): Task[Unit] =
+      // pocket_size is stored as the enum's name ("Four" | "Nine" | "Twelve"),
+      // same encoding the INSERT in create() uses.
+      sql"""
+        UPDATE binders SET pocket_size = ${pocketSize.toString}, updated_at = NOW() WHERE id = $id
       """
         .update.run.void.transact(xa)
 
