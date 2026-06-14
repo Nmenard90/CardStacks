@@ -283,6 +283,7 @@ export function CollectionPage() {
           <div className="header-right">
             <Link to="/shelf" className="tb-btn" style={{ textDecoration: 'none' }}>📒 Binders</Link>
             <Link to="/analyzer" className="tb-btn" style={{ textDecoration: 'none' }}>⚖️ Analyzer</Link>
+            <Link to="/convention" className="tb-btn" style={{ textDecoration: 'none' }}>🎪 Convention</Link>
             <button className={'tb-btn' + (ownedOnly ? ' active' : '')} onClick={() => setOwnedOnly(o => !o)}>Owned only</button>
             <button className="tb-btn" onClick={exportCSV}>⬇ Export CSV</button>
             <button className="tb-btn" onClick={() => setImportOpen(true)}>⬆ Import CSV</button>

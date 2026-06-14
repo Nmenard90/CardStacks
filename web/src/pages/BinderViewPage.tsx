@@ -315,7 +315,19 @@ export function BinderViewPage() {
       {/* Place-a-card picker */}
       <div id="picker" className={activeSlot !== null ? 'open' : ''} onClick={e => { if (e.target === e.currentTarget) setActiveSlot(null) }}>
         <div id="pbox">
-          <div className="ph"><h3>Place a Card</h3><button className="px" onClick={() => setActiveSlot(null)}>✕</button></div>
+          <div className="ph">
+            <h3>{activeSlot !== null && slots[activeSlot] ? 'Replace or Remove' : 'Place a Card'}</h3>
+            {activeSlot !== null && slots[activeSlot] && (
+              <button
+                className="px"
+                style={{ width: 'auto', padding: '0 12px', color: '#fca5a5', borderColor: 'rgba(239,68,68,0.4)' }}
+                onClick={() => place(null)}
+              >
+                ✕ Remove card
+              </button>
+            )}
+            <button className="px" onClick={() => setActiveSlot(null)}>✕</button>
+          </div>
           <div className="pc">
             <select value={pickSetId} onChange={e => setPickSetId(e.target.value)}>
               <option value="">— Choose a set —</option>
