@@ -18,7 +18,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getCards, getSets } from '../api/cards'
+import { getCards, getSets, searchCards } from '../api/cards'
 import { bulkSave, getCollection, getStats, saveEntry } from '../api/collection'
 import { CardTile } from '../components/CardTile'
 import { usePreview } from '../components/CardPreview'
@@ -165,13 +165,43 @@ export function CollectionPage() {
     })
 
   // ── Quick add: Enter on a card number adds one in the chosen condition ─
-  const quickAdd = () => {
+  const quickAdd = async () => {
     const raw = quick.trim()
     if (!raw) return
-    const card =
-      cards.find(c => c.number.toLowerCase() === raw.toLowerCase()) ||
-      cards.find(c => String(parseInt(c.number, 10)) === String(parseInt(raw, 10))) ||
-      cards.find(c => c.number.toLowerCase().startsWith(raw.toLowerCase()))
+    // A quick-add entry may be a bare number ("158"), a full collector number
+    // ("SWSH158", "TG01"), or the printed "number/total" form ("158/198").
+    // Split the "/total" off so we can match the number and, if multiple sets
+    // share that number, use the total to pick the right set.
+    const [numPart, totalPart] = raw.includes('/') ? raw.split('/') : [raw, '']
+    const num = numPart.trim().toLowerCase()
+    const total = totalPart.trim()
+
+    // 1) Try the currently-loaded set first — instant, no network call.
+    let card: Card | null =
+      cards.find(c => c.number.toLowerCase() === num) ||
+      cards.find(c => /^\d+$/.test(num) && /^\d+$/.test(c.number) && parseInt(c.number, 10) === parseInt(num, 10)) ||
+      cards.find(c => c.number.toLowerCase().startsWith(num)) || null
+
+    // 2) Not in this set — search every set by number/name via the backend,
+    //    so bulk entry works without first picking the right set.
+    if (!card) {
+      try {
+        const hits = await searchCards(raw)
+        // Prefer an exact collector-number match over name/partial hits.
+        let pool = hits.filter(h => h.number.toLowerCase() === num)
+        if (pool.length === 0) pool = hits
+        // If a set size was given ("/198"), disambiguate by the set's total.
+        if (total && pool.length > 1) {
+          const byTotal = pool.filter(h => {
+            const s = sets.find(x => x.id === h.setId)
+            return !!s && (String(s.total) === total || String(s.printedTotal) === total)
+          })
+          if (byTotal.length) pool = byTotal
+        }
+        card = pool[0] ?? null
+      } catch { /* fall through to the not-found path below */ }
+    }
+
     if (!card) {
       setQuickFlash('flash-err')
       setQuickMsg({ text: 'not found: ' + raw, err: true })

@@ -88,6 +88,14 @@ export function ConventionModePage() {
 
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current)
+    // After picking a card we set the query to its name. Don't re-run the
+    // search in that case — otherwise the results list repopulates and lingers
+    // underneath the selected card.
+    if (selectedCard && query.trim() === selectedCard.name.trim()) {
+      setResults([])
+      setSearchMsg('')
+      return
+    }
     timer.current = setTimeout(async () => {
       const q = query.trim()
       if (q.length < 2) {
@@ -98,7 +106,7 @@ export function ConventionModePage() {
       setSearchMsg('Searching…')
       try {
         const cards = await searchCards(q)
-        setResults(cards.slice(0, 8))
+        setResults(cards.slice(0, 50))
         setSearchMsg(cards.length ? '' : 'No cards found')
       } catch {
         setSearchMsg('Search failed — check your backend connection')
@@ -206,7 +214,7 @@ export function ConventionModePage() {
             <input className="con-input" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search e.g. Charizard, Lugia, Gengar…" />
             {(searchMsg || results.length > 0) && !selectedCard && <div className="search-box">{searchMsg && <p>{searchMsg}</p>}</div>}
             {results.length > 0 && (
-              <div className="search-results">
+              <div className="search-results" style={{ maxHeight: 360, overflowY: 'auto' }}>
                 {results.map(card => (
                   <button key={card.id} className="result-row" onClick={() => selectCard(card)}>
                     {card.images?.small && <img src={card.images.small} alt={card.name} />}
