@@ -1,23 +1,25 @@
 /**
- * FILE: BulkAddPage.tsx — high-volume bulk card entry, separate from CollectionPage.
+ * FILE: BulkAddPage.tsx — high-volume bulk card entry, styled like the landing page.
  *
  * PURPOSE:
- *   Lets a user enter thousands of cards quickly by collector number alone,
- *   WITHOUT first picking a set. Built for scale (10k+ entries) by:
- *     - aggregating identical card+condition entries into one row (a count),
- *     - keeping the source of truth in a ref-held Map (O(1) updates, no giant
- *       array re-renders on every keystroke),
- *     - rendering only the most recent slice of rows,
- *     - resolving each number to a card once and caching the result,
- *     - saving everything in a single merged bulk request at the end.
+ *   Enter thousands of cards fast by collector number alone (no set picking).
+ *   Each entered number resolves to a real card and appears in the SAME card
+ *   grid the collection page uses — same CardTile, same look — starting from an
+ *   empty grid and populating as you type. Built for scale:
+ *     - one tile per unique card (counts aggregate onto the tile's conditions),
+ *     - source of truth in ref-held Maps (O(1) updates, no giant re-renders),
+ *     - each number resolved once and cached,
+ *     - everything merged into the collection in a single save at the end.
  *
  * IMPORTS EXPLAINED:
- *   useMemo/useRef/useState — local state + the ref-held row Map
+ *   useMemo/useRef/useState — local state + ref-held tile/pending/cache Maps
  *   useQuery                — load all sets once (to disambiguate by set total)
- *   Link                    — navigation back to the collection
- *   searchCards/getSets     — backend all-sets search + set list
+ *   Link                    — back to the collection
+ *   getSets/searchCards     — set list + backend all-sets number/name search
  *   getCollection/bulkSave  — read existing collection, then merge-and-save
- *   conditions helpers      — condition keys, per-condition pricing, list <-> map
+ *   CardTile                — the exact landing-page card tile
+ *   usePreview              — the shared hover-preview overlay
+ *   conditions helpers      — condition keys, value math, list <-> map
  *
  * USED BY: App.tsx route "/bulk"
  * DEPENDS ON: backend GET /api/search (must match collector numbers), POST .../bulk
@@ -27,39 +29,43 @@ import { useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getSets, searchCards } from '../api/cards'
 import { bulkSave, getCollection, type BulkItem } from '../api/collection'
+import { CardTile } from '../components/CardTile'
+import { usePreview } from '../components/CardPreview'
 import { LoginScreen } from '../components/LoginScreen'
 import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
 import {
-  baseCond, CONDS, condPrice, fromCondList, toCondList, type CondMap,
+  baseCond, cardValue, CONDS, fromCondList, toCondList, totalQty, type CondMap,
 } from '../lib/conditions'
 import type { Card } from '../types'
 
-/** One aggregated bulk-entry row: a card+condition and how many were entered. */
-interface BulkRow {
-  aggKey: string                              // `${rawLower}|${condKey}` — the dedupe key
-  raw: string                                 // what the user typed, e.g. "119/117"
-  condKey: string                             // "NM" or "NM 1st Ed"
-  qty: number                                 // how many copies entered
-  card: Card | null                           // resolved card, once the lookup finishes
-  status: 'resolving' | 'ok' | 'notfound'     // lookup state for this row
+/** One card tile in the bulk grid: a card and how many of each condition. */
+interface Tile {
+  card: Card
+  conds: CondMap          // condition key -> quantity
+  selCond: string         // which condition the tile's stepper edits
+  order: number           // entry order, for newest-first display
 }
 
-/** How many recent rows to actually render (the rest stay in memory). */
-const RENDER_LIMIT = 80
+/** A typed number still being resolved to a card. */
+interface Pending {
+  raw: string                                   // what was typed, e.g. "119/117"
+  adds: Array<{ condKey: string; qty: number }> // accumulated while resolving
+}
 
 export function BulkAddPage() {
   const { user } = useUser()
   const toast = useToast()
+  const preview = usePreview()
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets, enabled: !!user })
 
-  // Source of truth for entries — a Map keeps inserts O(1) and avoids
-  // re-rendering a 10k-element array on every keystroke.
-  const rowsRef = useRef<Map<string, BulkRow>>(new Map())
-  // Cache of raw-number -> resolved card so repeated numbers never re-hit the API.
-  const cacheRef = useRef<Map<string, Card | null>>(new Map())
-  // A counter we bump to trigger a re-render after mutating the ref-held Map.
-  const [, setVersion] = useState(0)
+  // Source of truth — ref-held so 10k entries don't churn React state per keystroke.
+  const tilesRef = useRef<Map<string, Tile>>(new Map())       // cardId -> tile
+  const pendingRef = useRef<Map<string, Pending>>(new Map())  // rawLower -> pending
+  const cacheRef = useRef<Map<string, Card | null>>(new Map())// rawLower -> resolved card
+  const notFoundRef = useRef<Map<string, number>>(new Map())  // rawLower -> attempts
+  const orderRef = useRef(0)
+  const [version, setVersion] = useState(0)
   const bump = () => setVersion(v => v + 1)
 
   // Entry controls.
@@ -73,14 +79,23 @@ export function BulkAddPage() {
   const numRef = useRef<HTMLInputElement>(null)
   const totalRef = useRef<HTMLInputElement>(null)
 
-  if (!user) return <LoginScreen />
+  if (!user) return <div className="page-tracker"><LoginScreen /></div>
+
+  /** PURPOSE: Add a quantity to a card's tile (creating the tile if new). */
+  const addToTile = (card: Card, condKey: string, qty: number) => {
+    const map = tilesRef.current
+    const t = map.get(card.id) ?? { card, conds: {}, selCond: condKey, order: 0 }
+    t.conds[condKey] = (t.conds[condKey] ?? 0) + qty
+    t.selCond = condKey
+    t.order = ++orderRef.current
+    map.set(card.id, t)
+  }
 
   /**
    * PURPOSE: Choose the single best card for a typed number from search hits.
-   * @param hits   Cards returned by the backend search
-   * @param n      Collector number part, lowercased ("119", "swsh158")
-   * @param t      Optional set-total part ("117") used to disambiguate sets
-   * @return       The best-matching card, or null
+   * @param hits Cards returned by the backend search
+   * @param n    Collector-number part, lowercased
+   * @param t    Optional set-total part used to disambiguate
    */
   const pickMatch = (hits: Card[], n: string, t: string): Card | null => {
     let pool = hits.filter(h => h.number.toLowerCase() === n)
@@ -95,111 +110,107 @@ export function BulkAddPage() {
     return pool[0] ?? null
   }
 
-  /**
-   * PURPOSE: Resolve a row's raw number to a card (cached), then update the row.
-   * @param raw     The raw entry, e.g. "119/117"
-   * @param aggKey  The row's Map key to update when resolution finishes
-   */
-  const resolve = async (raw: string, aggKey: string) => {
-    const key = raw.toLowerCase()
-    const apply = (card: Card | null) => {
-      const r = rowsRef.current.get(aggKey)
-      if (!r) return
-      r.card = card
-      r.status = card ? 'ok' : 'notfound'
-      bump()
-    }
-    if (cacheRef.current.has(key)) { apply(cacheRef.current.get(key) ?? null); return }
+  /** PURPOSE: Resolve a pending number to a card, then apply its queued adds. */
+  const resolve = async (raw: string, key: string) => {
     const [nPart, tPart] = raw.includes('/') ? raw.split('/') : [raw, '']
+    let card: Card | null = null
     try {
       const hits = await searchCards(raw)
-      const card = pickMatch(hits, nPart.trim().toLowerCase(), tPart.trim())
-      cacheRef.current.set(key, card)
-      apply(card)
-    } catch {
-      apply(null)
+      card = pickMatch(hits, nPart.trim().toLowerCase(), tPart.trim())
+    } catch { card = null }
+    cacheRef.current.set(key, card)
+    const p = pendingRef.current.get(key)
+    pendingRef.current.delete(key)
+    if (p) {
+      if (card) p.adds.forEach(a => addToTile(card!, a.condKey, a.qty))
+      else notFoundRef.current.set(raw, (notFoundRef.current.get(raw) ?? 0) + p.adds.reduce((s, a) => s + a.qty, 0))
     }
+    bump()
   }
 
-  /** PURPOSE: Commit the current number/total into the session (or bump its count). */
+  /** PURPOSE: Commit the current number/total into the grid (or bump a count). */
   const commit = () => {
     const n = num.trim()
     if (!n) return
     const t = total.trim()
     const raw = t ? `${n}/${t}` : n
     const condKey = firstEd ? `${cond} 1st Ed` : cond
-    const aggKey = `${raw.toLowerCase()}|${condKey}`
-    const map = rowsRef.current
-    const existing = map.get(aggKey)
-    if (existing) {
-      existing.qty += step
-      map.delete(aggKey)          // re-insert to move it to the most-recent end
-      map.set(aggKey, existing)
+    const key = raw.toLowerCase()
+
+    if (cacheRef.current.has(key)) {
+      const card = cacheRef.current.get(key)
+      if (card) addToTile(card, condKey, step)
+      else notFoundRef.current.set(raw, (notFoundRef.current.get(raw) ?? 0) + step)
     } else {
-      const row: BulkRow = { aggKey, raw, condKey, qty: step, card: null, status: 'resolving' }
-      map.set(aggKey, row)
-      void resolve(raw, aggKey)
+      const p = pendingRef.current.get(key)
+      if (p) {
+        const existing = p.adds.find(a => a.condKey === condKey)
+        if (existing) existing.qty += step
+        else p.adds.push({ condKey, qty: step })
+      } else {
+        pendingRef.current.set(key, { raw, adds: [{ condKey, qty: step }] })
+        void resolve(raw, key)
+      }
     }
-    setNum('')
-    setTotal('')
-    bump()
-    numRef.current?.focus()
+    setNum(''); setTotal(''); bump(); numRef.current?.focus()
   }
 
-  /** PURPOSE: Remove one aggregated row from the session. */
-  const removeRow = (aggKey: string) => {
-    rowsRef.current.delete(aggKey)
+  /** PURPOSE: Edit one tile's conditions; drop the tile if it hits zero total. */
+  const editTile = (cardId: string, fn: (t: Tile) => void) => {
+    const t = tilesRef.current.get(cardId)
+    if (!t) return
+    fn(t)
+    if (totalQty(t.conds) === 0) tilesRef.current.delete(cardId)
     bump()
   }
+  const onAdj = (cardId: string, delta: number) => editTile(cardId, t => {
+    const k = t.selCond
+    const next = Math.max(0, (t.conds[k] ?? 0) + delta)
+    if (next === 0) delete t.conds[k]; else t.conds[k] = next
+  })
+  const onSetQty = (cardId: string, qty: number) => editTile(cardId, t => {
+    if (qty === 0) delete t.conds[t.selCond]; else t.conds[t.selCond] = qty
+  })
+  const onSelectCond = (cardId: string, c: string) => editTile(cardId, t => { t.selCond = c })
+  const onAdjCond = (cardId: string, c: string, delta: number) => editTile(cardId, t => {
+    const next = Math.max(0, (t.conds[c] ?? 0) + delta)
+    if (next === 0) delete t.conds[c]; else t.conds[c] = next
+  })
 
-  /** PURPOSE: Wipe the whole in-progress session (after a confirm). */
+  /** PURPOSE: Wipe the in-progress session (does not touch the saved collection). */
   const clearAll = () => {
-    if (!rowsRef.current.size) return
-    if (!confirm('Clear the entire bulk session? This does not touch your saved collection.')) return
-    rowsRef.current.clear()
-    bump()
+    if (!tilesRef.current.size && !notFoundRef.current.size) return
+    if (!confirm('Clear the entire bulk session? Your saved collection is untouched.')) return
+    tilesRef.current.clear(); pendingRef.current.clear(); notFoundRef.current.clear(); bump()
   }
 
   /**
-   * PURPOSE: Merge every resolved row into the existing collection and save once.
+   * PURPOSE: Merge every tile into the existing collection and save once.
    *          bulkSave REPLACES each card it receives, so we read current
    *          conditions first and add the session counts on top — only the
-   *          touched cards are sent, leaving the rest of the collection intact.
+   *          entered cards are sent, leaving the rest of the collection intact.
    */
   const save = async () => {
-    const all = [...rowsRef.current.values()]
-    const ok = all.filter(r => r.status === 'ok' && r.card)
-    if (ok.length === 0) { toast('Nothing resolved to save yet.'); return }
+    const tiles = [...tilesRef.current.values()]
+    if (tiles.length === 0) { toast('Nothing to save yet.'); return }
     setSaving(true)
     try {
       const existing = await getCollection(user.id)
       const existingByCard = new Map(existing.map(e => [e.cardId, e]))
-      // cardId -> merged working state
-      const merged = new Map<string, { card: Card; map: CondMap; selectedCond: string }>()
-      for (const r of ok) {
-        const id = r.card!.id
-        let m = merged.get(id)
-        if (!m) {
-          const prior = existingByCard.get(id)
-          m = {
-            card: r.card!,
-            map: prior ? fromCondList(prior.conditions) : {},
-            selectedCond: prior?.selectedCond ?? baseCond(r.condKey),
-          }
-          merged.set(id, m)
+      const items: BulkItem[] = tiles.map(t => {
+        const prior = existingByCard.get(t.card.id)
+        const map: CondMap = prior ? fromCondList(prior.conditions) : {}
+        for (const k of Object.keys(t.conds)) map[k] = (map[k] ?? 0) + t.conds[k]
+        return {
+          cardId: t.card.id,
+          conditions: toCondList(map, t.card),
+          selectedCond: prior?.selectedCond ?? baseCond(t.selCond),
         }
-        m.map[r.condKey] = (m.map[r.condKey] ?? 0) + r.qty
-      }
-      const items: BulkItem[] = [...merged.values()].map(m => ({
-        cardId: m.card.id,
-        conditions: toCondList(m.map, m.card),
-        selectedCond: m.selectedCond,
-      }))
+      })
       await bulkSave(user.id, items)
-      const totalCards = ok.reduce((s, r) => s + r.qty, 0)
+      const totalCards = tiles.reduce((s, t) => s + totalQty(t.conds), 0)
       toast(`Saved ${totalCards} cards across ${items.length} unique cards.`)
-      rowsRef.current.clear()
-      bump()
+      tilesRef.current.clear(); pendingRef.current.clear(); notFoundRef.current.clear(); bump()
     } catch {
       toast('Save failed — nothing was stored.')
     } finally {
@@ -207,149 +218,118 @@ export function BulkAddPage() {
     }
   }
 
-  // Totals + the slice we actually render. Recomputed when `version` changes.
-  const { rendered, totalQty, uniqueOk, totalValue, resolving, notfound, overflow } = useMemo(() => {
-    const all = [...rowsRef.current.values()]
-    let q = 0, val = 0, okN = 0, resN = 0, nfN = 0
-    for (const r of all) {
-      q += r.qty
-      if (r.status === 'ok') { okN++; val += r.qty * condPrice(r.card!, r.condKey) }
-      else if (r.status === 'resolving') resN++
-      else nfN++
-    }
-    const recent = all.slice(-RENDER_LIMIT).reverse()   // newest first
+  // Derived view, recomputed on each bump.
+  const { tiles, totalCards, totalValue, resolving, notFound } = useMemo(() => {
+    const arr = [...tilesRef.current.values()].sort((a, b) => b.order - a.order)
+    let cards = 0, val = 0
+    for (const t of arr) { cards += totalQty(t.conds); val += cardValue(t.conds, t.card) }
     return {
-      rendered: recent, totalQty: q, uniqueOk: okN, totalValue: val,
-      resolving: resN, notfound: nfN, overflow: Math.max(0, all.length - RENDER_LIMIT),
+      tiles: arr, totalCards: cards, totalValue: val,
+      resolving: [...pendingRef.current.values()],
+      notFound: [...notFoundRef.current.keys()],
     }
-  }, [setVersion, num, total])   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [version]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div style={{ maxWidth: 920, margin: '0 auto', padding: '20px 16px', color: '#e5e7eb' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22, margin: 0 }}>⚡ Bulk Add</h1>
-        <Link to="/" style={{ color: '#93c5fd', fontSize: 14 }}>← Back to collection</Link>
-        <span style={{ marginLeft: 'auto', fontSize: 13, opacity: 0.7 }}>
-          Type a number, press <b>/</b> for the set total, <b>Enter</b> to add.
-        </span>
-      </div>
+    <div className="page-tracker">
+      <div id="app" style={{ display: 'block' }}>
+        <header>
+          <div className="logo">⚡ BULK <span>ADD</span></div>
+          <div className="user-badge">👤 <b>{user.username}</b></div>
+          <div className="header-right">
+            <Link to="/" className="tb-btn" style={{ textDecoration: 'none' }}>← Collection</Link>
+            <button className="tb-btn" onClick={clearAll}>Clear session</button>
+            <button className="tb-btn primary" onClick={save} disabled={saving || tiles.length === 0}>
+              {saving ? 'Saving…' : 'Save to collection'}
+            </button>
+          </div>
+        </header>
 
-      {/* Entry bar */}
-      <div style={{
-        display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center',
-        background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
-        borderRadius: 10, padding: 12, marginBottom: 16,
-      }}>
-        <input
-          ref={numRef}
-          value={num}
-          autoFocus
-          placeholder="number (e.g. 119)"
-          onChange={e => {
-            const v = e.target.value
-            if (v.includes('/')) {               // pasted/typed "119/117" — split + advance
-              const [a, b] = v.split('/')
-              setNum(a)
-              setTotal(b ?? '')
-              totalRef.current?.focus()
-            } else setNum(v)
-          }}
-          onKeyDown={e => {
-            if (e.key === '/') { e.preventDefault(); totalRef.current?.focus() }
-            else if (e.key === 'Enter') commit()
-          }}
-          style={inputStyle(120)}
-        />
-        <span style={{ opacity: 0.5 }}>/</span>
-        <input
-          ref={totalRef}
-          value={total}
-          placeholder="set total (opt.)"
-          onChange={e => setTotal(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') commit() }}
-          style={inputStyle(120)}
-        />
-        <select value={cond} onChange={e => setCond(e.target.value as (typeof CONDS)[number])} style={inputStyle(80)}>
-          {CONDS.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-          <input type="checkbox" checked={firstEd} onChange={e => setFirstEd(e.target.checked)} /> 1st Ed
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-          ×<input
-            type="number" min={1} value={step}
-            onChange={e => setStep(Math.max(1, parseInt(e.target.value, 10) || 1))}
-            style={inputStyle(56)}
+        {/* Entry bar */}
+        <div className="toolbar" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <input
+            ref={numRef} value={num} autoFocus placeholder="number (e.g. 119)"
+            style={{ width: 150 }}
+            onChange={e => {
+              const v = e.target.value
+              if (v.includes('/')) { const [a, b] = v.split('/'); setNum(a); setTotal(b ?? ''); totalRef.current?.focus() }
+              else setNum(v)
+            }}
+            onKeyDown={e => {
+              if (e.key === '/') { e.preventDefault(); totalRef.current?.focus() }
+              else if (e.key === 'Enter') commit()
+            }}
           />
-        </label>
-        <button onClick={commit} style={btnStyle('#2563eb')}>Add</button>
-      </div>
+          <span style={{ opacity: 0.5 }}>/</span>
+          <input
+            ref={totalRef} value={total} placeholder="set total (opt.)" style={{ width: 130 }}
+            onChange={e => setTotal(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') commit() }}
+          />
+          <select value={cond} onChange={e => setCond(e.target.value as (typeof CONDS)[number])}>
+            {CONDS.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <label className="tb-btn" style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <input type="checkbox" checked={firstEd} onChange={e => setFirstEd(e.target.checked)} /> 1st Ed
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--muted)' }}>
+            ×<input
+              type="number" min={1} value={step} style={{ width: 56 }}
+              onChange={e => setStep(Math.max(1, parseInt(e.target.value, 10) || 1))}
+            />
+          </label>
+          <button className="tb-btn primary" onClick={commit}>Add</button>
+          <span style={{ marginLeft: 'auto', fontSize: 13, color: 'var(--muted)' }}>
+            Type a number, <b>/</b> for the set total, <b>Enter</b> to add.
+          </span>
+        </div>
 
-      {/* Totals */}
-      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginBottom: 12, fontSize: 14 }}>
-        <span><b>{totalQty}</b> cards</span>
-        <span><b>{uniqueOk}</b> unique</span>
-        <span><b>${totalValue.toFixed(2)}</b> value</span>
-        {resolving > 0 && <span style={{ color: '#fbbf24' }}>{resolving} resolving…</span>}
-        {notfound > 0 && <span style={{ color: '#fca5a5' }}>{notfound} not found</span>}
-        <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          <button onClick={clearAll} style={btnStyle('transparent', '#fca5a5')}>Clear session</button>
-          <button onClick={save} disabled={saving || uniqueOk === 0} style={btnStyle('#16a34a')}>
-            {saving ? 'Saving…' : 'Save to collection'}
-          </button>
-        </span>
-      </div>
+        {/* Totals */}
+        <div className="stats-bar">
+          <div className="stat"><div className="stat-label">Cards entered</div><div className="stat-value">{totalCards}</div></div>
+          <div className="stat"><div className="stat-label">Unique cards</div><div className="stat-value">{tiles.length}</div></div>
+          <div className="stat"><div className="stat-label">Session value</div><div className="stat-value gold">${totalValue.toFixed(2)}</div></div>
+          {resolving.length > 0 && (
+            <div className="stat"><div className="stat-label">Resolving</div><div className="stat-value">{resolving.length}</div></div>
+          )}
+          {notFound.length > 0 && (
+            <div className="stat"><div className="stat-label">Not found</div><div className="stat-value" style={{ color: '#fca5a5' }}>{notFound.length}</div></div>
+          )}
+        </div>
 
-      {/* Recent rows */}
-      <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, overflow: 'hidden' }}>
-        {rendered.length === 0 && (
-          <div style={{ padding: 24, textAlign: 'center', opacity: 0.6 }}>
-            No cards yet — start typing numbers above.
+        {notFound.length > 0 && (
+          <div className="toolbar" style={{ color: '#fca5a5', fontSize: 13 }}>
+            Not found: {notFound.slice(0, 12).join(', ')}{notFound.length > 12 ? ` +${notFound.length - 12} more` : ''}
+            <button className="tb-btn" style={{ marginLeft: 'auto' }} onClick={() => { notFoundRef.current.clear(); bump() }}>Dismiss</button>
           </div>
         )}
-        {rendered.map(r => (
-          <div key={r.aggKey} style={{
-            display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
-            borderBottom: '1px solid rgba(255,255,255,0.05)',
-            background: r.status === 'notfound' ? 'rgba(239,68,68,0.08)' : 'transparent',
-          }}>
-            <span style={{ width: 90, fontFamily: 'monospace', opacity: 0.85 }}>#{r.raw}</span>
-            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {r.status === 'resolving' && <span style={{ opacity: 0.6 }}>resolving…</span>}
-              {r.status === 'notfound' && <span style={{ color: '#fca5a5' }}>not found</span>}
-              {r.status === 'ok' && r.card && r.card.name}
-            </span>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>{r.condKey}</span>
-            <span style={{ width: 48, textAlign: 'right' }}>×{r.qty}</span>
-            <span style={{ width: 72, textAlign: 'right', opacity: 0.8 }}>
-              {r.status === 'ok' && r.card ? `$${(r.qty * condPrice(r.card, r.condKey)).toFixed(2)}` : ''}
-            </span>
-            <button onClick={() => removeRow(r.aggKey)} style={{ ...btnStyle('transparent', '#9ca3af'), padding: '2px 8px' }}>✕</button>
+
+        <div id="app-wrap">
+          <div id="main">
+            {tiles.length === 0 && resolving.length === 0 && (
+              <div className="empty">Start typing collector numbers above — cards appear here.</div>
+            )}
+            <div className="card-grid">
+              {resolving.map(p => (
+                <div key={p.raw} className="pcard" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 140, opacity: 0.55 }}>
+                  resolving #{p.raw}…
+                </div>
+              ))}
+              {tiles.map(t => (
+                <CardTile
+                  key={t.card.id} card={t.card} conds={t.conds} selCond={t.selCond}
+                  onAdj={d => onAdj(t.card.id, d)}
+                  onSetQty={q => onSetQty(t.card.id, q)}
+                  onSelectCond={c => onSelectCond(t.card.id, c)}
+                  onAdjCond={(c, d) => onAdjCond(t.card.id, c, d)}
+                  onPreview={src => (src ? preview.show(src) : preview.hide())}
+                />
+              ))}
+            </div>
           </div>
-        ))}
-        {overflow > 0 && (
-          <div style={{ padding: '8px 12px', textAlign: 'center', fontSize: 13, opacity: 0.6 }}>
-            + {overflow} more entries (all included in totals and save)
-          </div>
-        )}
+        </div>
       </div>
+      {preview.overlay}
     </div>
   )
-}
-
-/** PURPOSE: Shared inline style for the entry inputs. @param w pixel width */
-function inputStyle(w: number): React.CSSProperties {
-  return {
-    width: w, padding: '8px 10px', borderRadius: 8,
-    border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(0,0,0,0.25)',
-    color: '#e5e7eb', fontSize: 14,
-  }
-}
-
-/** PURPOSE: Shared inline style for buttons. @param bg background @param fg text color */
-function btnStyle(bg: string, fg = '#fff'): React.CSSProperties {
-  return {
-    padding: '8px 14px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)',
-    background: bg, color: fg, fontSize: 14, cursor: 'pointer',
-  }
 }
