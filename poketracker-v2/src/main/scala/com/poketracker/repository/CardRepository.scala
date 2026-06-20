@@ -146,7 +146,7 @@ trait CardRepository:
    * @param limit  Maximum number of results to return (prevents huge responses)
    * @return       Matching cards ordered by relevance, newest sets first
    */
-  def searchCards(query: String, limit: Int = 60): Task[List[Card]]
+  def searchCards(query: String, limit: Int = 200): Task[List[Card]]
 
   /**
    * METHOD: upsertSet
@@ -305,7 +305,7 @@ object CardRepository:
         })
         .transact(xa)
 
-    def searchCards(query: String, limit: Int = 60): Task[List[Card]] =
+    def searchCards(query: String, limit: Int = 200): Task[List[Card]] =
       // to_tsvector/plainto_tsquery is PostgreSQL's full-text search.
       // It handles stemming (searching "Charizard" finds "Charizards"),
       // ranking by relevance, and is much faster than LIKE '%query%'.
@@ -320,7 +320,15 @@ object CardRepository:
         LEFT JOIN card_sets s ON s.id = c.set_id
         WHERE to_tsvector('english', c.name) @@ plainto_tsquery('english', $query)
            OR c.name ILIKE $likeQuery
-        ORDER BY s.release_date DESC, c.number
+           OR LOWER(c.number) = LOWER($query)
+           OR c.number ILIKE $likeQuery
+           OR (position('/' in $query) > 0
+               AND LOWER(c.number) = LOWER(split_part($query, '/', 1))
+               AND (s.printed_total::text = split_part($query, '/', 2)
+                    OR s.total::text = split_part($query, '/', 2)))
+        ORDER BY (LOWER(c.number) = LOWER($query)) DESC,
+                 (LOWER(c.name) = LOWER($query)) DESC,
+                 s.release_date DESC, c.number
         LIMIT $limit
       """
         .query[(String, String, String, String, Option[String], Option[String],
