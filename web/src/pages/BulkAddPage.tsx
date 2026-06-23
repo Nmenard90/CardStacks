@@ -33,12 +33,12 @@
  */
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { getSets, searchCards } from '../api/cards'
 import { bulkSave, getCollection, type BulkItem } from '../api/collection'
 import { CardTile } from '../components/CardTile'
 import { usePreview } from '../components/CardPreview'
 import { LoginScreen } from '../components/LoginScreen'
+import { NavMenu } from '../components/NavMenu'
 import { RecentSidebar, type SessionCard } from '../components/RecentSidebar'
 import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
@@ -328,15 +328,14 @@ export function BulkAddPage() {
           <div className="logo">⚡ BULK <span>ADD</span></div>
           <div className="user-badge">👤 <b>{user.username}</b></div>
           <div className="header-right">
-            <Link to="/" className="tb-btn" style={{ textDecoration: 'none' }}>← Collection</Link>
-            <Link to="/owned" className="tb-btn" style={{ textDecoration: 'none' }}>📦 My Collection</Link>
             <button className="tb-btn" onClick={() => setSidebarOpen(o => !o)}>
-              🗂 Binder {session.length > 0 && <span style={{ color: 'var(--accent)', marginLeft: 4 }}>{session.length}</span>}
+              🗂 Binder{session.length > 0 && <span style={{ color: 'var(--accent)', marginLeft: 4 }}>{session.length}</span>}
             </button>
             <button className="tb-btn" onClick={clearAll}>Clear</button>
             <button className="tb-btn primary" onClick={save} disabled={saving || tiles.length === 0}>
               {saving ? 'Saving…' : `Save${tiles.length ? ` (${totalCards})` : ''}`}
             </button>
+            <NavMenu current="/bulk" />
           </div>
         </header>
 

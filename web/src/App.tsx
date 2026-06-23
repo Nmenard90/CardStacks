@@ -27,7 +27,6 @@ import { BinderViewPage } from './pages/BinderViewPage'
 import { AnalyzerPage } from './pages/AnalyzerPage'
 import { ConventionModePage } from './pages/ConventionModePage'
 import { BulkAddPage } from './pages/BulkAddPage'
-import { OwnedPage } from './pages/OwnedPage'
 
 /**
  * VALUE: queryClient
@@ -63,7 +62,6 @@ export default function App() {
               <Route path="/analyzer"          element={<AnalyzerPage />} />
               <Route path="/convention"        element={<ConventionModePage />} />
               <Route path="/bulk"              element={<BulkAddPage />} />
-              <Route path="/owned"            element={<OwnedPage />} />
             </Routes>
           </BrowserRouter>
         </ToastProvider>

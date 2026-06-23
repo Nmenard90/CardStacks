@@ -410,7 +410,13 @@ object CardService:
           val safe = q.replaceAll("[^a-zA-Z0-9 '\\-]", "").trim
           if safe.isEmpty then ZIO.succeed(Nil)
           else
-            get(s"$base/cards?q=name:*$safe*&pageSize=$n")
+            // If query looks like a collector number (digits, optionally /total), search by number.
+            // Otherwise search by name with wildcard. This fixes "119/202" returning nothing.
+            val numericQ = "^(\\d+)(?:/\\d*)?$".r
+            val apiQuery = numericQ.findFirstMatchIn(q.trim) match
+              case Some(m) => s"number:${m.group(1)}"
+              case None    => s"name:*$safe*"
+            get(s"$base/cards?q=$apiQuery&pageSize=$n")
               .flatMap(parse[ApiCardsResp])
               .flatMap { resp =>
                 val cards = resp.data.map(toCard)
