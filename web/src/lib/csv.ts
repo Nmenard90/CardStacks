@@ -8,13 +8,24 @@
 /** Quote a cell the way the old app did: wrap and double inner quotes. */
 const q = (v: string | number) => '"' + String(v).replace(/"/g, '""') + '"'
 
-/** Build the CSV text and trigger a browser download. */
+/**
+ * Build the CSV text and trigger a browser download.
+ * Uses a Blob + object URL rather than a `data:` URI: data URIs have a length
+ * cap that large collections silently exceed (the old cause of "export did
+ * nothing"), and the link must be in the document for some browsers to click it.
+ * A leading BOM makes Excel open the UTF-8 file with correct characters.
+ */
 export function downloadCSV(filename: string, rows: (string | number)[][]) {
-  const csv = rows.map(r => r.map(q).join(',')).join('\n')
+  const csv = '\ufeff' + rows.map(r => r.map(q).join(',')).join('\r\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv)
+  a.href = url
   a.download = filename
+  document.body.appendChild(a)
   a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
 }
 
 /** One parsed import line. */

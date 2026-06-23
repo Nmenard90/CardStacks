@@ -3,29 +3,45 @@
  * LOCATION: src/pages/CollectionPage.tsx
  *
  * PURPOSE:
- *   Main collection page — two modes toggled by tabs in the header:
+ *   The main page for finding and logging cards. There are two ways to find a
+ *   card, and finding one NEVER requires picking a set first:
+ *     - Search box (primary): type any name or number and the backend searches
+ *       every set at once. With 2+ characters the grid shows cross-set results.
+ *     - Set browser (optional): the SetSelector narrows the grid to a single set
+ *       when you want to work through one. It is a convenience, not a gate.
+ *   Quantity edits are optimistic: the local map updates immediately and the
+ *   change is POSTed to the Scala API.
  *
- *   BROWSE SETS mode:
- *     Shows all cards in the selected set. When the search box has 2+ chars,
- *     switches to a global cross-set search (all sets, backed by pokemontcg.io
- *     fallback). The SetSelector is only shown in this mode.
+ *   "My Collection" (every owned card across all sets) is its own page at /owned.
+ *   Quick-add and the Recently Added sidebar live on the Bulk Add page (/bulk).
  *
- *   MY COLLECTION mode:
- *     Shows every card owned across ALL sets in one view. Search is a local
- *     filter. Sort by name, qty, value, or set. Loads from
- *     GET /api/collection/:userId/owned on first switch.
+ * IMPORTS EXPLAINED:
+ *   useQuery/useQueryClient — cache sets/cards/stats; invalidate stats on save
+ *   getCards/getSets/searchCards — one set's cards, set list, all-sets search
+ *   bulkSave/getCollection/getStats/saveEntry — collection read + writes
+ *   CardTile        — one card cell (thumbnail, price, +/- stepper, conditions)
+ *   usePreview      — large hover-image overlay
+ *   HeaderNav       — shared, always-visible page navigation
+ *   ImportModal     — CSV import dialog
+ *   LoginScreen     — shown when nobody is signed in
+ *   SetSelector     — optional set picker for browsing one set
+ *   useToast/useUser — notifications + current session
+ *   conditions.*    — price/quantity helpers shared across the app
+ *   csv.*           — CSV export/import helpers
  *
  * USED BY: App.tsx (route "/")
+ * DEPENDS ON: GET /api/sets, /api/cards/:setId, /api/search,
+ *             GET /api/collection/:userId (+ /stats), POST .../:cardId, .../bulk
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getCards, getSets, searchCards } from '../api/cards'
-import { bulkSave, getCollection, getOwnedCards, getStats, saveEntry } from '../api/collection'
+import { bulkSave, getCollection, getStats, saveEntry } from '../api/collection'
 import { CardTile } from '../components/CardTile'
 import { usePreview } from '../components/CardPreview'
+import { HeaderNav } from '../components/HeaderNav'
 import { ImportModal } from '../components/ImportModal'
 import { LoginScreen } from '../components/LoginScreen'
-import { NavMenu } from '../components/NavMenu'
 import { SetSelector } from '../components/SetSelector'
 import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
@@ -35,65 +51,47 @@ import {
 import { downloadCSV, type ImportRow } from '../lib/csv'
 import type { Card } from '../types'
 
+/** Local state for one card: counts per condition + the active condition. */
 interface Entry { conds: CondMap; selCond: string }
 type SortMode = 'number' | 'value' | 'qty' | 'name'
 
+/** Card numbers sort numerically when possible ("2" before "10"). */
 const numKey = (n: string) => {
   const m = n.match(/\d+/)
   return m ? parseInt(m[0], 10) : Number.MAX_SAFE_INTEGER
 }
 
-const TAB_STYLE = `
-.mode-tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--surface); }
-.mode-tab {
-  padding: 10px 22px; font-size: 14px; font-weight: 600; cursor: pointer;
-  background: transparent; border: 0; border-bottom: 2px solid transparent;
-  color: var(--muted); transition: color .15s, border-color .15s; font-family: inherit;
-}
-.mode-tab.active { color: var(--text); border-bottom-color: var(--accent); }
-.mode-tab:hover:not(.active) { color: var(--text); }
-`
-
 export function CollectionPage() {
-  const { user, setUser } = useUser()
+  // 1) Context hooks
+  const { user } = useUser()
   const toast = useToast()
   const qc = useQueryClient()
   const preview = usePreview()
 
-  // ── Page mode ─────────────────────────────────────────────────────────────
-  const [mode, setMode] = useState<'browse' | 'owned'>('browse')
-
-  // ── UI state ──────────────────────────────────────────────────────────────
+  // 2) State
   const [setId, setSetId] = useState<string | null>(() => localStorage.getItem('poketracker_set'))
   const [search, setSearch] = useState('')
   const [ownedOnly, setOwnedOnly] = useState(false)
   const [sort, setSort] = useState<SortMode>('number')
   const [importOpen, setImportOpen] = useState(false)
 
-  // ── Global search (browse mode only) ─────────────────────────────────────
+  // Cross-set search results, populated only while the box holds 2+ characters.
   const [globalHits, setGlobalHits] = useState<Card[]>([])
   const [globalSearching, setGlobalSearching] = useState(false)
   const globalTimer = useRef<number | null>(null)
 
-  // ── My Collection state ───────────────────────────────────────────────────
-  const [ownedCards, setOwnedCards] = useState<Card[]>([])
-  const [ownedLoading, setOwnedLoading] = useState(false)
-  const [ownedLoaded, setOwnedLoaded] = useState(false)
-
   const userId = user?.id ?? ''
 
-  // ── Server data ───────────────────────────────────────────────────────────
+  // 3) Server data
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets, enabled: !!user })
 
+  // Active set: the stored choice when still valid, else the newest set.
+  // Derived (not synced via an effect) so there is no flash of an empty grid.
   const activeSetId = useMemo(() => {
     if (setId && sets.some(s => s.id === setId)) return setId
     if (sets.length === 0) return null
     return [...sets].sort((a, b) => b.releaseDate.localeCompare(a.releaseDate))[0].id
   }, [sets, setId])
-
-  useEffect(() => {
-    if (activeSetId) localStorage.setItem('poketracker_set', activeSetId)
-  }, [activeSetId])
 
   const { data: cards = [], isLoading: cardsLoading } = useQuery({
     queryKey: ['cards', activeSetId],
@@ -106,8 +104,13 @@ export function CollectionPage() {
     enabled: !!user,
   })
 
-  // ── Local collection map (optimistic, shared across modes) ────────────────
+  // Local collection map, seeded once per user from the backend.
   const [coll, setColl] = useState<Record<string, Entry>>({})
+
+  // 4) Effects
+  useEffect(() => {
+    if (activeSetId) localStorage.setItem('poketracker_set', activeSetId)
+  }, [activeSetId])
 
   useEffect(() => {
     if (!userId) return
@@ -118,55 +121,34 @@ export function CollectionPage() {
           m[e.cardId] = { conds: fromCondList(e.conditions), selCond: e.selectedCond || 'NM' }
         }
         setColl(m)
-        setOwnedLoaded(false)
       })
       .catch(() => toast('Could not load your collection.'))
   }, [userId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const cardById = useMemo(() => new Map(cards.map(c => [c.id, c])), [cards])
-
-  // ── Load all owned cards when switching to My Collection mode ─────────────
+  // Debounced cross-set search. Runs whenever the box holds 2+ characters,
+  // independent of which set (if any) is selected — finding a card never
+  // depends on the set browser.
   useEffect(() => {
-    if (mode !== 'owned' || ownedLoaded || ownedLoading || !userId) return
-    setOwnedLoading(true)
-    getOwnedCards(userId)
-      .then(owned => {
-        setOwnedCards(owned.map(o => o.card))
-        setColl(prev => {
-          const m = { ...prev }
-          for (const o of owned) {
-            m[o.cardId] = { conds: fromCondList(o.conditions), selCond: o.selectedCond || 'NM' }
-          }
-          return m
-        })
-        setOwnedLoaded(true)
-      })
-      .catch(() => toast('Could not load your full collection.'))
-      .finally(() => setOwnedLoading(false))
-  }, [mode, ownedLoaded, userId]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Global search debounce (browse mode only) ─────────────────────────────
-  useEffect(() => {
-    if (mode !== 'browse') { setGlobalHits([]); setGlobalSearching(false); return }
     if (globalTimer.current) clearTimeout(globalTimer.current)
     const q = search.trim()
     if (q.length < 2) { setGlobalHits([]); setGlobalSearching(false); return }
     setGlobalSearching(true)
     globalTimer.current = window.setTimeout(async () => {
       try { setGlobalHits(await searchCards(q)) }
-      catch { setGlobalHits([]) }
+      catch { setGlobalHits([]); toast('Search failed - please try again.') }
       finally { setGlobalSearching(false) }
     }, 300)
     return () => { if (globalTimer.current) clearTimeout(globalTimer.current) }
-  }, [search, mode])
+  }, [search]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Persistence ───────────────────────────────────────────────────────────
+  const cardById = useMemo(() => new Map(cards.map(c => [c.id, c])), [cards])
+
+  // 5) Event handlers / persistence
   const persist = (card: Card, entry: Entry) => {
     saveEntry(userId, card.id, toCondList(entry.conds, card), entry.selCond)
       .then(() => qc.invalidateQueries({ queryKey: ['stats', userId] }))
-      .catch(() => toast('Save failed — change not stored.'))
+      .catch(() => toast('Save failed - change not stored.'))
   }
-
   const mutate = (card: Card, fn: (e: Entry) => Entry) => {
     setColl(prev => {
       const cur = prev[card.id] ?? { conds: {}, selCond: 'NM' }
@@ -175,7 +157,6 @@ export function CollectionPage() {
       return { ...prev, [card.id]: next }
     })
   }
-
   const adj = (card: Card, delta: number) => {
     const key = (coll[card.id] ?? { selCond: 'NM' }).selCond
     mutate(card, e => {
@@ -201,7 +182,7 @@ export function CollectionPage() {
       return e
     })
 
-  // ── CSV export / import / clear set ──────────────────────────────────────
+  // CSV export / import / clear set
   const exportCSV = () => {
     const rows: (string | number)[][] = [[
       'Card ID', 'Name', 'Set', 'Number', 'Rarity',
@@ -209,13 +190,13 @@ export function CollectionPage() {
     ]]
     for (const [id, e] of Object.entries(coll)) {
       const card = cardById.get(id)
-      for (const [cond, q] of Object.entries(e.conds)) {
-        if (q <= 0) continue
+      for (const [cond, qn] of Object.entries(e.conds)) {
+        if (qn <= 0) continue
         const p = condPrice(card, cond)
         rows.push([
           id, card?.name ?? '', card?.setId ?? id.split('-')[0],
           card?.number ?? '', card?.rarity ?? '',
-          cond, q, p.toFixed(2), (p * q).toFixed(2),
+          cond, qn, p.toFixed(2), (p * qn).toFixed(2),
         ])
       }
     }
@@ -262,8 +243,9 @@ export function CollectionPage() {
     toast('Set cleared.')
   }
 
-  // ── Derived display cards ─────────────────────────────────────────────────
-  const isSearchMode = mode === 'browse' && search.trim().length >= 2
+  // 6) Derived values
+  // Search mode kicks in at 2+ characters and is independent of the set browser.
+  const isSearchMode = search.trim().length >= 2
 
   const filtered = useMemo(() => {
     let list = ownedOnly
@@ -278,231 +260,120 @@ export function CollectionPage() {
     return list
   }, [cards, coll, ownedOnly, sort])
 
-  const ownedDisplay = useMemo(() => {
-    if (mode !== 'owned') return []
-    const q = search.trim().toLowerCase()
-    let list = ownedCards.filter(c => totalQty(coll[c.id]?.conds ?? {}) > 0)
-    if (q) {
-      list = list.filter(c =>
-        c.name.toLowerCase().includes(q) ||
-        c.number.toLowerCase().includes(q) ||
-        c.setId.toLowerCase().includes(q)
-      )
-    }
-    if (sort === 'name')   list.sort((a, b) => a.name.localeCompare(b.name))
-    if (sort === 'value')  list.sort((a, b) => cardValue(coll[b.id]?.conds ?? {}, b) - cardValue(coll[a.id]?.conds ?? {}, a) || basePrice(b) - basePrice(a))
-    if (sort === 'qty')    list.sort((a, b) => totalQty(coll[b.id]?.conds ?? {}) - totalQty(coll[a.id]?.conds ?? {}))
-    if (sort === 'number') list.sort((a, b) => a.setId.localeCompare(b.setId) || numKey(a.number) - numKey(b.number))
-    return list
-  }, [mode, ownedCards, coll, search, sort])
-
-  const displayCards = mode === 'owned'
-    ? ownedDisplay
-    : isSearchMode
-      ? globalHits.filter(c => !ownedOnly || totalQty(coll[c.id]?.conds ?? {}) > 0)
-      : filtered
+  // The grid shows cross-set hits while searching, otherwise the selected set.
+  const displayCards = isSearchMode
+    ? globalHits.filter(c => !ownedOnly || totalQty(coll[c.id]?.conds ?? {}) > 0)
+    : filtered
 
   const set = sets.find(s => s.id === activeSetId)
   const ownedInSet = cards.filter(c => totalQty(coll[c.id]?.conds ?? {}) > 0).length
   const setValue = cards.reduce((sum, c) => sum + cardValue(coll[c.id]?.conds ?? {}, c), 0)
   const completion = set && set.total > 0 ? Math.round((ownedInSet / set.total) * 100) : 0
+  const gridReady = isSearchMode ? !globalSearching : !cardsLoading
 
-  const gridReady = mode === 'owned'
-    ? !ownedLoading
-    : isSearchMode ? !globalSearching : !cardsLoading
-
+  // 7) Login guard
   if (!user) return <div className="page-tracker"><LoginScreen /></div>
 
+  // 8) Render
   return (
     <div className="page-tracker">
-      <style>{TAB_STYLE}</style>
       <div id="app" style={{ display: 'block' }}>
         <header>
           <div className="logo">POKÉDEX <span>TRACKER</span></div>
           <div className="user-badge">👤 <b>{user.username}</b></div>
-          {/* SetSelector only visible in Browse Sets mode */}
-          {mode === 'browse' && (
-            <SetSelector
-              sets={sets}
-              selectedId={activeSetId}
-              onSelect={id => { setSetId(id); setSearch('') }}
-            />
-          )}
+          {/* Primary way to find a card: searches every set, no set required. */}
           <input
             type="text"
-            placeholder={
-              mode === 'owned'
-                ? 'Filter by name, number, or set…'
-                : isSearchMode
-                  ? 'Searching all sets…'
-                  : 'Search all sets…'
-            }
-            style={{ width: 220 }}
+            placeholder="Search any card by name or number - all sets"
+            style={{ width: 300 }}
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
-          <NavMenu current="/" />
+          {/* Optional: narrow the grid to one set when not searching. */}
+          <SetSelector
+            sets={sets}
+            selectedId={activeSetId}
+            onSelect={id => { setSetId(id); setSearch('') }}
+          />
+          <HeaderNav />
         </header>
-
-        {/* Mode tabs */}
-        <div className="mode-tabs">
-          <button
-            className={'mode-tab' + (mode === 'browse' ? ' active' : '')}
-            onClick={() => { setMode('browse'); setSearch('') }}
-          >
-            Browse Sets
-          </button>
-          <button
-            className={'mode-tab' + (mode === 'owned' ? ' active' : '')}
-            onClick={() => { setMode('owned'); setSearch('') }}
-          >
-            My Collection
-            {stats && stats.uniqueCards > 0 && (
-              <span style={{ marginLeft: 6, opacity: 0.6, fontSize: 12 }}>
-                ({stats.uniqueCards})
-              </span>
-            )}
-          </button>
-        </div>
 
         {/* Stats bar */}
         <div className="stats-bar">
-          {mode === 'browse' ? (
-            <>
-              <div className="stat">
-                <div className="stat-label">Cards owned</div>
-                <div className="stat-value">
-                  {ownedInSet}<span style={{ color: 'var(--muted)', fontSize: 13 }}> / {set?.total ?? '—'}</span>
-                </div>
-              </div>
-              <div className="stat">
-                <div className="stat-label">Set completion</div>
-                <div className="stat-value">
-                  {completion}%
-                  <div className="progress-wrap"><div className="progress-bar" style={{ width: completion + '%' }} /></div>
-                </div>
-              </div>
-              <div className="stat">
-                <div className="stat-label">Set value</div>
-                <div className="stat-value gold">${setValue.toFixed(2)}</div>
-              </div>
-              <div className="stat">
-                <div className="stat-label">Total collection</div>
-                <div className="stat-value gold">${(stats?.totalValue ?? 0).toFixed(2)}</div>
-              </div>
-              <div className="stat">
-                <div className="stat-label">Sets entered</div>
-                <div className="stat-value">{stats?.setsEntered ?? '—'}</div>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="stat">
-                <div className="stat-label">Unique cards</div>
-                <div className="stat-value">{stats?.uniqueCards ?? ownedCards.length}</div>
-              </div>
-              <div className="stat">
-                <div className="stat-label">Total copies</div>
-                <div className="stat-value">{stats?.totalCards ?? 0}</div>
-              </div>
-              <div className="stat">
-                <div className="stat-label">Total value</div>
-                <div className="stat-value gold">${(stats?.totalValue ?? 0).toFixed(2)}</div>
-              </div>
-              <div className="stat">
-                <div className="stat-label">Sets</div>
-                <div className="stat-value">{stats?.setsEntered ?? 0}</div>
-              </div>
-              {search && (
-                <div className="stat">
-                  <div className="stat-label">Showing</div>
-                  <div className="stat-value">{displayCards.length} of {ownedCards.filter(c => totalQty(coll[c.id]?.conds ?? {}) > 0).length}</div>
-                </div>
-              )}
-            </>
-          )}
+          <div className="stat">
+            <div className="stat-label">Cards owned</div>
+            <div className="stat-value">
+              {ownedInSet}<span style={{ color: 'var(--muted)', fontSize: 13 }}> / {set?.total ?? '—'}</span>
+            </div>
+          </div>
+          <div className="stat">
+            <div className="stat-label">Set completion</div>
+            <div className="stat-value">
+              {completion}%
+              <div className="progress-wrap"><div className="progress-bar" style={{ width: completion + '%' }} /></div>
+            </div>
+          </div>
+          <div className="stat">
+            <div className="stat-label">Set value</div>
+            <div className="stat-value gold">${setValue.toFixed(2)}</div>
+          </div>
+          <div className="stat">
+            <div className="stat-label">Total collection</div>
+            <div className="stat-value gold">${(stats?.totalValue ?? 0).toFixed(2)}</div>
+          </div>
+          <div className="stat">
+            <div className="stat-label">Sets entered</div>
+            <div className="stat-value">{stats?.setsEntered ?? '—'}</div>
+          </div>
         </div>
 
         {/* Toolbar */}
         <div className="toolbar">
-          {mode === 'browse' && !isSearchMode && (
-            <>
-              <span className="sort-label">Sort:</span>
-              {(['number', 'value', 'qty', 'name'] as SortMode[]).map(m => (
-                <button key={m} className={'tb-btn' + (sort === m ? ' active' : '')} onClick={() => setSort(m)}>
-                  {m === 'number' ? 'Card #' : m === 'value' ? 'Value ↓' : m === 'qty' ? 'Qty ↓' : 'Name'}
-                </button>
-              ))}
-              <button className={'tb-btn' + (ownedOnly ? ' active' : '')} onClick={() => setOwnedOnly(o => !o)}>
-                Owned only
-              </button>
-              <button className="tb-btn" onClick={exportCSV}>⬇ Export CSV</button>
-              <button className="tb-btn" onClick={() => setImportOpen(true)}>⬆ Import CSV</button>
-              <button className="tb-btn primary" onClick={clearSet}>Clear set</button>
-            </>
-          )}
-          {mode === 'owned' && (
-            <>
-              <span className="sort-label">Sort:</span>
-              {(['name', 'qty', 'value', 'number'] as SortMode[]).map(m => (
-                <button key={m} className={'tb-btn' + (sort === m ? ' active' : '')} onClick={() => setSort(m as SortMode)}>
-                  {m === 'name' ? 'Name' : m === 'qty' ? 'Qty ↓' : m === 'value' ? 'Value ↓' : 'By Set'}
-                </button>
-              ))}
-              <button className="tb-btn" onClick={exportCSV}>⬇ Export CSV</button>
-            </>
-          )}
+          <span className="sort-label">Sort:</span>
+          {(['number', 'value', 'qty', 'name'] as SortMode[]).map(m => (
+            <button key={m} className={'tb-btn' + (sort === m ? ' active' : '')} onClick={() => setSort(m)}>
+              {m === 'number' ? 'Card #' : m === 'value' ? 'Value ↓' : m === 'qty' ? 'Qty ↓' : 'Name'}
+            </button>
+          ))}
+          <button className={'tb-btn' + (ownedOnly ? ' active' : '')} onClick={() => setOwnedOnly(o => !o)}>
+            Owned only
+          </button>
+          <button className="tb-btn" onClick={exportCSV}>⬇ Export CSV</button>
+          <button className="tb-btn" onClick={() => setImportOpen(true)}>⬆ Import CSV</button>
+          <button className="tb-btn primary" onClick={clearSet}>Clear set</button>
         </div>
 
         <div id="app-wrap">
           <div id="main">
-
-            {/* ── Browse Sets mode ─────────────────────────────────── */}
-            {mode === 'browse' && (
-              <>
-                {!isSearchMode && set && (
-                  <div className="set-info">
-                    {set.images?.logo && <img className="set-logo" src={set.images.logo} alt={set.name} />}
-                    <div>
-                      <div className="set-name">{set.name}</div>
-                      <div className="set-meta">{set.series} · {set.releaseDate} · {set.total} cards</div>
-                    </div>
-                  </div>
-                )}
-                {isSearchMode && globalSearching && <div className="loading">Searching all sets…</div>}
-                {isSearchMode && !globalSearching && displayCards.length === 0 && (
-                  <div className="empty">No cards found for "{search.trim()}".</div>
-                )}
-                {isSearchMode && !globalSearching && displayCards.length > 0 && (
-                  <div style={{ padding: '8px 18px', color: 'var(--muted)', fontSize: 13 }}>
-                    {displayCards.length} result{displayCards.length !== 1 ? 's' : ''} across all sets
-                  </div>
-                )}
-                {!isSearchMode && cardsLoading && <div className="loading">Loading</div>}
-                {!isSearchMode && !cardsLoading && displayCards.length === 0 && (
-                  <div className="empty">No cards match.</div>
-                )}
-              </>
+            {/* Set banner only when browsing a set (not while searching). */}
+            {!isSearchMode && set && (
+              <div className="set-info">
+                {set.images?.logo && <img className="set-logo" src={set.images.logo} alt={set.name} />}
+                <div>
+                  <div className="set-name">{set.name}</div>
+                  <div className="set-meta">{set.series} · {set.releaseDate} · {set.total} cards</div>
+                </div>
+              </div>
             )}
 
-            {/* ── My Collection mode ──────────────────────────────── */}
-            {mode === 'owned' && (
-              <>
-                {ownedLoading && <div className="loading">Loading your collection…</div>}
-                {!ownedLoading && ownedCards.length === 0 && (
-                  <div className="empty">
-                    You don't own any cards yet. Use the Browse Sets tab to add cards.
-                  </div>
-                )}
-                {!ownedLoading && ownedCards.length > 0 && ownedDisplay.length === 0 && (
-                  <div className="empty">
-                    {search ? `No cards match "${search}".` : 'No owned cards.'}
-                  </div>
-                )}
-              </>
+            {/* Search-mode status lines */}
+            {isSearchMode && globalSearching && <div className="loading">Searching all sets…</div>}
+            {isSearchMode && !globalSearching && displayCards.length > 0 && (
+              <div style={{ padding: '8px 18px', color: 'var(--muted)', fontSize: 13 }}>
+                {displayCards.length} result{displayCards.length !== 1 ? 's' : ''} across all sets
+              </div>
+            )}
+            {isSearchMode && !globalSearching && displayCards.length === 0 && (
+              <div className="empty">No cards found for "{search.trim()}".</div>
             )}
 
-            {/* ── Card grid (both modes) ───────────────────────────── */}
+            {/* Browse-mode status lines */}
+            {!isSearchMode && cardsLoading && <div className="loading">Loading</div>}
+            {!isSearchMode && !cardsLoading && displayCards.length === 0 && (
+              <div className="empty">No cards match.</div>
+            )}
+
+            {/* Card grid (shared by both modes) */}
             {gridReady && displayCards.length > 0 && (
               <div className="card-grid">
                 {displayCards.map(c => {

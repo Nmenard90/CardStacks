@@ -38,7 +38,7 @@ import { bulkSave, getCollection, type BulkItem } from '../api/collection'
 import { CardTile } from '../components/CardTile'
 import { usePreview } from '../components/CardPreview'
 import { LoginScreen } from '../components/LoginScreen'
-import { NavMenu } from '../components/NavMenu'
+import { HeaderNav } from '../components/HeaderNav'
 import { RecentSidebar, type SessionCard } from '../components/RecentSidebar'
 import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
@@ -335,7 +335,7 @@ export function BulkAddPage() {
             <button className="tb-btn primary" onClick={save} disabled={saving || tiles.length === 0}>
               {saving ? 'Saving…' : `Save${tiles.length ? ` (${totalCards})` : ''}`}
             </button>
-            <NavMenu current="/bulk" />
+            <HeaderNav />
           </div>
         </header>
 
