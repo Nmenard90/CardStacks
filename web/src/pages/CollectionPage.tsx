@@ -95,7 +95,6 @@ export function CollectionPage() {
   const userId = user?.id ?? ''
 
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets, enabled: !!user })
-  const setName = useMemo(() => new Map(sets.map(s => [s.id, s.name])), [sets])
 
   /**
    * PURPOSE: Resolve the active set ID from the stored preference.

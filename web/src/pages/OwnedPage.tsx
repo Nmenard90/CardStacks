@@ -20,7 +20,7 @@ import { usePreview } from '../components/CardPreview'
 import { LoginScreen } from '../components/LoginScreen'
 import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
-import { basePrice, cardValue, condPrice, fromCondList, toCondList, totalQty, type CondMap } from '../lib/conditions'
+import { basePrice, cardValue, fromCondList, toCondList, totalQty, type CondMap } from '../lib/conditions'
 import type { Card, OwnedCard } from '../types'
 
 interface Entry { conds: CondMap; selCond: string }
