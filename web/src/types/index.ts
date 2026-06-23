@@ -80,6 +80,14 @@ export interface CollectionStats {
   setsEntered: number
 }
 
+export interface OwnedCard {
+  cardId: string
+  conditions: ConditionCount[]
+  selectedCond: string
+  updatedAt: string
+  card: Card
+}
+
 // ─── Binders ─────────────────────────────────────────────────────────────────
 
 export type PocketSize = 'Four' | 'Nine' | 'Twelve'

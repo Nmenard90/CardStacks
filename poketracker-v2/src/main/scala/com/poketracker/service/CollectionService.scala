@@ -78,6 +78,15 @@ trait CollectionService:
    */
   def getStats(userId: String): Task[CollectionStats]
 
+  /**
+   * METHOD: getOwnedCards
+   * PURPOSE: Returns all cards a user owns, each enriched with full card details.
+   *          Used by the My Collection page to show every owned card in one request.
+   * @param userId  The user
+   * @return        List of OwnedCard (collection entry + card data + prices)
+   */
+  def getOwnedCards(userId: String): Task[List[OwnedCard]]
+
 /**
  * CASE CLASS: CollectionStats
  * PURPOSE: Summary statistics for a user's collection.
@@ -149,6 +158,9 @@ object CollectionService:
         )
       }.filter(_.conditions.nonEmpty) // Only save entries with at least one card
       collectionRepo.bulkUpsert(entries)
+
+    def getOwnedCards(userId: String): Task[List[OwnedCard]] =
+      collectionRepo.findByUserWithCards(userId)
 
     def getStats(userId: String): Task[CollectionStats] =
       collectionRepo.findByUser(userId).map { entries =>

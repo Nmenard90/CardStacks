@@ -382,8 +382,46 @@ object CardService:
     def getCardById(id: String): Task[Option[Card]] =
       repo.findCardById(id)
 
+    /**
+     * METHOD: searchCards
+     * PURPOSE: Search cards by name or collector number.
+     *   Strategy:
+     *     1. Query the local PostgreSQL DB (fast, covers every set the app has
+     *        ever loaded).
+     *     2. If the DB has no matches — most likely because this card's set has
+     *        never been loaded — fall back to the pokemontcg.io API.
+     *        We upsert any API results into the DB so the next search is instant.
+     *     3. If the API call also fails, log and return an empty list rather than
+     *        surfacing a 500 to the user.
+     *
+     * NOTE: The PokéTCG API wildcard query (`name:*query*`) returns cards whose
+     *   names contain the search term.  We sanitize the query to letters, digits,
+     *   spaces, hyphens and apostrophes before embedding it in the URL.
+     *
+     * @param q  Search term e.g. "Charizard" or "SWSH158"
+     * @param n  Max results (default 60)
+     */
     def searchCards(q: String, n: Int = 60): Task[List[Card]] =
-      repo.searchCards(q, n)
+      repo.searchCards(q, n).flatMap {
+        case cards if cards.nonEmpty => ZIO.succeed(cards)
+        case _ =>
+          // Strip characters that would break the pokemontcg.io query syntax,
+          // then search by name with wildcard matching.
+          val safe = q.replaceAll("[^a-zA-Z0-9 '\\-]", "").trim
+          if safe.isEmpty then ZIO.succeed(Nil)
+          else
+            get(s"$base/cards?q=name:*$safe*&pageSize=$n")
+              .flatMap(parse[ApiCardsResp])
+              .flatMap { resp =>
+                val cards = resp.data.map(toCard)
+                // Upsert into the DB so subsequent searches are served locally.
+                ZIO.foreach(cards)(repo.upsertCard).as(cards)
+              }
+              .catchAll { e =>
+                ZIO.logWarning(s"PokéTCG API search fallback failed for '$q': ${e.getMessage}")
+                  .as(Nil)
+              }
+      }
 
     def refreshSet(setId: String): Task[Unit] =
       for

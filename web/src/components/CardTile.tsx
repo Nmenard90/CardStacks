@@ -3,27 +3,47 @@
  * LOCATION: src/components/CardTile.tsx
  *
  * PURPOSE:
- *   One card in the collection grid — a faithful port of the old .pcard:
- *   thumbnail (hover = big preview), name/number/rarity/artist, price line,
- *   −/qty/+ stepper for the selected condition, condition buttons with
- *   per-condition counts, and the breakdown row with per-condition values.
+ *   One card in the collection grid — thumbnail (hover = big preview),
+ *   name/number/rarity/artist, price line, −/qty/+ stepper for the selected
+ *   condition, condition badges with per-condition counts, and the breakdown
+ *   row with per-condition values.  Stateless: the parent owns all counts and
+ *   calls the backend; the tile just renders and fires callbacks.
  *
- * USED BY: CollectionPage
+ * IMPORTS EXPLAINED:
+ *   CONDS/COND_COLORS   — canonical condition order and badge colors
+ *   baseCond            — strips " 1st Ed" suffix to get the base condition key
+ *   basePrice/cardValue — NM price and total value across all owned conditions
+ *   condPrice           — price for one specific condition key
+ *   dominantCondClass   — CSS class controlling the tile border color
+ *   totalQty            — sum of all condition quantities
+ *   CondMap             — Record<string, number> — condition → count
+ *   Card                — type-only import; zero runtime cost
+ *
+ * USED BY: CollectionPage, BulkAddPage
  */
 import { CONDS, COND_COLORS, baseCond, basePrice, cardValue, condPrice, dominantCondClass, totalQty, type CondMap } from '../lib/conditions'
 import type { Card } from '../types'
 
+/**
+ * INTERFACE: Props
+ * PURPOSE: All inputs the tile needs to render and respond to user actions.
+ *   Callbacks are wired by the parent so the tile itself is stateless.
+ */
 interface Props {
   card: Card
   /** Condition → quantity owned for this card. */
   conds: CondMap
-  /** Which condition the stepper edits. */
+  /** Which condition the qty stepper currently edits. */
   selCond: string
+  /** Called when the user clicks +/− on the selected condition. */
   onAdj: (delta: number) => void
+  /** Called when the user types directly into the qty input. */
   onSetQty: (qty: number) => void
+  /** Called when the user clicks a condition badge to switch the active condition. */
   onSelectCond: (cond: string) => void
-  /** Adjust a specific condition directly from its button (old adjCond). */
+  /** Called on right-click of a condition badge — decrements that condition by 1. */
   onAdjCond: (cond: string, delta: number) => void
+  /** Called on image hover — parent shows/hides the large preview overlay. */
   onPreview: (src: string | null) => void
 }
 

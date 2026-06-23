@@ -3,17 +3,40 @@
  * LOCATION: src/pages/CollectionPage.tsx
  *
  * PURPOSE:
- *   The main tracker — a full-parity port of the old index.html:
- *   header (set selector, card search, page links, owned-only, CSV
- *   export/import, clear set, switch user), the five-stat bar, sort
- *   toolbar, set info + quick-add row, the condition-aware card grid,
- *   the Recently Added sidebar, and the hover preview overlay.
+ *   Set browser and collection tracker. Two modes driven by the search box:
  *
- *   Data model: a local map cardId → {conds, selCond} mirrors the
- *   backend collection; every mutation updates the map optimistically
- *   and POSTs the card's full condition list to the Scala API.
+ *   SET BROWSE (search empty):
+ *     Shows every card in the selected set.  Filtering by owned-only, sorting
+ *     by number / value / qty / name, and per-card +/− all work here.
+ *     CSV export and import live here too.
  *
- * USED BY: App (route "/")
+ *   GLOBAL SEARCH (search ≥ 2 chars):
+ *     Queries the backend across ALL sets — the Scala service falls back to
+ *     the pokemontcg.io API if the DB does not have the card yet.  Results
+ *     show set name and support the same +/− adjustments as the set browse.
+ *     Clearing the search returns to set-browse mode.
+ *
+ *   Quick-add by collector number and the "Recently Added" sidebar have moved
+ *   to BulkAddPage, which is the primary card-entry hub.
+ *
+ * IMPORTS EXPLAINED:
+ *   useQuery/useQueryClient — React Query for sets, cards-in-set, collection stats
+ *   useEffect/useMemo/useRef/useState — search debounce, derived data, local coll map
+ *   Link                   — nav links to other pages
+ *   getCards/getSets/searchCards — set list, per-set cards, global name/number search
+ *   bulkSave/getCollection/getStats/saveEntry — collection CRUD
+ *   CardTile / usePreview  — shared card tile + hover-overlay
+ *   ImportModal            — CSV import dialog
+ *   LoginScreen            — shown when nobody is logged in
+ *   SetSelector            — the set dropdown component
+ *   useToast               — bottom-right toast for save errors
+ *   useUser                — currently logged-in user
+ *   conditions helpers     — price math, list <-> map, sorting
+ *   downloadCSV            — triggers a browser CSV download
+ *
+ * USED BY: App.tsx (route "/")
+ * DEPENDS ON: backend GET /api/sets, /api/cards/:setId, /api/search,
+ *             POST /api/collection/:userId/:cardId, /api/collection/:userId/bulk
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -24,7 +47,6 @@ import { CardTile } from '../components/CardTile'
 import { usePreview } from '../components/CardPreview'
 import { ImportModal } from '../components/ImportModal'
 import { LoginScreen } from '../components/LoginScreen'
-import { RecentSidebar, type SessionCard } from '../components/RecentSidebar'
 import { SetSelector } from '../components/SetSelector'
 import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
@@ -34,12 +56,16 @@ import {
 import { downloadCSV, type ImportRow } from '../lib/csv'
 import type { Card } from '../types'
 
-/** Local state for one card: counts per condition + the active condition. */
+/** Local state for one card: counts per condition + the currently active condition. */
 interface Entry { conds: CondMap; selCond: string }
 
 type SortMode = 'number' | 'value' | 'qty' | 'name'
 
-/** Card numbers sort numerically when possible ("2" before "10"). */
+/**
+ * PURPOSE: Numeric sort key for collector numbers.
+ *   Pure-numeric numbers sort as integers; non-numeric (TG01, SWSH158) sort
+ *   after all numeric cards because they return MAX_SAFE_INTEGER.
+ */
 const numKey = (n: string) => {
   const m = n.match(/\d+/)
   return m ? parseInt(m[0], 10) : Number.MAX_SAFE_INTEGER
@@ -51,40 +77,32 @@ export function CollectionPage() {
   const qc = useQueryClient()
   const preview = usePreview()
 
-  // ── UI state, mirroring the old page's globals ─────────────────────────
+  // ── UI state ──────────────────────────────────────────────────────────────
   const [setId, setSetId] = useState<string | null>(() => localStorage.getItem('poketracker_set'))
   const [search, setSearch] = useState('')
   const [ownedOnly, setOwnedOnly] = useState(false)
   const [sort, setSort] = useState<SortMode>('number')
   const [importOpen, setImportOpen] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [session, setSession] = useState<SessionCard[]>([])
-  // Quick-add row state.
-  const [quick, setQuick] = useState('')
-  const [quickCond, setQuickCond] = useState('NM')
-  const [firstEd, setFirstEd] = useState(false)
-  const [quickMsg, setQuickMsg] = useState<{ text: string; err: boolean } | null>(null)
-  const [quickFlash, setQuickFlash] = useState<'' | 'flash-ok' | 'flash-err'>('')
-  const quickRef = useRef<HTMLInputElement>(null)
 
-  // ── Server data ────────────────────────────────────────────────────────
+  // ── Global (cross-set) search state ──────────────────────────────────────
+  // Populated by a debounced call to searchCards when search length >= 2.
+  // While searching the backend, isSearchMode hides the set-browse grid.
+  const [globalHits, setGlobalHits] = useState<Card[]>([])
+  const [globalSearching, setGlobalSearching] = useState(false)
+  const globalTimer = useRef<number | null>(null)
+
+  // ── Server data ───────────────────────────────────────────────────────────
   const userId = user?.id ?? ''
 
-  // The session list belongs to one login — switching users must not
-  // carry the previous person's "Recently Added" cards over. Reset uses
-  // React's prev-value-during-render pattern rather than an effect, so
-  // the stale list never paints for the new user.
-  const [sessionOwner, setSessionOwner] = useState(userId)
-  if (sessionOwner !== userId) {
-    setSessionOwner(userId)
-    setSession([])
-    setSidebarOpen(false)
-  }
-
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets, enabled: !!user })
+  const setName = useMemo(() => new Map(sets.map(s => [s.id, s.name])), [sets])
 
-  // The active set: the stored choice when it's valid, else the newest set.
-  // Derived rather than synced in an effect so there is no flash of nothing.
+  /**
+   * PURPOSE: Resolve the active set ID from the stored preference.
+   *   Falls back to the newest set when the stored ID is no longer in the
+   *   list (e.g., after a DB reset).  Derived synchronously so there is no
+   *   flash of empty content while an effect runs.
+   */
   const activeSetId = useMemo(() => {
     if (setId && sets.some(s => s.id === setId)) return setId
     if (sets.length === 0) return null
@@ -93,20 +111,30 @@ export function CollectionPage() {
   useEffect(() => { if (activeSetId) localStorage.setItem('poketracker_set', activeSetId) }, [activeSetId])
 
   const { data: cards = [], isLoading: cardsLoading } = useQuery({
-    queryKey: ['cards', activeSetId], queryFn: () => getCards(activeSetId!), enabled: !!user && !!activeSetId,
+    queryKey: ['cards', activeSetId],
+    queryFn: () => getCards(activeSetId!),
+    enabled: !!user && !!activeSetId,
   })
   const { data: stats } = useQuery({
-    queryKey: ['stats', userId], queryFn: () => getStats(userId), enabled: !!user,
+    queryKey: ['stats', userId],
+    queryFn: () => getStats(userId),
+    enabled: !!user,
   })
 
-  // Local collection map, seeded from the backend once per user.
+  /**
+   * PURPOSE: Seed the local collection map from the backend on login.
+   *   `coll` is the optimistic local mirror: every +/− mutates it immediately
+   *   and fires a background POST so the UI never feels laggy.
+   */
   const [coll, setColl] = useState<Record<string, Entry>>({})
   useEffect(() => {
     if (!userId) return
     getCollection(userId)
       .then(entries => {
         const m: Record<string, Entry> = {}
-        for (const e of entries) m[e.cardId] = { conds: fromCondList(e.conditions), selCond: e.selectedCond || 'NM' }
+        for (const e of entries) {
+          m[e.cardId] = { conds: fromCondList(e.conditions), selCond: e.selectedCond || 'NM' }
+        }
         setColl(m)
       })
       .catch(() => toast('Could not load your collection.'))
@@ -114,7 +142,26 @@ export function CollectionPage() {
 
   const cardById = useMemo(() => new Map(cards.map(c => [c.id, c])), [cards])
 
-  // ── Persistence: optimistic local update + POST, like the old saveOne ──
+  /**
+   * PURPOSE: Debounced cross-set search.
+   *   Fires 300 ms after the last keystroke so we do not hammer the backend
+   *   while the user is still typing.  Sets globalHits for the search-mode grid.
+   */
+  useEffect(() => {
+    if (globalTimer.current) clearTimeout(globalTimer.current)
+    const q = search.trim()
+    if (q.length < 2) { setGlobalHits([]); setGlobalSearching(false); return }
+    setGlobalSearching(true)
+    globalTimer.current = window.setTimeout(async () => {
+      try { setGlobalHits(await searchCards(q)) }
+      catch { setGlobalHits([]) }
+      finally { setGlobalSearching(false) }
+    }, 300)
+    return () => { if (globalTimer.current) clearTimeout(globalTimer.current) }
+  }, [search])
+
+  // ── Persistence ───────────────────────────────────────────────────────────
+
   const persist = (card: Card, entry: Entry) => {
     saveEntry(userId, card.id, toCondList(entry.conds, card), entry.selCond)
       .then(() => qc.invalidateQueries({ queryKey: ['stats', userId] }))
@@ -130,19 +177,14 @@ export function CollectionPage() {
     })
   }
 
-  /** +/− on the selected condition; + also feeds the session sidebar. */
+  /** PURPOSE: +/− on the selected condition, persisted immediately. */
   const adj = (card: Card, delta: number) => {
-    const entry = coll[card.id] ?? { conds: {}, selCond: 'NM' }
-    const key = entry.selCond
+    const key = (coll[card.id] ?? { selCond: 'NM' }).selCond
     mutate(card, e => {
       const next = Math.max(0, (e.conds[key] ?? 0) + delta)
       if (next === 0) delete e.conds[key]; else e.conds[key] = next
       return e
     })
-    if (delta > 0) {
-      setSession(s => [{ uid: crypto.randomUUID(), card, condKey: key, price: condPrice(card, key) }, ...s])
-      setSidebarOpen(true)
-    }
   }
 
   const setQty = (card: Card, qty: number) =>
@@ -164,72 +206,23 @@ export function CollectionPage() {
       return e
     })
 
-  // ── Quick add: Enter on a card number adds one in the chosen condition ─
-  const quickAdd = async () => {
-    const raw = quick.trim()
-    if (!raw) return
-    // A quick-add entry may be a bare number ("158"), a full collector number
-    // ("SWSH158", "TG01"), or the printed "number/total" form ("158/198").
-    // Split the "/total" off so we can match the number and, if multiple sets
-    // share that number, use the total to pick the right set.
-    const [numPart, totalPart] = raw.includes('/') ? raw.split('/') : [raw, '']
-    const num = numPart.trim().toLowerCase()
-    const total = totalPart.trim()
+  // ── CSV export / import / clear set ──────────────────────────────────────
 
-    // 1) Try the currently-loaded set first — instant, no network call.
-    let card: Card | null =
-      cards.find(c => c.number.toLowerCase() === num) ||
-      cards.find(c => /^\d+$/.test(num) && /^\d+$/.test(c.number) && parseInt(c.number, 10) === parseInt(num, 10)) ||
-      cards.find(c => c.number.toLowerCase().startsWith(num)) || null
-
-    // 2) Not in this set — search every set by number/name via the backend,
-    //    so bulk entry works without first picking the right set.
-    if (!card) {
-      try {
-        const hits = await searchCards(raw)
-        // Prefer an exact collector-number match over name/partial hits.
-        let pool = hits.filter(h => h.number.toLowerCase() === num)
-        if (pool.length === 0) pool = hits
-        // If a set size was given ("/198"), disambiguate by the set's total.
-        if (total && pool.length > 1) {
-          const byTotal = pool.filter(h => {
-            const s = sets.find(x => x.id === h.setId)
-            return !!s && (String(s.total) === total || String(s.printedTotal) === total)
-          })
-          if (byTotal.length) pool = byTotal
-        }
-        card = pool[0] ?? null
-      } catch { /* fall through to the not-found path below */ }
-    }
-
-    if (!card) {
-      setQuickFlash('flash-err')
-      setQuickMsg({ text: 'not found: ' + raw, err: true })
-      setTimeout(() => setQuickFlash(''), 600)
-      setQuick('')
-      return
-    }
-    const key = firstEd ? quickCond + ' 1st Ed' : quickCond
-    mutate(card, e => { e.conds[key] = (e.conds[key] ?? 0) + 1; return e })
-    setSession(s => [{ uid: crypto.randomUUID(), card, condKey: key, price: condPrice(card, key) }, ...s])
-    setSidebarOpen(true)
-    setQuickFlash('flash-ok')
-    const p = condPrice(card, key)
-    setQuickMsg({ text: `✓ #${card.number} ${card.name} (${key})${p > 0 ? ' · $' + p.toFixed(2) : ''}`, err: false })
-    setTimeout(() => setQuickFlash(''), 400)
-    setQuick('')
-    quickRef.current?.focus()
-  }
-
-  // ── CSV export / import / clear set ────────────────────────────────────
   const exportCSV = () => {
-    const rows: (string | number)[][] = [['Card ID', 'Name', 'Set', 'Number', 'Rarity', 'Condition', 'Quantity', 'Market Price', 'Total Value']]
+    const rows: (string | number)[][] = [[
+      'Card ID', 'Name', 'Set', 'Number', 'Rarity',
+      'Condition', 'Quantity', 'Market Price', 'Total Value',
+    ]]
     for (const [id, e] of Object.entries(coll)) {
       const card = cardById.get(id)
       for (const [cond, q] of Object.entries(e.conds)) {
         if (q <= 0) continue
         const p = condPrice(card, cond)
-        rows.push([id, card?.name ?? '', card?.setId ?? id.split('-')[0], card?.number ?? '', card?.rarity ?? '', cond, q, p.toFixed(2), (p * q).toFixed(2)])
+        rows.push([
+          id, card?.name ?? '', card?.setId ?? id.split('-')[0],
+          card?.number ?? '', card?.rarity ?? '',
+          cond, q, p.toFixed(2), (p * q).toFixed(2),
+        ])
       }
     }
     if (rows.length === 1) { toast('Nothing to export yet.'); return }
@@ -238,7 +231,6 @@ export function CollectionPage() {
   }
 
   const runImport = async (rows: ImportRow[]): Promise<string> => {
-    // Merge rows by card so multiple condition lines combine.
     const byCard = new Map<string, CondMap>()
     for (const r of rows) {
       const m = byCard.get(r.cardId) ?? {}
@@ -252,7 +244,9 @@ export function CollectionPage() {
     })))
     setColl(prev => {
       const next = { ...prev }
-      for (const [cardId, conds] of byCard) next[cardId] = { conds, selCond: prev[cardId]?.selCond ?? 'NM' }
+      for (const [cardId, conds] of byCard) {
+        next[cardId] = { conds, selCond: prev[cardId]?.selCond ?? 'NM' }
+      }
       return next
     })
     qc.invalidateQueries({ queryKey: ['stats', userId] })
@@ -274,23 +268,30 @@ export function CollectionPage() {
     toast('Set cleared.')
   }
 
-  // ── Derived view data ──────────────────────────────────────────────────
+  // ── Derived view data ─────────────────────────────────────────────────────
+
+  /**
+   * PURPOSE: The card list for set-browse mode.
+   *   Applies owned-only filter and the active sort.  Does NOT apply the search
+   *   text — that switches to global-search mode instead (see isSearchMode).
+   */
   const filtered = useMemo(() => {
-    const q = search.toLowerCase().trim()
-    let list = cards.filter(c => {
-      if (ownedOnly && totalQty(coll[c.id]?.conds ?? {}) === 0) return false
-      if (q && !c.name.toLowerCase().includes(q) && !c.number.includes(q)) return false
-      return true
-    })
+    let list = ownedOnly
+      ? cards.filter(c => totalQty(coll[c.id]?.conds ?? {}) > 0)
+      : [...cards]
     const val = (c: Card) => cardValue(coll[c.id]?.conds ?? {}, c) || basePrice(c)
     const qty = (c: Card) => totalQty(coll[c.id]?.conds ?? {})
-    list = [...list]
     if (sort === 'number') list.sort((a, b) => numKey(a.number) - numKey(b.number) || a.number.localeCompare(b.number))
-    if (sort === 'value') list.sort((a, b) => val(b) - val(a))
-    if (sort === 'qty') list.sort((a, b) => qty(b) - qty(a))
-    if (sort === 'name') list.sort((a, b) => a.name.localeCompare(b.name))
+    if (sort === 'value')  list.sort((a, b) => val(b) - val(a))
+    if (sort === 'qty')    list.sort((a, b) => qty(b) - qty(a))
+    if (sort === 'name')   list.sort((a, b) => a.name.localeCompare(b.name))
     return list
-  }, [cards, coll, search, ownedOnly, sort])
+  }, [cards, coll, ownedOnly, sort])
+
+  const isSearchMode = search.trim().length >= 2
+  const displayCards = isSearchMode
+    ? globalHits.filter(c => !ownedOnly || totalQty(coll[c.id]?.conds ?? {}) > 0)
+    : filtered
 
   const set = sets.find(s => s.id === activeSetId)
   const ownedInSet = cards.filter(c => totalQty(coll[c.id]?.conds ?? {}) > 0).length
@@ -305,44 +306,77 @@ export function CollectionPage() {
         <header>
           <div className="logo">POKÉDEX <span>TRACKER</span></div>
           <div className="user-badge">👤 <b>{user.username}</b></div>
-          <SetSelector sets={sets} selectedId={activeSetId} onSelect={setSetId} />
+          <SetSelector sets={sets} selectedId={activeSetId} onSelect={id => { setSetId(id); setSearch('') }} />
           <input
-            type="text" placeholder="Search cards…" style={{ width: 160 }}
-            value={search} onChange={e => setSearch(e.target.value)}
+            type="text"
+            placeholder={isSearchMode ? 'Searching all sets…' : 'Search all sets or filter this set…'}
+            style={{ width: 220 }}
+            value={search}
+            onChange={e => setSearch(e.target.value)}
           />
           <div className="header-right">
+            <Link to="/owned" className="tb-btn" style={{ textDecoration: 'none' }}>📦 My Collection</Link>
+            <Link to="/bulk" className="tb-btn" style={{ textDecoration: 'none' }}>⚡ Bulk Add</Link>
             <Link to="/shelf" className="tb-btn" style={{ textDecoration: 'none' }}>📒 Binders</Link>
             <Link to="/analyzer" className="tb-btn" style={{ textDecoration: 'none' }}>⚖️ Analyzer</Link>
             <Link to="/convention" className="tb-btn" style={{ textDecoration: 'none' }}>🎪 Convention</Link>
-            <Link to="/bulk" className="tb-btn" style={{ textDecoration: 'none' }}>⚡ Bulk Add</Link>
-            <button className={'tb-btn' + (ownedOnly ? ' active' : '')} onClick={() => setOwnedOnly(o => !o)}>Owned only</button>
+            <button className={'tb-btn' + (ownedOnly ? ' active' : '')} onClick={() => setOwnedOnly(o => !o)}>
+              Owned only
+            </button>
             <button className="tb-btn" onClick={exportCSV}>⬇ Export CSV</button>
             <button className="tb-btn" onClick={() => setImportOpen(true)}>⬆ Import CSV</button>
             <button className="tb-btn primary" onClick={clearSet}>Clear set</button>
-            <button className="tb-btn" style={{ color: 'var(--muted)' }} onClick={() => setUser(null)}>Switch user</button>
+            <button className="tb-btn" style={{ color: 'var(--muted)' }} onClick={() => setUser(null)}>
+              Switch user
+            </button>
           </div>
         </header>
 
         <div className="stats-bar">
-          <div className="stat"><div className="stat-label">Cards owned</div><div className="stat-value">{ownedInSet}<span style={{ color: 'var(--muted)', fontSize: 13 }}> / {set?.total ?? '—'}</span></div></div>
-          <div className="stat"><div className="stat-label">Set completion</div><div className="stat-value">{completion}%<div className="progress-wrap"><div className="progress-bar" style={{ width: completion + '%' }} /></div></div></div>
-          <div className="stat"><div className="stat-label">Set value</div><div className="stat-value gold">${setValue.toFixed(2)}</div></div>
-          <div className="stat"><div className="stat-label">Total collection</div><div className="stat-value gold">${(stats?.totalValue ?? 0).toFixed(2)}</div></div>
-          <div className="stat"><div className="stat-label">Sets entered</div><div className="stat-value">{stats?.setsEntered ?? '—'}</div></div>
+          <div className="stat">
+            <div className="stat-label">Cards owned</div>
+            <div className="stat-value">
+              {ownedInSet}<span style={{ color: 'var(--muted)', fontSize: 13 }}> / {set?.total ?? '—'}</span>
+            </div>
+          </div>
+          <div className="stat">
+            <div className="stat-label">Set completion</div>
+            <div className="stat-value">
+              {completion}%
+              <div className="progress-wrap"><div className="progress-bar" style={{ width: completion + '%' }} /></div>
+            </div>
+          </div>
+          <div className="stat">
+            <div className="stat-label">Set value</div>
+            <div className="stat-value gold">${setValue.toFixed(2)}</div>
+          </div>
+          <div className="stat">
+            <div className="stat-label">Total collection</div>
+            <div className="stat-value gold">${(stats?.totalValue ?? 0).toFixed(2)}</div>
+          </div>
+          <div className="stat">
+            <div className="stat-label">Sets entered</div>
+            <div className="stat-value">{stats?.setsEntered ?? '—'}</div>
+          </div>
         </div>
 
-        <div className="toolbar">
-          <span className="sort-label">Sort:</span>
-          {(['number', 'value', 'qty', 'name'] as SortMode[]).map(m => (
-            <button key={m} className={'tb-btn' + (sort === m ? ' active' : '')} onClick={() => setSort(m)}>
-              {m === 'number' ? 'Card #' : m === 'value' ? 'Value ↓' : m === 'qty' ? 'Quantity ↓' : 'Name'}
-            </button>
-          ))}
-        </div>
+        {/* Sort toolbar — only relevant in set-browse mode */}
+        {!isSearchMode && (
+          <div className="toolbar">
+            <span className="sort-label">Sort:</span>
+            {(['number', 'value', 'qty', 'name'] as SortMode[]).map(m => (
+              <button key={m} className={'tb-btn' + (sort === m ? ' active' : '')} onClick={() => setSort(m)}>
+                {m === 'number' ? 'Card #' : m === 'value' ? 'Value ↓' : m === 'qty' ? 'Qty ↓' : 'Name'}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div id="app-wrap">
           <div id="main">
-            {set && (
+
+            {/* Set info banner — hidden during global search */}
+            {!isSearchMode && set && (
               <div className="set-info">
                 {set.images?.logo && <img className="set-logo" src={set.images.logo} alt={set.name} />}
                 <div>
@@ -352,31 +386,27 @@ export function CollectionPage() {
               </div>
             )}
 
-            <div className="quick-entry">
-              <label>Quick add</label>
-              <input
-                ref={quickRef} type="text" placeholder="007" maxLength={10}
-                autoComplete="off" spellCheck={false} className={quickFlash}
-                value={quick} onChange={e => setQuick(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); quickAdd() } }}
-              />
-              <select className="cond-select" value={quickCond} onChange={e => setQuickCond(e.target.value)}>
-                {['NM', 'LP', 'MP', 'HP', 'DMG'].map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <label className="first-ed-label">
-                <input type="checkbox" checked={firstEd} onChange={e => setFirstEd(e.target.checked)} /> 1st Ed
-              </label>
-              <span className={'quick-confirm' + (quickMsg ? ' show' : '') + (quickMsg?.err ? ' err' : '')}>
-                {quickMsg?.text}
-              </span>
-              <span className="quick-hint">Type card #, hit <b>Enter</b></span>
-            </div>
+            {/* Global search status */}
+            {isSearchMode && globalSearching && <div className="loading">Searching all sets…</div>}
+            {isSearchMode && !globalSearching && displayCards.length === 0 && (
+              <div className="empty">No cards found for "{search.trim()}".</div>
+            )}
+            {isSearchMode && !globalSearching && displayCards.length > 0 && (
+              <div style={{ padding: '8px 18px', color: 'var(--muted)', fontSize: 13 }}>
+                {displayCards.length} result{displayCards.length !== 1 ? 's' : ''} across all sets
+              </div>
+            )}
 
-            {cardsLoading && <div className="loading">Loading</div>}
-            {!cardsLoading && filtered.length === 0 && <div className="empty">No cards match.</div>}
-            {!cardsLoading && filtered.length > 0 && (
+            {/* Set-browse loading / empty states */}
+            {!isSearchMode && cardsLoading && <div className="loading">Loading</div>}
+            {!isSearchMode && !cardsLoading && displayCards.length === 0 && (
+              <div className="empty">No cards match.</div>
+            )}
+
+            {/* Card grid */}
+            {(!isSearchMode ? !cardsLoading : !globalSearching) && displayCards.length > 0 && (
               <div className="card-grid">
-                {filtered.map(c => {
+                {displayCards.map(c => {
                   const entry = coll[c.id] ?? { conds: {}, selCond: 'NM' }
                   return (
                     <CardTile
@@ -392,14 +422,6 @@ export function CollectionPage() {
               </div>
             )}
           </div>
-
-          <RecentSidebar
-            userId={userId} open={sidebarOpen} items={session}
-            onClose={() => setSidebarOpen(false)}
-            onRemove={uid => setSession(s => s.filter(sc => sc.uid !== uid))}
-            onRemoveMany={uids => setSession(s => s.filter(sc => !uids.includes(sc.uid)))}
-            onClear={() => setSession([])}
-          />
         </div>
       </div>
 

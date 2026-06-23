@@ -92,3 +92,29 @@ final case class CollectionEntry(
 
 object CollectionEntry:
   given JsonCodec[CollectionEntry] = DeriveJsonCodec.gen[CollectionEntry]
+
+/**
+ * CASE CLASS: OwnedCard
+ *
+ * PURPOSE:
+ *   A collection entry enriched with full card details.
+ *   Returned by GET /api/collection/:userId/owned so the frontend can render
+ *   every owned card (name, image, prices) without additional per-card requests.
+ *
+ * @param cardId       The card's ID — same value as card.id, kept at top level
+ *                     so the frontend can key lists by it without drilling in.
+ * @param conditions   Per-condition ownership counts.
+ * @param selectedCond The condition tab the user last had active for this card.
+ * @param updatedAt    When the entry was last modified.
+ * @param card         Full card details (name, set, number, images, prices).
+ */
+final case class OwnedCard(
+  cardId:       String,
+  conditions:   List[ConditionCount],
+  selectedCond: String,
+  updatedAt:    java.time.Instant,
+  card:         Card
+)
+
+object OwnedCard:
+  given zio.json.JsonEncoder[OwnedCard] = zio.json.DeriveJsonEncoder.gen[OwnedCard]

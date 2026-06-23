@@ -92,6 +92,20 @@ object CollectionRoutes:
     },
 
     /**
+     * ROUTE: GET /api/collection/:userId/owned
+     * PURPOSE: Returns all cards owned by a user, each with full card details.
+     *          Used by the My Collection page to avoid N+1 per-card lookups.
+     * @param userId  The user
+     * RESPONSE: 200 JSON array of OwnedCard objects
+     *           500 on database error
+     */
+    Method.GET / "api" / "collection" / string("userId") / "owned" -> handler { (userId: String, _: Request) =>
+      ZIO.serviceWithZIO[CollectionService](_.getOwnedCards(userId))
+        .map(cards => Response.json(cards.toJson))
+        .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
+    },
+
+    /**
      * ROUTE: GET /api/collection/:userId/stats
      * PURPOSE: Returns summary statistics for a user's collection.
      *          Includes total cards, unique cards, total value, sets entered.

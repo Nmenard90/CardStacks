@@ -90,6 +90,18 @@ trait CollectionRepository:
    */
   def bulkUpsert(entries: List[CollectionEntry]): Task[Unit]
 
+  /**
+   * METHOD: findByUserWithCards
+   * PURPOSE: Fetches every collection entry for a user joined with full card
+   *          details from the cards and card_prices tables.
+   *          Used by GET /api/collection/:userId/owned to avoid N+1 per-card
+   *          lookups on the frontend.  Entries whose card no longer exists in
+   *          the cards table are silently excluded (INNER JOIN).
+   * @param userId  The user whose collection to fetch
+   * @return        All owned cards with enriched card data, newest first
+   */
+  def findByUserWithCards(userId: String): Task[List[OwnedCard]]
+
 object CollectionRepository:
 
   final class Live(xa: Transactor[Task]) extends CollectionRepository:
@@ -169,6 +181,45 @@ object CollectionRepository:
         """
           .update.run.void
       }.transact(xa)
+
+    def findByUserWithCards(userId: String): Task[List[OwnedCard]] =
+      sql"""
+        SELECT
+          ce.card_id, ce.conditions, ce.selected_cond, ce.updated_at,
+          c.id, c.set_id, c.name, c.number, c.rarity, c.artist,
+          c.image_small, c.image_large,
+          p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg
+        FROM collection_entries ce
+        JOIN cards c ON c.id = ce.card_id
+        LEFT JOIN card_prices p ON p.card_id = ce.card_id
+        WHERE ce.user_id = $userId
+        ORDER BY ce.updated_at DESC
+      """
+        .query[(String, String, String, Instant,
+                String, String, String, String, Option[String], Option[String],
+                String, String,
+                Option[Double], Option[Double], Option[Double], Option[Double], Option[Double])]
+        .to[List]
+        .map(_.flatMap {
+          case (cardId, condJson, selCond, updatedAt,
+                cId, setId, name, number, rarity, artist,
+                imgSmall, imgLarge,
+                nm, lp, mp, hp, dmg) =>
+            condJson.fromJson[List[ConditionCount]].toOption.map { conditions =>
+              val prices = if nm.orElse(lp).orElse(mp).orElse(hp).orElse(dmg).isDefined
+                           then Some(CardPrices(nm, lp, mp, hp, dmg))
+                           else None
+              OwnedCard(
+                cardId       = cardId,
+                conditions   = conditions,
+                selectedCond = selCond,
+                updatedAt    = updatedAt,
+                card         = Card(cId, setId, name, number, rarity, artist,
+                                    CardImage(imgSmall, imgLarge), prices)
+              )
+            }
+        })
+        .transact(xa)
 
   val layer: ZLayer[Transactor[Task], Nothing, CollectionRepository] =
     ZLayer.fromFunction(new Live(_))

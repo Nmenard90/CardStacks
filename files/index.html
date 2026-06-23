@@ -144,72 +144,29 @@
   .tb-btn{font-size:12px;padding:5px 11px;}
 
 
-  /* ── RECENTLY ADDED SIDEBAR ── */
-  #app-wrap{display:flex;align-items:flex-start;gap:0;}
-  #main{flex:1;min-width:0;padding:14px 18px;}
+  #main{padding:14px 18px;}
 
-  #sidebar{
-    width:0;flex-shrink:0;overflow:hidden;
-    transition:width .25s ease;
-    background:var(--surface);
-    border-left:1px solid var(--border);
-    position:sticky;top:0;height:calc(100vh - 54px - 48px - 36px);
-    display:flex;flex-direction:column;
+  .binder-add-btn{
+    font-size:11px;padding:4px 10px;width:100%;margin-top:6px;
+    background:rgba(59,91,219,0.08);border:1px solid rgba(59,91,219,0.2);
+    color:#818cf8;border-radius:6px;cursor:pointer;transition:all .15s;
+    display:flex;align-items:center;justify-content:center;gap:4px;
   }
-  #sidebar.open{width:280px;}
+  .binder-add-btn:hover{background:var(--accent2);border-color:var(--accent2);color:#fff;}
 
-  .sb-head{
-    padding:12px 14px 10px;border-bottom:1px solid var(--border);
-    display:flex;flex-direction:column;gap:8px;flex-shrink:0;
+  #binderPickerPopup{position:fixed;z-index:999;display:none;}
+  #bpOverlay{position:fixed;inset:0;}
+  #bpBox{
+    position:fixed;background:var(--surface);border:1px solid var(--border);
+    border-radius:10px;padding:6px;min-width:180px;max-width:240px;
+    box-shadow:0 8px 28px rgba(0,0,0,0.75);
   }
-  .sb-title{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;justify-content:space-between;}
-  .sb-close{font-size:16px;cursor:pointer;color:var(--muted);transition:color .15s;line-height:1;background:none;border:none;padding:0;}
-  .sb-close:hover{color:var(--text);}
-
-  .sb-binder-row{display:flex;align-items:center;gap:6px;}
-  .sb-binder-row label{font-size:11px;color:var(--muted);white-space:nowrap;font-weight:500;}
-  .sb-binder-sel{
-    flex:1;padding:5px 8px;font-size:12px;
-    background:var(--surface2);border:1px solid var(--border);
-    border-radius:6px;color:var(--text);outline:none;font-family:'DM Sans',sans-serif;
-  }
-  .sb-binder-sel:focus{border-color:var(--accent2);}
-  .sb-add-btn{
-    font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px;
-    background:var(--accent2);border:none;color:#fff;cursor:pointer;
-    white-space:nowrap;transition:all .15s;
-  }
-  .sb-add-btn:hover{background:#2d4ec7;}
-  .sb-add-btn:disabled{opacity:.4;cursor:default;}
-
-  .sb-list{overflow-y:auto;flex:1;padding:6px 0;}
-  .sb-item{
-    display:flex;align-items:center;gap:8px;
-    padding:7px 12px;transition:background .15s,border-left .15s;cursor:pointer;
-    border-bottom:1px solid rgba(255,255,255,0.03);
-    border-left:3px solid transparent;
-  }
-  .sb-item:hover{background:var(--surface2);}
-  .sb-item.checked{background:rgba(99,102,241,0.2) !important;border-left:3px solid #6366f1 !important;}
-  .sb-item.checked .sb-item-name{color:#a5b4fc !important;}
-  .sb-item img{width:32px;height:44px;object-fit:contain;border-radius:3px;flex-shrink:0;background:var(--surface2);}
-  .sb-item-info{flex:1;min-width:0;}
-  .sb-item-name{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .sb-item-meta{font-size:10px;color:var(--muted);display:flex;gap:4px;align-items:center;margin-top:1px;}
-  .sb-item-cond{padding:1px 5px;border-radius:4px;font-size:9px;font-weight:700;letter-spacing:.04em;}
-  .sb-item-cond.NM{background:rgba(34,197,94,.15);color:#22c55e;}
-  .sb-item-cond.LP{background:rgba(132,204,22,.15);color:#84cc16;}
-  .sb-item-cond.MP{background:rgba(234,179,8,.15);color:#eab308;}
-  .sb-item-cond.HP{background:rgba(249,115,22,.15);color:#f97316;}
-  .sb-item-cond.DMG{background:rgba(239,68,68,.15);color:#ef4444;}
-  .sb-item-rm{font-size:14px;color:var(--muted);cursor:pointer;padding:2px 4px;border-radius:4px;transition:all .15s;background:none;border:none;flex-shrink:0;}
-  .sb-item-rm:hover{color:var(--red);background:rgba(255,107,107,.1);}
-  .sb-empty{padding:24px 14px;text-align:center;color:var(--muted);font-size:12px;line-height:1.6;}
-
-  .sb-footer{padding:8px 12px;border-top:1px solid var(--border);flex-shrink:0;display:flex;justify-content:space-between;align-items:center;}
-  .sb-count{font-size:11px;color:var(--muted);}
-  .sb-clear{font-size:11px;color:var(--muted);cursor:pointer;background:none;border:none;transition:color .15s;}
-  .sb-clear:hover{color:var(--red);}
+  .bp-header{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:4px 8px 6px;border-bottom:1px solid var(--border);margin-bottom:4px;}
+  .bp-item{padding:7px 10px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--text);transition:background .1s;}
+  .bp-item:hover{background:var(--surface2);}
+  .bp-new{color:var(--accent2);}
+  .bp-empty{padding:10px 8px;font-size:12px;color:var(--muted);}
+  .bp-empty a{color:var(--accent2);}
 
 
   .quick-entry{
@@ -441,7 +398,9 @@
     </div>
     <input type="text" id="searchBox" placeholder="Search cards…" oninput="renderCards()" style="width:160px">
     <div class="header-right">
-      <a id="binderLink" href="/shelf" class="tb-btn" style="text-decoration:none">📒 Binders</a><a id="analyzerLink" href="/analyzer" class="tb-btn" style="text-decoration:none">⚖️ Analyzer</a>
+      <a id="binderLink" href="/shelf" class="tb-btn" style="text-decoration:none">📒 Binders</a>
+      <a id="bulkLink" href="/bulk-add" class="tb-btn" style="text-decoration:none">🔍 Bulk Add</a>
+      <a id="analyzerLink" href="/analyzer" class="tb-btn" style="text-decoration:none">⚖️ Analyzer</a>
       <button class="tb-btn" id="ownedBtn" onclick="toggleOwned()">Owned only</button>
       <button class="tb-btn" onclick="exportCSV()">⬇ Export CSV</button>
       <button class="tb-btn" onclick="openImport()">⬆ Import CSV</button>
@@ -466,35 +425,15 @@
     <button class="tb-btn" id="sort-name" onclick="setSort('name')">Name</button>
   </div>
 
-  <div id="app-wrap">
   <div id="main"><div class="loading">Loading</div></div>
-  <div id="sidebar">
-    <div class="sb-head">
-      <div class="sb-title">
-        <span>Recently Added <span id="sbCount" style="color:var(--accent);margin-left:4px"></span></span>
-        <button class="sb-close" onclick="closeSidebar()" title="Close">✕</button>
-      </div>
-      <div class="sb-binder-row">
-        <label>Binder:</label>
-        <select class="sb-binder-sel" id="sbBinderSel" onchange="sbBinderChanged()"><option value="">— select —</option></select>
-      </div>
-      <div class="sb-binder-row" style="gap:5px">
-        <button class="sb-add-btn" id="sbAddSelected" onclick="addSelectedToBinder()" disabled style="flex:1">Add selected</button>
-        <button class="sb-add-btn" id="sbAddAll" onclick="addAllToBinder()" disabled style="flex:1;background:var(--surface2);color:var(--text);border:1px solid var(--border)">Add all</button>
-      </div>
-    </div>
-    <div class="sb-sel-row" id="sbSelRow" style="display:none">
-      <button class="sb-sel-all" onclick="selectAllSession()">Select all</button>
-      <button class="sb-sel-all" onclick="deselectAllSession()">Deselect all</button>
-      <span class="sb-sel-count" id="sbSelCount"></span>
-    </div>
-    <div class="sb-list" id="sbList"><div class="sb-empty">Cards you quick-add will appear here</div></div>
-    <div class="sb-footer">
-      <span class="sb-count" id="sbTotal"></span>
-      <button class="sb-clear" onclick="clearSession()">Clear list</button>
-    </div>
-  </div>
 </div>
+
+<div id="binderPickerPopup">
+  <div id="bpOverlay" onclick="closeBp()"></div>
+  <div id="bpBox">
+    <div class="bp-header">Add to binder</div>
+    <div id="bpList"></div>
+  </div>
 </div>
 
 
@@ -567,12 +506,10 @@ function loginAs(name){
   document.getElementById('loginScreen').style.display='none';
   document.getElementById('app').style.display='block';
   document.getElementById('binderLink').href='/shelf?user='+encodeURIComponent(name);
+  document.getElementById('bulkLink').href='/bulk-add?user='+encodeURIComponent(name);
   document.getElementById('analyzerLink').href='/analyzer?user='+encodeURIComponent(name);
-  loadSession();
   initApp();
   loadUserBinders();
-  // Render sidebar if there are saved cards
-  if(sessionCards.length) { openSidebar(); renderSidebar(); }
 }
 
 function switchUser(){
@@ -682,180 +619,73 @@ async function runImport(){
 }
 
 
-// ── SIDEBAR SESSION ──────────────────────────────────────────────────────
-let sessionCards = []; // [{card, cond, condKey, price, img}]
-
-function openSidebar(){
-  document.getElementById('sidebar').classList.add('open');
-}
-function closeSidebar(){
-  document.getElementById('sidebar').classList.remove('open');
-}
-
-function addToSession(card, condKey, price){
-  // Add to front, max 100
-  sessionCards.unshift({id:card.id, name:card.name, number:card.number, img:card.images?.small||'', condKey, price});
-  if(sessionCards.length>100) sessionCards.pop();
-  openSidebar();
-  renderSidebar();
-}
-
-function removeFromSession(idx){
-  sessionCards.splice(idx,1);
-  renderSidebar();
-}
-
-function clearSession(){
-  sessionCards=[];
-  renderSidebar();
-}
-
-function renderSidebar(){
-  const list=document.getElementById('sbList');
-  const count=document.getElementById('sbCount');
-  const total=document.getElementById('sbTotal');
-  const selRow=document.getElementById('sbSelRow');
-  const selCount=document.getElementById('sbSelCount');
-  // Guard: sidebar elements may not exist yet
-  if(!list||!count) return;
-  count.textContent=sessionCards.length?`(${sessionCards.length})`:'';
-  const hasBinder=!!(document.getElementById('sbBinderSel')?.value);
-  if(!sessionCards.length){
-    list.innerHTML='<div class="sb-empty">Cards you quick-add will appear here</div>';
-    total.textContent='';
-    selRow.style.display='none';
-    document.getElementById('sbAddSelected').disabled=true;
-    document.getElementById('sbAddAll').disabled=true;
-    return;
-  }
-  selRow.style.display='flex';
-  const checked=sessionCards.filter(i=>i.checked);
-  const totalVal=sessionCards.reduce((s,i)=>s+(i.price||0),0);
-  total.textContent=totalVal>0?'$'+totalVal.toFixed(2)+' total':'';
-  selCount.textContent=checked.length?`${checked.length} selected`:'';
-  document.getElementById('sbAddSelected').disabled=!hasBinder||!checked.length;
-  document.getElementById('sbAddAll').disabled=!hasBinder||!sessionCards.length;
-  list.innerHTML=sessionCards.map((item,i)=>{
-    const baseCond=item.condKey.replace(' 1st Ed','');
-    return `<div class="sb-item${item.checked?' checked':''}" data-idx="${i}" onclick="toggleSbCheck(${i})" title="Click to select">
-      <img src="${item.img}" alt="${item.name}" loading="lazy">
-      <div class="sb-item-info">
-        <div class="sb-item-name">${item.name}</div>
-        <div class="sb-item-meta">
-          <span class="sb-item-cond ${baseCond}">${item.condKey}</span>
-          <span>#${item.number}</span>
-          ${item.price>0?`<span style="color:var(--green)">$${item.price.toFixed(2)}</span>`:''}
-        </div>
-      </div>
-      <button class="sb-item-rm" onclick="event.stopPropagation();removeFromSession(${i})" title="Remove">✕</button>
-    </div>`;
-  }).join('');
-}
+// ── BINDER PICKER ────────────────────────────────────────────────────────
+let userBinders = [];
+let bpCard = null;
 
 async function loadUserBinders(){
-  const user=currentUser;
-  if(!user) return;
-  try{
-    const binders=await api('/api/binders/'+user);
-    const sel=document.getElementById('sbBinderSel');
-    sel.innerHTML='<option value="">— select binder —</option>'+
-      binders.map(b=>`<option value="${b.id}">${b.name}</option>`).join('')+
-      '<option value="__new__">＋ Create new binder…</option>';
-  }catch(e){}
+  if(!currentUser) return;
+  try{ userBinders = await api('/api/binders/'+currentUser); }catch(e){}
 }
 
-async function sbBinderChanged(){
-  const sel=document.getElementById('sbBinderSel');
-  if(sel.value==='__new__'){
-    const name=prompt('Binder name:','My Binder');
-    if(!name){sel.value='';renderSidebar();return;}
-    try{
-      const b=await api('/api/binders/'+currentUser,{
-        method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({name,size:'9',cover:''})
-      });
-      // Reload binder list and select the new one
-      await loadUserBinders();
-      sel.value=b.id;
-      toast('Binder "'+name+'" created!');
-    }catch(e){toast('Failed to create binder');sel.value='';}
+function showBinderPicker(cardId, btn){
+  bpCard = cardId;
+  const list = document.getElementById('bpList');
+  if(!userBinders.length){
+    list.innerHTML = '<div class="bp-empty">No binders yet.<br><a href="/shelf?user='+encodeURIComponent(currentUser||'')+'">Create one →</a></div>';
+  } else {
+    list.innerHTML = userBinders.map(b =>
+      `<div class="bp-item" onclick="doAddToBinder('${b.id}')">${b.name}</div>`
+    ).join('') + '<div class="bp-item bp-new" onclick="createAndAddToBinder()">＋ New binder…</div>';
   }
-  renderSidebar();
+  const popup = document.getElementById('binderPickerPopup');
+  const box = document.getElementById('bpBox');
+  popup.style.display = 'block';
+  const rect = btn.getBoundingClientRect();
+  const left = Math.min(rect.left, window.innerWidth - 250);
+  const top = Math.min(rect.bottom + 4, window.innerHeight - 200);
+  box.style.left = left + 'px';
+  box.style.top = top + 'px';
 }
 
-function toggleSbCheck(i){
-  if(i<0||i>=sessionCards.length) return;
-  sessionCards[i].checked=!sessionCards[i].checked;
-  saveSession();
-  // Find by data-idx not array position
-  const el=document.querySelector(`.sb-item[data-idx="${i}"]`);
-  if(el) el.classList.toggle('checked', sessionCards[i].checked);
-  // Update counts and button states
-  const checked=sessionCards.filter(s=>s.checked);
-  const selCount=document.getElementById('sbSelCount');
-  if(selCount) selCount.textContent=checked.length?`${checked.length} selected`:'';
-  const hasBinder=!!(document.getElementById('sbBinderSel')?.value);
-  const addSel=document.getElementById('sbAddSelected');
-  const addAll=document.getElementById('sbAddAll');
-  if(addSel) addSel.disabled=!hasBinder||!checked.length;
-  if(addAll) addAll.disabled=!hasBinder||!sessionCards.length;
+function closeBp(){
+  document.getElementById('binderPickerPopup').style.display = 'none';
+  bpCard = null;
 }
 
-function selectAllSession(){
-  sessionCards.forEach(i=>i.checked=true);
-  renderSidebar();
-}
-
-function deselectAllSession(){
-  sessionCards.forEach(i=>i.checked=false);
-  renderSidebar();
-}
-
-async function addCardsToBinder(indices){
-  // indices = array of sessionCards indexes to add
-  const binderId=document.getElementById('sbBinderSel').value;
-  if(!binderId||!indices.length) return;
+async function createAndAddToBinder(){
+  const name = prompt('Binder name:', 'My Binder');
+  if(!name) return;
   try{
-    const binder=await api('/api/binders/'+currentUser+'/'+binderId);
-    const slots=binder.slots||{};
-    const usedKeys=new Set(Object.keys(slots).map(Number));
-    let slotIdx=0;
-    let added=0;
-    for(const idx of indices){
-      const item=sessionCards[idx];
-      if(!item) continue;
-      while(usedKeys.has(slotIdx)) slotIdx++;
-      slots[String(slotIdx)]={img:item.img,name:item.name,num:item.number};
-      usedKeys.add(slotIdx);
-      slotIdx++;added++;
-    }
-    await api('/api/binders/'+currentUser+'/'+binderId,{
-      method:'PUT',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({slots})
+    const b = await api('/api/binders/'+currentUser, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, size:'9', cover:''})
     });
-    toast('Added '+added+' card'+(added!==1?'s':'')+' to binder!');
-    // Remove added items (in reverse order to preserve indexes)
-    const sortedIdx=[...indices].sort((a,b)=>b-a);
-    sortedIdx.forEach(i=>sessionCards.splice(i,1));
-    saveSession();
-    renderSidebar();
-  }catch(e){console.error(e);toast('Failed to add to binder: '+e.message);}
+    userBinders.push(b);
+    await doAddToBinder(b.id);
+    toast('Created "'+name+'" and added card!');
+  }catch(e){ closeBp(); toast('Failed: '+e.message); }
 }
 
-async function addSelectedToBinder(){
-  const btn=document.getElementById('sbAddSelected');
-  btn.textContent='Adding…';btn.disabled=true;
-  const indices=sessionCards.map((item,i)=>i).filter(i=>sessionCards[i].checked);
-  await addCardsToBinder(indices);
-  btn.textContent='Add selected';renderSidebar();
-}
-
-async function addAllToBinder(){
-  const btn=document.getElementById('sbAddAll');
-  btn.textContent='Adding…';btn.disabled=true;
-  const indices=sessionCards.map((_,i)=>i);
-  await addCardsToBinder(indices);
-  btn.textContent='Add all';renderSidebar();
+async function doAddToBinder(binderId){
+  const cardId = bpCard;
+  closeBp();
+  if(!cardId || !currentUser || !binderId) return;
+  const card = cards.find(c => c.id === cardId);
+  if(!card) return;
+  try{
+    const binder = await api('/api/binders/'+currentUser+'/'+binderId);
+    const slots = binder.slots || {};
+    const used = new Set(Object.keys(slots).map(Number));
+    let slot = 0;
+    while(used.has(slot)) slot++;
+    slots[String(slot)] = {img: card.images?.small||'', name: card.name, num: card.number};
+    await api('/api/binders/'+currentUser+'/'+binderId, {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({slots})
+    });
+    toast('Added to binder!');
+  }catch(e){ toast('Failed: '+e.message); }
 }
 
 
@@ -1258,6 +1088,7 @@ function renderCards(){
       </div></div>`;
       // Condition section below
       html+=`<div class="cond-section">${renderCondButtons(c.id)}${renderCondBreakdown(c.id)}</div>`;
+      html+=`<button class="binder-add-btn" onclick="event.stopPropagation();showBinderPicker('${c.id}',this)">📒 Add to binder</button>`;
       html+=`</div>`;
     });
     html+=`</div>`;
@@ -1297,11 +1128,6 @@ async function adj(id,delta){
     pc.className='pcard'+(collection[id].qty>0?' owned':'')+' '+cardCondClass(id);
     const cs=pc.querySelector('.cond-section');
     if(cs) cs.innerHTML=renderCondButtons(id)+renderCondBreakdown(id);
-  }
-  // Add to sidebar when increasing qty
-  if(delta>0 && card){
-    const price=collection[id].condPrices[selCond]||collection[id].price||0;
-    addToSession(card, selCond, price);
   }
   updateCardPrice(id);updateStats();
   if(ownedOnly&&collection[id].qty===0)renderCards();
@@ -1427,8 +1253,6 @@ function quickAdd(e){
     if(confirmTimer)clearTimeout(confirmTimer);
     // don't auto-hide — stays until next card is added or error
   }
-  // Add to session sidebar
-  addToSession(card, condKey, skuPrice||collection[card.id]?.price||0);
   const qEl=document.getElementById('q_'+card.id);
   if(qEl){
     qEl.value=collection[card.id].qty;qEl.className='qty has-qty';
@@ -1584,80 +1408,6 @@ async function runImport(){
 
 
 
-
-// ── SESSION PERSISTENCE ──────────────────────────────────────────────────
-function saveSession(){
-  try{sessionStorage.setItem('ptcg_session',JSON.stringify(sessionCards));}catch(e){}
-}
-function loadSession(){
-  try{
-    const s=sessionStorage.getItem('ptcg_session');
-    if(s) sessionCards=JSON.parse(s);
-  }catch(e){}
-}
-
-// ── CARD HOVER TOOLTIP ────────────────────────────────────────────────────
-function showCardInfo(card){
-  const ci=document.getElementById('cardInfo');
-  if(!ci) return;
-  ci.classList.remove('empty');
-  const thumb=document.getElementById('ciThumb');
-  if(thumb){if(card.img){thumb.src=card.img;thumb.style.display='block';}else thumb.style.display='none';}
-  const ciName=document.getElementById('ciName');
-  if(ciName) ciName.textContent=card.name+(card.hp?' · '+card.hp+' HP':'');
-  const ciSub=document.getElementById('ciSub');
-  if(ciSub) ciSub.textContent=(card.supertype||'Pokémon')+(card.types?' · '+card.types:'')+(card.num?' · #'+card.num:'');
-  let pills='';
-  if(card.price>0) pills+=`<span class="cipill price">$${card.price.toFixed(2)} NM</span>`;
-  if(card.rarity) pills+=`<span class="cipill rarity">${card.rarity}</span>`;
-  if(card.artist) pills+=`<span class="cipill artist">✏ ${card.artist}</span>`;
-  const ciPills=document.getElementById('ciPills');
-  if(ciPills) ciPills.innerHTML=pills;
-}
-function hideCardInfo(){
-  const ci=document.getElementById('cardInfo');
-  if(!ci) return;
-  ci.classList.add('empty');
-  ci.innerHTML='<span style="font-size:12px;color:rgba(255,255,255,0.2);font-style:italic">Hover a card to see details</span>';
-}
-
-// ── BINDER PICKER ─────────────────────────────────────────────────────────
-function openPicker(si){
-  aSlot=si;
-  document.getElementById('picker').classList.add('open');
-  document.getElementById('pSrch').value='';
-  renderPicker();
-  setTimeout(()=>document.getElementById('pSrch').focus(),50);
-}
-function closePicker(){
-  document.getElementById('picker').classList.remove('open');
-  aSlot=null;
-}
-function renderPicker(){
-  const q=document.getElementById('pSrch').value.toLowerCase().trim();
-  const grid=document.getElementById('pgrid');
-  if(!pCards.length){grid.innerHTML='<div id="pmsg">Choose a set above</div>';return;}
-  const list=pCards.filter(cc=>!q||cc.name.toLowerCase().includes(q)||cc.num.includes(q));
-  let h='<div class="pcd clr" onclick="place(null)"><div class="ci">✕</div><div class="ct">Clear</div></div>';
-  list.forEach(cc=>{
-    h+=`<div class="pcd" onclick='place(${JSON.stringify(cc)})'>`;
-    if(cc.img) h+=`<img src="${cc.img}" alt="${cc.name}" loading="lazy">`;
-    h+=`</div>`;
-  });
-  grid.innerHTML=h;
-}
-function place(cc){
-  if(aSlot===null) return;
-  if(cc) binder.slots[aSlot]={img:cc.img,name:cc.name,num:cc.num};
-  else delete binder.slots[aSlot];
-  save();
-  const el=$(`[data-slot="${aSlot}"]`);
-  if(el.length){
-    if(cc){el.removeClass('mt').html(`<img src="${cc.img}" alt="${cc.name}">`)}
-    else{el.addClass('mt').html('');}
-  }
-  closePicker();
-}
 
 initLogin();
 </script>

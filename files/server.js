@@ -43,29 +43,31 @@ app.get('/api/search', async (req, res) => {
     const results = [];
     const seen = new Set();
 
-    // Get all available set IDs — from memory cache + disk files
+    // Get all available set IDs — from memory cache + both disk directories
     const memorySetIds = new Set(Object.keys(cache.cards).filter(id => cache.cards[id]?.data));
-    let diskSetIds = new Set();
+    const diskSetIds = new Set();
     try {
-      if(fs.existsSync(CARD_DATA_DIR)) {
-        diskSetIds = new Set(
-          fs.readdirSync(CARD_DATA_DIR)
+      [CARDS_CACHE_DIR, CARD_DATA_DIR].forEach(dir => {
+        if(fs.existsSync(dir)) {
+          fs.readdirSync(dir)
             .filter(f => f.endsWith('.json') && f !== '_sets.json')
-            .map(f => f.replace('.json',''))
-        );
-      }
+            .forEach(f => diskSetIds.add(f.replace('.json','')));
+        }
+      });
     } catch(e) {}
 
     const allSetIds = new Set([...memorySetIds, ...diskSetIds]);
 
     for(const setId of allSetIds) {
-      // Get cards from memory first, then disk
+      // Get cards from memory first, then dynamic cache, then static files
       let setCards = cache.cards[setId]?.data;
       if(!setCards) {
         try {
-          const f = path.join(CARD_DATA_DIR, setId + '.json');
-          setCards = JSON.parse(fs.readFileSync(f, 'utf8'));
-          // Load into memory cache for next time
+          setCards = loadSetCards(setId);
+          if(!setCards) {
+            const f = path.join(CARD_DATA_DIR, setId + '.json');
+            setCards = JSON.parse(fs.readFileSync(f, 'utf8'));
+          }
           cache.cards[setId] = { data: setCards, at: Date.now() };
         } catch(e) { continue; }
       }
@@ -330,6 +332,11 @@ app.get('/shelf', (req, res) => {
 // Serve binder page
 app.get('/binder', (req, res) => {
   res.sendFile(path.join(__dirname, 'binder.html'));
+});
+
+// Serve bulk-add page
+app.get('/bulk-add', (req, res) => {
+  res.sendFile(path.join(__dirname, 'bulk-add.html'));
 });
 
 // binder data dir per user

@@ -8,7 +8,7 @@
  * USED BY: CollectionPage, AnalyzerPage
  */
 import { api } from './client'
-import type { CollectionEntry, CollectionStats, ConditionCount } from '../types'
+import type { CollectionEntry, CollectionStats, ConditionCount, OwnedCard } from '../types'
 
 /** One card update as the bulk endpoint expects it. */
 export interface BulkItem {
@@ -37,3 +37,7 @@ export const saveEntry = (
 /** Replace many cards in one request — used by CSV import and Clear set. */
 export const bulkSave = (userId: string, items: BulkItem[]) =>
   api.post(`/api/collection/${userId}/bulk`, items).then(r => r.data)
+
+/** All cards owned by a user, each enriched with full card data + prices. */
+export const getOwnedCards = (userId: string) =>
+  api.get<OwnedCard[]>(`/api/collection/${userId}/owned`).then(r => r.data)
