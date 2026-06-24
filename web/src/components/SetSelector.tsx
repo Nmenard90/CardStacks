@@ -12,6 +12,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CardSet } from '../types'
 
+/** Sentinel set id meaning "search across every set" rather than one set. */
+export const ALL_SETS = '__all__'
+
 interface Props {
   sets: CardSet[]
   selectedId: string | null
@@ -56,10 +59,12 @@ export function SetSelector({ sets, selectedId, onSelect }: Props) {
         className={'set-selector-btn' + (open ? ' open' : '')}
         onClick={() => setOpen(o => !o)}
       >
-        {selected?.images.symbol
-          ? <img className="set-sym" src={selected.images.symbol} alt="" />
-          : <div className="set-sym-placeholder" />}
-        <span>{selected ? selected.name : 'Loading…'}</span>
+        {selectedId === ALL_SETS
+          ? <div className="set-sym-placeholder">🗂</div>
+          : selected?.images.symbol
+            ? <img className="set-sym" src={selected.images.symbol} alt="" />
+            : <div className="set-sym-placeholder" />}
+        <span>{selectedId === ALL_SETS ? 'All Sets' : selected ? selected.name : 'Loading…'}</span>
         <span className="chevron">▼</span>
       </div>
       <div className={'set-dropdown' + (open ? ' open' : '')}>
@@ -71,6 +76,14 @@ export function SetSelector({ sets, selectedId, onSelect }: Props) {
           />
         </div>
         <div>
+          <div
+            className={'set-option' + (selectedId === ALL_SETS ? ' selected' : '')}
+            onClick={() => { onSelect(ALL_SETS); setOpen(false); setQ('') }}
+          >
+            <div style={{ width: 22, textAlign: 'center' }}>🗂</div>
+            <span className="so-name">All Sets</span>
+            <span className="so-count">search everywhere</span>
+          </div>
           {groups.map(g => (
             <div key={g.series}>
               <div className="set-group-label">{g.series}</div>

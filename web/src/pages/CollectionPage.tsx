@@ -43,7 +43,7 @@ import { usePreview } from '../components/CardPreview'
 import { HeaderNav } from '../components/HeaderNav'
 import { ImportModal } from '../components/ImportModal'
 import { LoginScreen } from '../components/LoginScreen'
-import { SetSelector } from '../components/SetSelector'
+import { ALL_SETS, SetSelector } from '../components/SetSelector'
 import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
 import {
@@ -92,6 +92,7 @@ export function CollectionPage() {
   // Active set: the stored choice when still valid, else the newest set.
   // Derived (not synced via an effect) so there is no flash of an empty grid.
   const activeSetId = useMemo(() => {
+    if (setId === ALL_SETS) return ALL_SETS
     if (setId && sets.some(s => s.id === setId)) return setId
     if (sets.length === 0) return null
     return [...sets].sort((a, b) => b.releaseDate.localeCompare(a.releaseDate))[0].id
@@ -103,7 +104,7 @@ export function CollectionPage() {
   const { data: cards = [], isLoading: cardsLoading } = useQuery({
     queryKey: ['cards', activeSetId],
     queryFn: () => getCards(activeSetId!),
-    enabled: !!user && !!activeSetId,
+    enabled: !!user && !!activeSetId && activeSetId !== ALL_SETS,
   })
   const { data: stats } = useQuery({
     queryKey: ['stats', userId],
@@ -138,7 +139,7 @@ export function CollectionPage() {
   useEffect(() => {
     if (globalTimer.current) clearTimeout(globalTimer.current)
     const q = search.trim()
-    if (q.length < 2) { setGlobalHits([]); setGlobalSearching(false); return }
+    if (q.length < 2 || activeSetId !== ALL_SETS) { setGlobalHits([]); setGlobalSearching(false); return }
     setGlobalSearching(true)
     globalTimer.current = window.setTimeout(async () => {
       try { setGlobalHits(narrowByCollectorNumber(await searchCards(q), q, setTotals)) }
@@ -146,7 +147,7 @@ export function CollectionPage() {
       finally { setGlobalSearching(false) }
     }, 300)
     return () => { if (globalTimer.current) clearTimeout(globalTimer.current) }
-  }, [search, setTotals]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [search, setTotals, activeSetId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const cardById = useMemo(() => new Map(cards.map(c => [c.id, c])), [cards])
 
@@ -253,6 +254,8 @@ export function CollectionPage() {
   // 6) Derived values
   // Search mode kicks in at 2+ characters and is independent of the set browser.
   const isSearchMode = search.trim().length >= 2
+  // All Sets mode searches every set; otherwise search stays inside the set.
+  const allSets = activeSetId === ALL_SETS
 
   const filtered = useMemo(() => {
     const list = ownedOnly
@@ -267,16 +270,27 @@ export function CollectionPage() {
     return list
   }, [cards, coll, ownedOnly, sort])
 
-  // The grid shows cross-set hits while searching, otherwise the selected set.
+  // Within-set search (client-side) used when a specific set is selected.
+  const withinSetHits = useMemo(() => {
+    if (!isSearchMode || allSets) return []
+    const ql = search.trim().toLowerCase()
+    const num = search.trim().match(/^(\d+)/)?.[1]
+    return cards.filter(c =>
+      c.name.toLowerCase().includes(ql) ||
+      (!!num && (c.number === num || parseInt(c.number, 10) === parseInt(num, 10)))
+    )
+  }, [cards, search, isSearchMode, allSets])
+
+  // While searching: All Sets -> backend hits, else within-set hits. Else the set grid.
   const displayCards = isSearchMode
-    ? globalHits.filter(c => !ownedOnly || totalQty(coll[c.id]?.conds ?? {}) > 0)
+    ? (allSets ? globalHits : withinSetHits).filter(c => !ownedOnly || totalQty(coll[c.id]?.conds ?? {}) > 0)
     : filtered
 
   const set = sets.find(s => s.id === activeSetId)
   const ownedInSet = cards.filter(c => totalQty(coll[c.id]?.conds ?? {}) > 0).length
   const setValue = cards.reduce((sum, c) => sum + cardValue(coll[c.id]?.conds ?? {}, c), 0)
   const completion = set && set.total > 0 ? Math.round((ownedInSet / set.total) * 100) : 0
-  const gridReady = isSearchMode ? !globalSearching : !cardsLoading
+  const gridReady = isSearchMode ? (allSets ? !globalSearching : true) : !cardsLoading
 
   // 7) Login guard
   if (!user) return <div className="page-tracker"><LoginScreen /></div>
@@ -291,7 +305,7 @@ export function CollectionPage() {
           {/* Primary way to find a card: searches every set, no set required. */}
           <input
             type="text"
-            placeholder="Search any card by name or number - all sets"
+            placeholder={allSets ? 'Search every set by name or number' : `Search within ${set?.name ?? 'this set'}`}
             style={{ width: 300 }}
             value={search}
             onChange={e => setSearch(e.target.value)}
@@ -300,7 +314,7 @@ export function CollectionPage() {
           <SetSelector
             sets={sets}
             selectedId={activeSetId}
-            onSelect={id => { setSetId(id); setSearch('') }}
+            onSelect={id => setSetId(id)}
           />
           <HeaderNav />
         </header>
@@ -363,20 +377,25 @@ export function CollectionPage() {
               </div>
             )}
 
-            {/* Search-mode status lines */}
-            {isSearchMode && globalSearching && <div className="loading">Searching all sets…</div>}
-            {isSearchMode && !globalSearching && displayCards.length > 0 && (
-              <div style={{ padding: '8px 18px', color: 'var(--muted)', fontSize: 13 }}>
-                {displayCards.length} result{displayCards.length !== 1 ? 's' : ''} across all sets
-              </div>
-            )}
-            {isSearchMode && !globalSearching && displayCards.length === 0 && (
-              <div className="empty">No cards found for "{search.trim()}".</div>
+            {/* All Sets selected with nothing typed yet: prompt to browse or search. */}
+            {!isSearchMode && allSets && (
+              <div className="empty">Pick a set above to browse it, or type a name or number to search every set.</div>
             )}
 
-            {/* Browse-mode status lines */}
-            {!isSearchMode && cardsLoading && <div className="loading">Loading</div>}
-            {!isSearchMode && !cardsLoading && displayCards.length === 0 && (
+            {/* Search-mode status lines */}
+            {isSearchMode && allSets && globalSearching && <div className="loading">Searching all sets…</div>}
+            {isSearchMode && gridReady && displayCards.length > 0 && (
+              <div style={{ padding: '8px 18px', color: 'var(--muted)', fontSize: 13 }}>
+                {displayCards.length} result{displayCards.length !== 1 ? 's' : ''} {allSets ? 'across all sets' : `in ${set?.name ?? 'this set'}`}
+              </div>
+            )}
+            {isSearchMode && gridReady && displayCards.length === 0 && (
+              <div className="empty">No cards found for "{search.trim()}"{allSets ? '' : ` in ${set?.name ?? 'this set'}`}.</div>
+            )}
+
+            {/* Browse-mode status lines (specific set only) */}
+            {!isSearchMode && !allSets && cardsLoading && <div className="loading">Loading</div>}
+            {!isSearchMode && !allSets && !cardsLoading && set && displayCards.length === 0 && (
               <div className="empty">No cards match.</div>
             )}
 
