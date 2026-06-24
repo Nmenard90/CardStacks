@@ -45,9 +45,11 @@ interface Props {
   onAdjCond: (cond: string, delta: number) => void
   /** Called on image hover — parent shows/hides the large preview overlay. */
   onPreview: (src: string | null) => void
+  /** Optional: when provided, a "To binder" button shows and calls this with the card. */
+  onAddToBinder?: (card: Card) => void
 }
 
-export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, onAdjCond, onPreview }: Props) {
+export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, onAdjCond, onPreview, onAddToBinder }: Props) {
   const qty = totalQty(conds)
   const price = basePrice(card)
   const priceStr = price > 0
@@ -88,6 +90,14 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
             />
             <button className="qbtn" onClick={() => onAdj(1)}>+</button>
           </div>
+          {onAddToBinder && (
+            <button
+              className="tb-btn"
+              style={{ marginTop: 6, fontSize: 11, padding: '4px 8px', alignSelf: 'flex-start' }}
+              onClick={() => onAddToBinder(card)}
+              title="Add this card to one of your binders"
+            >📒 To binder</button>
+          )}
         </div>
       </div>
       <div className="cond-section">

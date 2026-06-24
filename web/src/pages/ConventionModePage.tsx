@@ -12,9 +12,9 @@
  */
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { getSets, searchCards } from '../api/cards'
 import { useUser } from '../context/UserContext'
+import { HeaderNav } from '../components/HeaderNav'
 import { CONDS, condPrice, type Cond } from '../lib/conditions'
 import type { Card, ConventionPriceReport, PaymentType, VendorNote } from '../types'
 
@@ -183,11 +183,10 @@ export function ConventionModePage() {
   return (
     <div className="page-convention">
       <div className="con-bar">
-        <Link className="back" to="/">← Collection</Link>
-        <Link className="back" to="/analyzer">Trade Analyzer</Link>
         <span className="bar-title">Convention <span>Mode</span></span>
         <div className="gap" />
         {user && <span className="bar-user">{user.username}</span>}
+        <HeaderNav />
       </div>
 
       <main className="con-page">

@@ -29,6 +29,7 @@ import { getBinder, setSlot as apiSetSlot, updateBinder } from '../api/binders'
 import { getCards, getSets } from '../api/cards'
 import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
+import { HeaderNav } from '../components/HeaderNav'
 import { basePrice } from '../lib/conditions'
 import type { Binder, Card, PocketSize } from '../types'
 
@@ -287,6 +288,7 @@ export function BinderViewPage() {
           </button>
         ))}
         <span id="pglbl">{pageLabel}</span>
+        <HeaderNav />
       </div>
 
       <button className="arr" id="aL" onClick={prev} disabled={spread <= 0 || turning}>‹</button>

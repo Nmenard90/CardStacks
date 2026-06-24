@@ -34,6 +34,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getSets, searchCards } from '../api/cards'
+import { buildSetTotals, narrowByCollectorNumber } from '../lib/cardSearch'
 import { bulkSave, getCollection, type BulkItem } from '../api/collection'
 import { CardTile } from '../components/CardTile'
 import { usePreview } from '../components/CardPreview'
@@ -86,6 +87,8 @@ export function BulkAddPage() {
   const preview = usePreview()
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets, enabled: !!user })
   const setName = useMemo(() => new Map(sets.map(s => [s.id, s.name])), [sets])
+  // setId -> totals lookup, used to resolve "117/123" to the one card meant.
+  const setTotal = useMemo(() => buildSetTotals(sets), [sets])
 
   // ── Tile map: source of truth for session counts ─────────────────────────────
   // Ref-held so large sessions don't cause unnecessary re-renders on every keystroke.
@@ -140,7 +143,8 @@ export function BulkAddPage() {
     timer.current = window.setTimeout(async () => {
       try {
         const hits = await searchCards(q)
-        setResults(hits.slice(0, 40))
+        // Narrow "117/123" to the right set; plain queries pass through unchanged.
+        setResults(narrowByCollectorNumber(hits, q, setTotal).slice(0, 40))
         setSearchErr(false)
       } catch {
         setResults([])
@@ -150,7 +154,7 @@ export function BulkAddPage() {
       }
     }, 250)
     return () => { if (timer.current) clearTimeout(timer.current) }
-  }, [query])
+  }, [query, setTotal])
 
   if (!user) return <div className="page-tracker bulk-page"><LoginScreen /></div>
 

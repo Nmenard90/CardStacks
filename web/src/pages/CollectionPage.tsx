@@ -37,6 +37,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getCards, getSets, searchCards } from '../api/cards'
 import { bulkSave, getCollection, getStats, saveEntry } from '../api/collection'
+import { BinderPickerModal } from '../components/BinderPickerModal'
 import { CardTile } from '../components/CardTile'
 import { usePreview } from '../components/CardPreview'
 import { HeaderNav } from '../components/HeaderNav'
@@ -48,6 +49,7 @@ import { useUser } from '../context/UserContext'
 import {
   basePrice, cardValue, condPrice, fromCondList, toCondList, totalQty, type CondMap,
 } from '../lib/conditions'
+import { buildSetTotals, narrowByCollectorNumber } from '../lib/cardSearch'
 import { downloadCSV, type ImportRow } from '../lib/csv'
 import type { Card } from '../types'
 
@@ -74,6 +76,8 @@ export function CollectionPage() {
   const [ownedOnly, setOwnedOnly] = useState(false)
   const [sort, setSort] = useState<SortMode>('number')
   const [importOpen, setImportOpen] = useState(false)
+  // The card whose "add to binder" picker is open (null = closed).
+  const [binderCard, setBinderCard] = useState<Card | null>(null)
 
   // Cross-set search results, populated only while the box holds 2+ characters.
   const [globalHits, setGlobalHits] = useState<Card[]>([])
@@ -92,6 +96,9 @@ export function CollectionPage() {
     if (sets.length === 0) return null
     return [...sets].sort((a, b) => b.releaseDate.localeCompare(a.releaseDate))[0].id
   }, [sets, setId])
+
+  // setId -> totals lookup, used to resolve "117/123" to the one card meant.
+  const setTotals = useMemo(() => buildSetTotals(sets), [sets])
 
   const { data: cards = [], isLoading: cardsLoading } = useQuery({
     queryKey: ['cards', activeSetId],
@@ -134,12 +141,12 @@ export function CollectionPage() {
     if (q.length < 2) { setGlobalHits([]); setGlobalSearching(false); return }
     setGlobalSearching(true)
     globalTimer.current = window.setTimeout(async () => {
-      try { setGlobalHits(await searchCards(q)) }
+      try { setGlobalHits(narrowByCollectorNumber(await searchCards(q), q, setTotals)) }
       catch { setGlobalHits([]); toast('Search failed - please try again.') }
       finally { setGlobalSearching(false) }
     }, 300)
     return () => { if (globalTimer.current) clearTimeout(globalTimer.current) }
-  }, [search]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [search, setTotals]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const cardById = useMemo(() => new Map(cards.map(c => [c.id, c])), [cards])
 
@@ -248,7 +255,7 @@ export function CollectionPage() {
   const isSearchMode = search.trim().length >= 2
 
   const filtered = useMemo(() => {
-    let list = ownedOnly
+    const list = ownedOnly
       ? cards.filter(c => totalQty(coll[c.id]?.conds ?? {}) > 0)
       : [...cards]
     const val = (c: Card) => cardValue(coll[c.id]?.conds ?? {}, c) || basePrice(c)
@@ -386,6 +393,7 @@ export function CollectionPage() {
                       onSelectCond={cond => selectCond(c, cond)}
                       onAdjCond={(cond, d) => adjCond(c, cond, d)}
                       onPreview={src => (src ? preview.show(src) : preview.hide())}
+                      onAddToBinder={() => setBinderCard(c)}
                     />
                   )
                 })}
@@ -396,6 +404,7 @@ export function CollectionPage() {
       </div>
 
       <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onImport={runImport} />
+      <BinderPickerModal card={binderCard} userId={userId} onClose={() => setBinderCard(null)} />
       {preview.overlay}
     </div>
   )

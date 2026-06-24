@@ -49,7 +49,7 @@ export function HeaderNav() {
   const { setUser } = useUser()
 
   return (
-    <div className="header-right">
+    <div className="app-nav">
       {ITEMS.map(item => (
         <Link
           key={item.to}

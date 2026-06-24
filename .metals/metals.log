@@ -50,3 +50,303 @@ WARNING: Unmatched cancel notification for request id 656
 2026.06.15 18:23:35 INFO  Memory monitor stopped
 2026.06.15 18:23:35 INFO  shutting down Metals
 2026.06.15 18:23:35 INFO  Exiting server
+2026.06.22 17:09:51 INFO  Started: Metals version 1.6.7 in folders 'C:\Users\nicho\tcg' for client Visual Studio Code 1.125.1.
+2026.06.22 17:09:51 INFO  Memory monitor started
+2026.06.22 17:09:51 WARN  Using H2 2.4.240 which is newer than the version Flyway has been verified with. The latest verified version of H2 is 2.3.232.
+2026.06.22 17:09:51 INFO  no build target found for C:\Users\nicho\tcg\poketracker-v2\src\main\scala\com\poketracker\api\CardRoutes.scala. Using presentation compiler with project's scala-library version: 3.3.7
+Jun 22, 2026 5:09:53 PM org.eclipse.lsp4j.jsonrpc.RemoteEndpoint handleCancellation
+WARNING: Unmatched cancel notification for request id 2
+2026.06.22 17:09:53 INFO  no build target found for C:\Users\nicho\tcg\poketracker-v2\src\main\scala\com\poketracker\api\CardRoutes.scala. Using presentation compiler with project's scala-library version: 3.3.7
+2026.06.22 17:09:53 INFO  no build target found for C:\Users\nicho\tcg\poketracker-v2\src\main\scala\com\poketracker\api\CardRoutes.scala. Using presentation compiler with project's scala-library version: 3.3.7
+2026.06.22 17:09:54 INFO  Attempting to connect to the build server...
+Jun 22, 2026 5:09:54 PM org.eclipse.lsp4j.jsonrpc.RemoteEndpoint handleCancellation
+WARNING: Unmatched cancel notification for request id 8
+Jun 22, 2026 5:09:54 PM org.eclipse.lsp4j.jsonrpc.RemoteEndpoint handleCancellation
+WARNING: Unmatched cancel notification for request id 3
+2026.06.22 17:09:53 INFO  no build target found for C:\Users\nicho\tcg\poketracker-v2\src\main\scala\com\poketracker\api\CardRoutes.scala. Using presentation compiler with project's scala-library version: 3.3.7
+2026.06.22 17:09:54 INFO  No running Bloop server found, starting one.
+2026.06.22 17:09:55 INFO  Starting compilation server
+2026.06.22 17:09:56 INFO  tracing is disabled for protocol BSP, to enable tracing of incoming and outgoing JSON messages create an empty file at C:\Users\nicho\tcg\.metals\bsp.trace.json or C:\Users\nicho\AppData\Local\scalameta\metals\cache\bsp.trace.json
+2026.06.22 17:09:57 INFO  time: Connected to build server in 3.44s
+2026.06.22 17:09:56 INFO  Connected to Build server: Bloop v2.0.19
+2026.06.22 17:09:57 INFO  time: Imported build in 0.2s
+2026.06.22 17:10:01 WARN  Using H2 2.4.240 which is newer than the version Flyway has been verified with. The latest verified version of H2 is 2.3.232.
+2026.06.22 17:10:03 INFO  time: indexed workspace in 5.45s
+2026.06.22 17:10:03 INFO  compiling root (1 scala source)
+2026.06.22 17:10:11 INFO  time: compiled root in 7.84s
+Jun 22, 2026 5:12:04 PM org.eclipse.lsp4j.jsonrpc.RemoteEndpoint handleCancellation
+WARNING: Unmatched cancel notification for request id 25
+Jun 22, 2026 5:27:46 PM org.eclipse.lsp4j.jsonrpc.RemoteEndpoint handleCancellation
+WARNING: Unmatched cancel notification for request id 33
+Jun 22, 2026 10:03:07 PM org.eclipse.lsp4j.jsonrpc.RemoteEndpoint handleNotification
+WARNING: Notification threw an exception: {
+  "jsonrpc": "2.0",
+  "method": "metals/didFocusTextDocument",
+  "params": [
+    "_claude_vscode_fs_right:/c%3A/Users/nicho/tcg/poketracker-v2/src/main/scala/com/poketracker/service/CardService.scala"
+  ]
+}
+java.lang.IllegalArgumentException: Illegal character in scheme name at index 0: _claude_vscode_fs_right:/c%3A/Users/nicho/tcg/poketracker-v2/src/main/scala/com/poketracker/service/CardService.scala
+	at java.base/java.net.URI.create(URI.java:932)
+	at scala.meta.internal.mtags.MtagsEnrichments$XtensionStringMtags.toAbsolutePath(MtagsEnrichments.scala:209)
+	at scala.meta.internal.metals.MetalsEnrichments$XtensionString.toAbsolutePath(MetalsEnrichments.scala:787)
+	at scala.meta.internal.metals.MetalsEnrichments$XtensionString.toAbsolutePath(MetalsEnrichments.scala:784)
+	at scala.meta.internal.metals.WorkspaceLspService.didFocus(WorkspaceLspService.scala:808)
+	at scala.meta.metals.lsp.DelegatingScalaService.didFocus(DelegatingScalaService.scala:42)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.eclipse.lsp4j.jsonrpc.services.GenericEndpoint.lambda$recursiveFindRpcMethods$0(GenericEndpoint.java:65)
+	at org.eclipse.lsp4j.jsonrpc.services.GenericEndpoint.notify(GenericEndpoint.java:160)
+	at org.eclipse.lsp4j.jsonrpc.RemoteEndpoint.handleNotification(RemoteEndpoint.java:225)
+	at org.eclipse.lsp4j.jsonrpc.RemoteEndpoint.consume(RemoteEndpoint.java:192)
+	at org.eclipse.lsp4j.jsonrpc.json.StreamMessageProducer.handleMessage(StreamMessageProducer.java:189)
+	at org.eclipse.lsp4j.jsonrpc.json.StreamMessageProducer.listen(StreamMessageProducer.java:97)
+	at org.eclipse.lsp4j.jsonrpc.json.ConcurrentMessageProcessor.run(ConcurrentMessageProcessor.java:97)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:572)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Caused by: java.net.URISyntaxException: Illegal character in scheme name at index 0: _claude_vscode_fs_right:/c%3A/Users/nicho/tcg/poketracker-v2/src/main/scala/com/poketracker/service/CardService.scala
+	at java.base/java.net.URI$Parser.fail(URI.java:2995)
+	at java.base/java.net.URI$Parser.checkChars(URI.java:3166)
+	at java.base/java.net.URI$Parser.checkChar(URI.java:3176)
+	at java.base/java.net.URI$Parser.parse(URI.java:3191)
+	at java.base/java.net.URI.<init>(URI.java:645)
+	at java.base/java.net.URI.create(URI.java:930)
+	... 19 more
+
+Jun 22, 2026 10:25:21 PM org.eclipse.lsp4j.jsonrpc.RemoteEndpoint handleNotification
+WARNING: Notification threw an exception: {
+  "jsonrpc": "2.0",
+  "method": "metals/didFocusTextDocument",
+  "params": [
+    "_claude_vscode_fs_right:/c%3A/Users/nicho/tcg/poketracker-v2/src/main/scala/com/poketracker/models/Collection.scala"
+  ]
+}
+java.lang.IllegalArgumentException: Illegal character in scheme name at index 0: _claude_vscode_fs_right:/c%3A/Users/nicho/tcg/poketracker-v2/src/main/scala/com/poketracker/models/Collection.scala
+	at java.base/java.net.URI.create(URI.java:932)
+	at scala.meta.internal.mtags.MtagsEnrichments$XtensionStringMtags.toAbsolutePath(MtagsEnrichments.scala:209)
+	at scala.meta.internal.metals.MetalsEnrichments$XtensionString.toAbsolutePath(MetalsEnrichments.scala:787)
+	at scala.meta.internal.metals.MetalsEnrichments$XtensionString.toAbsolutePath(MetalsEnrichments.scala:784)
+	at scala.meta.internal.metals.WorkspaceLspService.didFocus(WorkspaceLspService.scala:808)
+	at scala.meta.metals.lsp.DelegatingScalaService.didFocus(DelegatingScalaService.scala:42)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.eclipse.lsp4j.jsonrpc.services.GenericEndpoint.lambda$recursiveFindRpcMethods$0(GenericEndpoint.java:65)
+	at org.eclipse.lsp4j.jsonrpc.services.GenericEndpoint.notify(GenericEndpoint.java:160)
+	at org.eclipse.lsp4j.jsonrpc.RemoteEndpoint.handleNotification(RemoteEndpoint.java:225)
+	at org.eclipse.lsp4j.jsonrpc.RemoteEndpoint.consume(RemoteEndpoint.java:192)
+	at org.eclipse.lsp4j.jsonrpc.json.StreamMessageProducer.handleMessage(StreamMessageProducer.java:189)
+	at org.eclipse.lsp4j.jsonrpc.json.StreamMessageProducer.listen(StreamMessageProducer.java:97)
+	at org.eclipse.lsp4j.jsonrpc.json.ConcurrentMessageProcessor.run(ConcurrentMessageProcessor.java:97)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:572)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Caused by: java.net.URISyntaxException: Illegal character in scheme name at index 0: _claude_vscode_fs_right:/c%3A/Users/nicho/tcg/poketracker-v2/src/main/scala/com/poketracker/models/Collection.scala
+	at java.base/java.net.URI$Parser.fail(URI.java:2995)
+	at java.base/java.net.URI$Parser.checkChars(URI.java:3166)
+	at java.base/java.net.URI$Parser.checkChar(URI.java:3176)
+	at java.base/java.net.URI$Parser.parse(URI.java:3191)
+	at java.base/java.net.URI.<init>(URI.java:645)
+	at java.base/java.net.URI.create(URI.java:930)
+	... 19 more
+
+Jun 22, 2026 10:26:25 PM org.eclipse.lsp4j.jsonrpc.RemoteEndpoint handleNotification
+WARNING: Notification threw an exception: {
+  "jsonrpc": "2.0",
+  "method": "metals/didFocusTextDocument",
+  "params": [
+    "_claude_vscode_fs_right:/c%3A/Users/nicho/tcg/poketracker-v2/src/main/scala/com/poketracker/repository/CollectionRepository.scala"
+  ]
+}
+java.lang.IllegalArgumentException: Illegal character in scheme name at index 0: _claude_vscode_fs_right:/c%3A/Users/nicho/tcg/poketracker-v2/src/main/scala/com/poketracker/repository/CollectionRepository.scala
+	at java.base/java.net.URI.create(URI.java:932)
+	at scala.meta.internal.mtags.MtagsEnrichments$XtensionStringMtags.toAbsolutePath(MtagsEnrichments.scala:209)
+	at scala.meta.internal.metals.MetalsEnrichments$XtensionString.toAbsolutePath(MetalsEnrichments.scala:787)
+	at scala.meta.internal.metals.MetalsEnrichments$XtensionString.toAbsolutePath(MetalsEnrichments.scala:784)
+	at scala.meta.internal.metals.WorkspaceLspService.didFocus(WorkspaceLspService.scala:808)
+	at scala.meta.metals.lsp.DelegatingScalaService.didFocus(DelegatingScalaService.scala:42)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.eclipse.lsp4j.jsonrpc.services.GenericEndpoint.lambda$recursiveFindRpcMethods$0(GenericEndpoint.java:65)
+	at org.eclipse.lsp4j.jsonrpc.services.GenericEndpoint.notify(GenericEndpoint.java:160)
+	at org.eclipse.lsp4j.jsonrpc.RemoteEndpoint.handleNotification(RemoteEndpoint.java:225)
+	at org.eclipse.lsp4j.jsonrpc.RemoteEndpoint.consume(RemoteEndpoint.java:192)
+	at org.eclipse.lsp4j.jsonrpc.json.StreamMessageProducer.handleMessage(StreamMessageProducer.java:189)
+	at org.eclipse.lsp4j.jsonrpc.json.StreamMessageProducer.listen(StreamMessageProducer.java:97)
+	at org.eclipse.lsp4j.jsonrpc.json.ConcurrentMessageProcessor.run(ConcurrentMessageProcessor.java:97)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:572)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Caused by: java.net.URISyntaxException: Illegal character in scheme name at index 0: _claude_vscode_fs_right:/c%3A/Users/nicho/tcg/poketracker-v2/src/main/scala/com/poketracker/repository/CollectionRepository.scala
+	at java.base/java.net.URI$Parser.fail(URI.java:2995)
+	at java.base/java.net.URI$Parser.checkChars(URI.java:3166)
+	at java.base/java.net.URI$Parser.checkChar(URI.java:3176)
+	at java.base/java.net.URI$Parser.parse(URI.java:3191)
+	at java.base/java.net.URI.<init>(URI.java:645)
+	at java.base/java.net.URI.create(URI.java:930)
+	... 19 more
+
+Jun 22, 2026 10:27:06 PM org.eclipse.lsp4j.jsonrpc.RemoteEndpoint handleNotification
+WARNING: Notification threw an exception: {
+  "jsonrpc": "2.0",
+  "method": "metals/didFocusTextDocument",
+  "params": [
+    "_claude_vscode_fs_right:/c%3A/Users/nicho/tcg/poketracker-v2/src/main/scala/com/poketracker/repository/CollectionRepository.scala"
+  ]
+}
+java.lang.IllegalArgumentException: Illegal character in scheme name at index 0: _claude_vscode_fs_right:/c%3A/Users/nicho/tcg/poketracker-v2/src/main/scala/com/poketracker/repository/CollectionRepository.scala
+	at java.base/java.net.URI.create(URI.java:932)
+	at scala.meta.internal.mtags.MtagsEnrichments$XtensionStringMtags.toAbsolutePath(MtagsEnrichments.scala:209)
+	at scala.meta.internal.metals.MetalsEnrichments$XtensionString.toAbsolutePath(MetalsEnrichments.scala:787)
+	at scala.meta.internal.metals.MetalsEnrichments$XtensionString.toAbsolutePath(MetalsEnrichments.scala:784)
+	at scala.meta.internal.metals.WorkspaceLspService.didFocus(WorkspaceLspService.scala:808)
+	at scala.meta.metals.lsp.DelegatingScalaService.didFocus(DelegatingScalaService.scala:42)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.eclipse.lsp4j.jsonrpc.services.GenericEndpoint.lambda$recursiveFindRpcMethods$0(GenericEndpoint.java:65)
+	at org.eclipse.lsp4j.jsonrpc.services.GenericEndpoint.notify(GenericEndpoint.java:160)
+	at org.eclipse.lsp4j.jsonrpc.RemoteEndpoint.handleNotification(RemoteEndpoint.java:225)
+	at org.eclipse.lsp4j.jsonrpc.RemoteEndpoint.consume(RemoteEndpoint.java:192)
+	at org.eclipse.lsp4j.jsonrpc.json.StreamMessageProducer.handleMessage(StreamMessageProducer.java:189)
+	at org.eclipse.lsp4j.jsonrpc.json.StreamMessageProducer.listen(StreamMessageProducer.java:97)
+	at org.eclipse.lsp4j.jsonrpc.json.ConcurrentMessageProcessor.run(ConcurrentMessageProcessor.java:97)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:572)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Caused by: java.net.URISyntaxException: Illegal character in scheme name at index 0: _claude_vscode_fs_right:/c%3A/Users/nicho/tcg/poketracker-v2/src/main/scala/com/poketracker/repository/CollectionRepository.scala
+	at java.base/java.net.URI$Parser.fail(URI.java:2995)
+	at java.base/java.net.URI$Parser.checkChars(URI.java:3166)
+	at java.base/java.net.URI$Parser.checkChar(URI.java:3176)
+	at java.base/java.net.URI$Parser.parse(URI.java:3191)
+	at java.base/java.net.URI.<init>(URI.java:645)
+	at java.base/java.net.URI.create(URI.java:930)
+	... 19 more
+
+Jun 22, 2026 10:29:28 PM org.eclipse.lsp4j.jsonrpc.RemoteEndpoint handleNotification
+WARNING: Notification threw an exception: {
+  "jsonrpc": "2.0",
+  "method": "metals/didFocusTextDocument",
+  "params": [
+    "_claude_vscode_fs_right:/c%3A/Users/nicho/tcg/poketracker-v2/src/main/scala/com/poketracker/service/CollectionService.scala"
+  ]
+}
+java.lang.IllegalArgumentException: Illegal character in scheme name at index 0: _claude_vscode_fs_right:/c%3A/Users/nicho/tcg/poketracker-v2/src/main/scala/com/poketracker/service/CollectionService.scala
+	at java.base/java.net.URI.create(URI.java:932)
+	at scala.meta.internal.mtags.MtagsEnrichments$XtensionStringMtags.toAbsolutePath(MtagsEnrichments.scala:209)
+	at scala.meta.internal.metals.MetalsEnrichments$XtensionString.toAbsolutePath(MetalsEnrichments.scala:787)
+	at scala.meta.internal.metals.MetalsEnrichments$XtensionString.toAbsolutePath(MetalsEnrichments.scala:784)
+	at scala.meta.internal.metals.WorkspaceLspService.didFocus(WorkspaceLspService.scala:808)
+	at scala.meta.metals.lsp.DelegatingScalaService.didFocus(DelegatingScalaService.scala:42)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.eclipse.lsp4j.jsonrpc.services.GenericEndpoint.lambda$recursiveFindRpcMethods$0(GenericEndpoint.java:65)
+	at org.eclipse.lsp4j.jsonrpc.services.GenericEndpoint.notify(GenericEndpoint.java:160)
+	at org.eclipse.lsp4j.jsonrpc.RemoteEndpoint.handleNotification(RemoteEndpoint.java:225)
+	at org.eclipse.lsp4j.jsonrpc.RemoteEndpoint.consume(RemoteEndpoint.java:192)
+	at org.eclipse.lsp4j.jsonrpc.json.StreamMessageProducer.handleMessage(StreamMessageProducer.java:189)
+	at org.eclipse.lsp4j.jsonrpc.json.StreamMessageProducer.listen(StreamMessageProducer.java:97)
+	at org.eclipse.lsp4j.jsonrpc.json.ConcurrentMessageProcessor.run(ConcurrentMessageProcessor.java:97)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:572)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Caused by: java.net.URISyntaxException: Illegal character in scheme name at index 0: _claude_vscode_fs_right:/c%3A/Users/nicho/tcg/poketracker-v2/src/main/scala/com/poketracker/service/CollectionService.scala
+	at java.base/java.net.URI$Parser.fail(URI.java:2995)
+	at java.base/java.net.URI$Parser.checkChars(URI.java:3166)
+	at java.base/java.net.URI$Parser.checkChar(URI.java:3176)
+	at java.base/java.net.URI$Parser.parse(URI.java:3191)
+	at java.base/java.net.URI.<init>(URI.java:645)
+	at java.base/java.net.URI.create(URI.java:930)
+	... 19 more
+
+2026.06.22 22:45:35 INFO  compiling root (4 scala sources)
+Jun 22, 2026 10:45:40 PM org.eclipse.lsp4j.jsonrpc.RemoteEndpoint handleNotification
+WARNING: Notification threw an exception: {
+  "jsonrpc": "2.0",
+  "method": "metals/didFocusTextDocument",
+  "params": [
+    "_claude_vscode_fs_right:/c%3A/Users/nicho/tcg/poketracker-v2/src/main/scala/com/poketracker/service/CollectionService.scala"
+  ]
+}
+java.lang.IllegalArgumentException: Illegal character in scheme name at index 0: _claude_vscode_fs_right:/c%3A/Users/nicho/tcg/poketracker-v2/src/main/scala/com/poketracker/service/CollectionService.scala
+	at java.base/java.net.URI.create(URI.java:932)
+	at scala.meta.internal.mtags.MtagsEnrichments$XtensionStringMtags.toAbsolutePath(MtagsEnrichments.scala:209)
+	at scala.meta.internal.metals.MetalsEnrichments$XtensionString.toAbsolutePath(MetalsEnrichments.scala:787)
+	at scala.meta.internal.metals.MetalsEnrichments$XtensionString.toAbsolutePath(MetalsEnrichments.scala:784)
+	at scala.meta.internal.metals.WorkspaceLspService.didFocus(WorkspaceLspService.scala:808)
+	at scala.meta.metals.lsp.DelegatingScalaService.didFocus(DelegatingScalaService.scala:42)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.eclipse.lsp4j.jsonrpc.services.GenericEndpoint.lambda$recursiveFindRpcMethods$0(GenericEndpoint.java:65)
+	at org.eclipse.lsp4j.jsonrpc.services.GenericEndpoint.notify(GenericEndpoint.java:160)
+	at org.eclipse.lsp4j.jsonrpc.RemoteEndpoint.handleNotification(RemoteEndpoint.java:225)
+	at org.eclipse.lsp4j.jsonrpc.RemoteEndpoint.consume(RemoteEndpoint.java:192)
+	at org.eclipse.lsp4j.jsonrpc.json.StreamMessageProducer.handleMessage(StreamMessageProducer.java:189)
+	at org.eclipse.lsp4j.jsonrpc.json.StreamMessageProducer.listen(StreamMessageProducer.java:97)
+	at org.eclipse.lsp4j.jsonrpc.json.ConcurrentMessageProcessor.run(ConcurrentMessageProcessor.java:97)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:572)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Caused by: java.net.URISyntaxException: Illegal character in scheme name at index 0: _claude_vscode_fs_right:/c%3A/Users/nicho/tcg/poketracker-v2/src/main/scala/com/poketracker/service/CollectionService.scala
+	at java.base/java.net.URI$Parser.fail(URI.java:2995)
+	at java.base/java.net.URI$Parser.checkChars(URI.java:3166)
+	at java.base/java.net.URI$Parser.checkChar(URI.java:3176)
+	at java.base/java.net.URI$Parser.parse(URI.java:3191)
+	at java.base/java.net.URI.<init>(URI.java:645)
+	at java.base/java.net.URI.create(URI.java:930)
+	... 19 more
+
+2026.06.22 22:45:42 INFO  time: compiled root in 7.89s
+2026.06.22 22:45:44 INFO  compiling root (4 scala sources)
+2026.06.22 22:45:49 INFO  time: compiled root in 5.53s
+Jun 22, 2026 10:45:51 PM org.eclipse.lsp4j.jsonrpc.RemoteEndpoint handleNotification
+WARNING: Notification threw an exception: {
+  "jsonrpc": "2.0",
+  "method": "metals/didFocusTextDocument",
+  "params": [
+    "_claude_vscode_fs_right:/c%3A/Users/nicho/tcg/poketracker-v2/src/main/scala/com/poketracker/api/CollectionRoutes.scala"
+  ]
+}
+java.lang.IllegalArgumentException: Illegal character in scheme name at index 0: _claude_vscode_fs_right:/c%3A/Users/nicho/tcg/poketracker-v2/src/main/scala/com/poketracker/api/CollectionRoutes.scala
+	at java.base/java.net.URI.create(URI.java:932)
+	at scala.meta.internal.mtags.MtagsEnrichments$XtensionStringMtags.toAbsolutePath(MtagsEnrichments.scala:209)
+	at scala.meta.internal.metals.MetalsEnrichments$XtensionString.toAbsolutePath(MetalsEnrichments.scala:787)
+	at scala.meta.internal.metals.MetalsEnrichments$XtensionString.toAbsolutePath(MetalsEnrichments.scala:784)
+	at scala.meta.internal.metals.WorkspaceLspService.didFocus(WorkspaceLspService.scala:808)
+	at scala.meta.metals.lsp.DelegatingScalaService.didFocus(DelegatingScalaService.scala:42)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.eclipse.lsp4j.jsonrpc.services.GenericEndpoint.lambda$recursiveFindRpcMethods$0(GenericEndpoint.java:65)
+	at org.eclipse.lsp4j.jsonrpc.services.GenericEndpoint.notify(GenericEndpoint.java:160)
+	at org.eclipse.lsp4j.jsonrpc.RemoteEndpoint.handleNotification(RemoteEndpoint.java:225)
+	at org.eclipse.lsp4j.jsonrpc.RemoteEndpoint.consume(RemoteEndpoint.java:192)
+	at org.eclipse.lsp4j.jsonrpc.json.StreamMessageProducer.handleMessage(StreamMessageProducer.java:189)
+	at org.eclipse.lsp4j.jsonrpc.json.StreamMessageProducer.listen(StreamMessageProducer.java:97)
+	at org.eclipse.lsp4j.jsonrpc.json.ConcurrentMessageProcessor.run(ConcurrentMessageProcessor.java:97)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:572)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Caused by: java.net.URISyntaxException: Illegal character in scheme name at index 0: _claude_vscode_fs_right:/c%3A/Users/nicho/tcg/poketracker-v2/src/main/scala/com/poketracker/api/CollectionRoutes.scala
+	at java.base/java.net.URI$Parser.fail(URI.java:2995)
+	at java.base/java.net.URI$Parser.checkChars(URI.java:3166)
+	at java.base/java.net.URI$Parser.checkChar(URI.java:3176)
+	at java.base/java.net.URI$Parser.parse(URI.java:3191)
+	at java.base/java.net.URI.<init>(URI.java:645)
+	at java.base/java.net.URI.create(URI.java:930)
+	... 19 more
+
+2026.06.22 23:02:52 INFO  compiling root (1 scala source)
+2026.06.22 23:02:56 INFO  time: compiled root in 4.42s

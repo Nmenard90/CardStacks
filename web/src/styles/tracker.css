@@ -108,14 +108,15 @@
 
   .page-tracker .header-right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
   /* Large, always-visible navigation links (replaces the hamburger menu). */
-  .page-tracker .nav-link{
+  .app-nav{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .nav-link{
     font-size:14.5px;font-weight:600;padding:9px 16px;text-decoration:none;
     background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);
     color:var(--text);display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer;
     font-family:'DM Sans',sans-serif;transition:background .15s,border-color .15s,color .15s;
   }
-  .page-tracker .nav-link:hover{background:var(--border);border-color:var(--accent2);}
-  .page-tracker .nav-link.active{background:var(--accent2);border-color:var(--accent2);color:#fff;}
+  .nav-link:hover{background:var(--border);border-color:var(--accent2);}
+  .nav-link.active{background:var(--accent2);border-color:var(--accent2);color:#fff;}
   .page-tracker button{
     background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);
     color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;

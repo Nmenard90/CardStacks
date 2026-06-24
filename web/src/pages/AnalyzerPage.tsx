@@ -23,10 +23,10 @@
  */
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { getCards, getSets, searchCards } from '../api/cards'
 import { getStats } from '../api/collection'
 import { useUser } from '../context/UserContext'
+import { HeaderNav } from '../components/HeaderNav'
 import { CONDS, condPrice, type Cond } from '../lib/conditions'
 import type { Card } from '../types'
 
@@ -216,10 +216,10 @@ export function AnalyzerPage() {
   return (
     <div className="page-analyzer">
       <div id="bar">
-        <Link className="back" to="/">← Collection</Link>
         <span className="bar-title">Trade <span>Analyzer</span></span>
         <div className="gap" />
         {user && <span className="bar-user">{user.username}</span>}
+        <HeaderNav />
       </div>
 
       <div id="page">

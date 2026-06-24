@@ -17,10 +17,11 @@
  * DEPENDS ON: api/binders, context/UserContext, styles/shelf.css
  */
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { createBinder, deleteBinder, listBinders, updateBinder } from '../api/binders'
 import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
+import { HeaderNav } from '../components/HeaderNav'
 import type { Binder, PocketSize } from '../types'
 
 /** Display number for each backend pocket size. */
@@ -116,11 +117,11 @@ export function BinderShelfPage() {
   return (
     <div className="page-shelf">
       <div id="bar">
-        <Link className="back" to="/">← Collection</Link>
         <span className="bar-title">My Binders</span>
         <span className="bar-user">{user.username}</span>
         <div className="sp" />
         <button className="new-btn" onClick={openModal}>+ New Binder</button>
+        <HeaderNav />
       </div>
 
       <div id="main">

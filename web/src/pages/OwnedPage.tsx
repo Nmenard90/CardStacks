@@ -20,6 +20,7 @@ import { usePreview } from '../components/CardPreview'
 import { LoginScreen } from '../components/LoginScreen'
 import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
+import { HeaderNav } from '../components/HeaderNav'
 import { basePrice, cardValue, fromCondList, toCondList, totalQty, type CondMap } from '../lib/conditions'
 import type { Card, OwnedCard } from '../types'
 
@@ -27,7 +28,7 @@ interface Entry { conds: CondMap; selCond: string }
 type SortMode = 'name' | 'qty' | 'value' | 'set'
 
 export function OwnedPage() {
-  const { user, setUser } = useUser()
+  const { user } = useUser()
   const toast = useToast()
   const preview = usePreview()
 
@@ -141,14 +142,7 @@ export function OwnedPage() {
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
-          <div className="header-right">
-            <Link to="/" className="tb-btn" style={{ textDecoration: 'none' }}>🗂 Set Browser</Link>
-            <Link to="/bulk" className="tb-btn" style={{ textDecoration: 'none' }}>⚡ Bulk Add</Link>
-            <Link to="/shelf" className="tb-btn" style={{ textDecoration: 'none' }}>📒 Binders</Link>
-            <button className="tb-btn" style={{ color: 'var(--muted)' }} onClick={() => setUser(null)}>
-              Switch user
-            </button>
-          </div>
+          <HeaderNav />
         </header>
 
         <div className="stats-bar">
