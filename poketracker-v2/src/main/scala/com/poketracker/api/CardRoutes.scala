@@ -158,5 +158,20 @@ object CardRoutes:
       ZIO.serviceWithZIO[CardService](_.refreshSet(setId))
         .map(_ => Response.json("""{"ok": true}"""))
         .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
+    },
+
+    /**
+     * ROUTE: GET /api/admin/refresh-orphans
+     * PURPOSE: One-shot repair. Finds every card a user owns that is missing
+     *          from the catalog (renders blank/$0) and backfills its set from
+     *          the API. Run once to fix existing data; new saves can't create
+     *          orphans because the save path calls ensureCached.
+     * RESPONSE: 200 JSON {"setsRefreshed": N} on success
+     *           500 if the repair fails
+     */
+    Method.GET / "api" / "admin" / "refresh-orphans" -> handler { (_: Request) =>
+      ZIO.serviceWithZIO[CardService](_.refreshOrphans)
+        .map(n => Response.json(s"""{"setsRefreshed": $n}"""))
+        .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
     }
   )

@@ -176,6 +176,17 @@ trait CardRepository:
    */
   def upsertPrices(cardId: String, prices: CardPrices): Task[Unit]
 
+  /**
+   * METHOD: findOrphanedCardIds
+   * PURPOSE: Returns the IDs of every card that a user owns (appears in
+   *          collection_entries) but that has no matching row in the cards
+   *          catalog. These "orphans" are why owned cards can render blank or
+   *          $0 — the catalog row that holds their name/number/price is missing.
+   *          Used by the repair endpoint to find which cards need backfilling.
+   * @return  Distinct list of orphaned card IDs across all users
+   */
+  def findOrphanedCardIds: Task[List[String]]
+
 /**
  * OBJECT: CardRepository
  *
@@ -405,6 +416,24 @@ object CardRepository:
           fetched_at = NOW()
       """
         .update.run.void.transact(xa)
+
+    /**
+     * METHOD: findOrphanedCardIds (Live)
+     * PURPOSE: Left-joins collection_entries against cards and returns the
+     *          card IDs that have no catalog row. These are the cards whose
+     *          set was never loaded, so they render blank/$0 until backfilled.
+     * @return  Distinct orphaned card IDs across all users
+     */
+    def findOrphanedCardIds: Task[List[String]] =
+      sql"""
+        SELECT DISTINCT ce.card_id
+        FROM collection_entries ce
+        LEFT JOIN cards c ON c.id = ce.card_id
+        WHERE c.id IS NULL
+      """
+        .query[String]
+        .to[List]
+        .transact(xa)
 
   /**
    * VALUE: layer

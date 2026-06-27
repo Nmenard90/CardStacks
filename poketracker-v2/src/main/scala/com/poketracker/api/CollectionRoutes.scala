@@ -34,7 +34,7 @@
 package com.poketracker.api
 
 import com.poketracker.models.*
-import com.poketracker.service.{CollectionService, CollectionStats}
+import com.poketracker.service.{CardService, CollectionService, CollectionStats}
 import zio.*
 import zio.http.*
 import zio.json.*
@@ -74,9 +74,12 @@ object CollectionRoutes:
   /**
    * VALUE: routes
    * PURPOSE: All collection HTTP route definitions.
-   * @return Routes[CollectionService, Nothing]
+   *   Saves go through CardService.ensureCached first so a card's catalog row
+   *   (name/number/prices) always exists before an entry referencing it is
+   *   written — this is what prevents orphaned, blank/$0 owned cards.
+   * @return Routes[CollectionService & CardService, Nothing]
    */
-  val routes: Routes[CollectionService, Nothing] = Routes(
+  val routes: Routes[CollectionService & CardService, Nothing] = Routes(
 
     /**
      * ROUTE: GET /api/collection/:userId
@@ -137,6 +140,9 @@ object CollectionRoutes:
           body   <- req.body.asString
           parsed <- ZIO.fromEither(body.fromJson[UpdateEntryRequest])
                       .mapError(e => RuntimeException(s"Bad request: $e"))
+          // Ensure the card exists in the catalog before saving the entry,
+          // so it never becomes a blank/$0 orphan in the owned view or exports.
+          _      <- ZIO.serviceWithZIO[CardService](_.ensureCached(List(cardId)))
           result <- ZIO.serviceWithZIO[CollectionService](
                       _.updateEntry(userId, cardId, parsed.conditions, parsed.selectedCond)
                     )
@@ -163,6 +169,9 @@ object CollectionRoutes:
           body  <- req.body.asString
           items <- ZIO.fromEither(body.fromJson[List[BulkUpdateItem]])
                      .mapError(e => RuntimeException(s"Bad request: $e"))
+          // Backfill any uncached cards (e.g. from a CSV import of a set that
+          // was never loaded) before saving, to avoid orphaned blank entries.
+          _     <- ZIO.serviceWithZIO[CardService](_.ensureCached(items.map(_.cardId)))
           _     <- ZIO.serviceWithZIO[CollectionService](
                      _.bulkUpdate(userId, items.map(i => (i.cardId, i.conditions, i.selectedCond)))
                    )

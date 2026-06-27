@@ -205,6 +205,29 @@ trait CardService:
    */
   def refreshSet(setId: String): Task[Unit]
 
+  /**
+   * METHOD: ensureCached
+   * PURPOSE: Guarantees that every given card ID exists in the local catalog
+   *          before a collection entry referencing it is saved. For any ID with
+   *          no cards row, the card's set is refreshed from the API (which loads
+   *          the card and its prices). This is what prevents "orphaned" entries
+   *          that later render blank/$0 in the owned view and exports.
+   *          Best-effort: a set that fails to refresh is logged, not fatal, so a
+   *          save is never blocked by an upstream API hiccup.
+   * @param cardIds  Card IDs about to be saved (duplicates are fine)
+   * @return         Number of distinct sets that were refreshed
+   */
+  def ensureCached(cardIds: List[String]): Task[Int]
+
+  /**
+   * METHOD: refreshOrphans
+   * PURPOSE: One-shot repair. Finds every orphaned card across all collections
+   *          (owned but missing from the catalog) and backfills their sets, so
+   *          existing blank/$0 cards are fixed without refreshing each set by hand.
+   * @return  Number of distinct sets that were refreshed
+   */
+  def refreshOrphans: Task[Int]
+
 // ── Live implementation ───────────────────────────────────────────────────────
 
 /**
@@ -440,6 +463,37 @@ object CardService:
                         .catchAll(e => ZIO.logWarning(s"Price refresh failed for $setId: ${e.getMessage}"))
                     case None => ZIO.unit
       yield ()
+
+    /**
+     * METHOD: setIdOf
+     * PURPOSE: Derives a set ID from a card ID. pokemontcg.io card IDs are
+     *          "<setId>-<number>" (e.g. "sv6-66" → "sv6", "swsh12pt5gg-GG01"
+     *          → "swsh12pt5gg"), so the set ID is everything before the last
+     *          hyphen. Returns None for IDs with no hyphen, which can't be mapped.
+     * @param cardId  A card ID
+     * @return        Some(setId), or None if the ID has no derivable set
+     */
+    private def setIdOf(cardId: String): Option[String] =
+      cardId.lastIndexOf('-') match
+        case i if i > 0 => Some(cardId.substring(0, i))
+        case _          => None
+
+    def ensureCached(cardIds: List[String]): Task[Int] =
+      for
+        // Keep only IDs that have no catalog row yet — these are the ones at
+        // risk of becoming orphans once their collection entry is saved.
+        missing <- ZIO.filter(cardIds.distinct)(id => repo.findCardById(id).map(_.isEmpty))
+        // Group the missing cards by set; one refresh loads the whole set.
+        setIds   = missing.flatMap(setIdOf).distinct
+        _       <- ZIO.foreachDiscard(setIds) { sid =>
+                     refreshSet(sid).catchAll { e =>
+                       ZIO.logWarning(s"ensureCached: failed to refresh set '$sid': ${e.getMessage}")
+                     }
+                   }
+      yield setIds.size
+
+    def refreshOrphans: Task[Int] =
+      repo.findOrphanedCardIds.flatMap(ensureCached)
 
   /**
    * VALUE: layer
