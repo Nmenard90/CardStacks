@@ -359,18 +359,26 @@ export function BulkAddPage() {
 
     setNumBusy(true)
     try {
-      // Usually one candidate; load each (cached or via API) and match the number.
+      // Collect every card matching this number across all sets with that total.
+      const matches: Card[] = []
       for (const s of candidates) {
         const cards = await getCards(s.id)
-        const card = cards.find(c => numberMatches(c.number, n))
-        if (card) {
-          addCard(card)
-          flash(`✓ #${card.number} ${card.name}`, false)
-          setNum(''); setDen('')
-          return
-        }
+        matches.push(...cards.filter(c => numberMatches(c.number, n)))
       }
-      flash(`no card #${n}/${d}`, true)
+      if (matches.length === 0) {
+        flash(`no card #${n}/${d}`, true)
+      } else if (matches.length === 1) {
+        // Unambiguous → add it directly (the fast path).
+        addCard(matches[0])
+        flash(`✓ #${matches[0].number} ${matches[0].name}`, false)
+        setNum(''); setDen('')
+      } else {
+        // Several sets share this number + total. Don't guess — hand the matches
+        // to the dropdown so the user picks the right set by name.
+        setNum(''); setDen('')
+        setQuery(`${n}/${d}`)
+        flash(`${matches.length} sets have #${n}/${d} — pick one below`, true)
+      }
     } catch {
       flash('lookup failed — check the backend', true)
     } finally {
