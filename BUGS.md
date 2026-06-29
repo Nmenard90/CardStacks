@@ -1,14 +1,13 @@
 # PokéTracker — Bug Tracker
 
 Living list of known bugs and defects. Add new entries at the bottom of the
-relevant severity section, or drop them in **Triage** if severity isn't known
-yet. Keep IDs sequential and never reuse a number.
+relevant section, or drop them in **Triage** if severity isn't known yet. Keep
+IDs sequential and never reuse a number.
 
 **Status:** `OPEN` · `IN PROGRESS` · `FIXED` · `WONTFIX` · `NEEDS REPRO`
-**Severity:** `S1` blocker/crash · `S2` correctness · `S3` minor/UX · `S4` hygiene/docs
+**Severity:** `S1` blocker/crash · `S2` correctness · `S3` minor/UX · `S4` hygiene/docs · `ENH` enhancement
 
-How a good entry reads: where it lives, what the user sees, why it happens,
-and the intended fix. Fill in what you know; "?" is fine.
+_Last updated: 2026-06-29._
 
 ---
 
@@ -16,259 +15,153 @@ and the intended fix. Fill in what you know; "?" is fine.
 
 | ID | Sev | Status | Area | Summary |
 |----|-----|--------|------|---------|
-| 001 | S2 | OPEN | BulkAddPage | Tile state held in a ref + manual `version` bump → conditional hook + stale renders |
-| 002 | S2 | NEEDS REPRO | api/client | `VITE_API_BASE` unset in prod → `/api` calls hit wrong origin |
-| 003 | S3 | OPEN | BulkAddPage | `setState` called synchronously inside search-debounce effect |
-| 004 | S3 | OPEN | BinderPickerModal | `setState` called synchronously inside binder-load effect |
-| 005 | S4 | OPEN | Main.scala (CORS) | Wildcard origin + `allowCredentials` is an invalid CORS pair |
-| 006 | S4 | OPEN | CollectionPage, ConventionModePage | React Compiler bailouts ("memoization could not be preserved") |
-| 007 | S4 | OPEN | OwnedPage | `prefer-const` lint error (line 115) |
-| 008 | S4 | OPEN | api/cards | Stale doc comment: search is "by name" but also matches numbers |
-| 009 | S2 | NEEDS REPRO | Search (full stack) | `N/M` collector-number search — confirm fixed or still broken |
-| 010 | S3 | OPEN | binder.css | Binder card images cropped left/right (`object-fit:cover`, unconstrained slot ratio) |
-| 011 | S2 | OPEN | Collection / catalog | Cards added from API fallback aren't persisted → blank Name/Number/Rarity/$0 in export, Owned page, stats |
-| 012 | S2 | OPEN | AnalyzerPage | "Quick Add from Your Collection" panel is a placeholder stub — shows nothing |
-| 013 | S3 | OPEN | Styling (all pages) | No central design system; per-page CSS, inconsistent colors + scaling |
-| 014 | ENH | OPEN | Import/Export | Can't choose export scope (binder/set/collection); import target unclear |
-| 015 | S3 | OPEN | Import (UX/docs) | Import format is undocumented — users don't know required columns/format |
-| 016 | ENH | OPEN | Bulk search + quick-add | Redesign: split numerator/denominator boxes; decide promo/SWSH handling |
-| 017 | ENH | OPEN | Card detail + pricing | Click-through card view; optional purchase price; price-vs-cost + price history |
-| 018 | ENH | OPEN | Pricing data | TCGplayer "last sold" price, per condition |
+| 001 | S2 | FIXED | BulkAddPage | Ref + manual re-render counter → stale counts / lost work. Rewritten on a reducer. |
+| 002 | S2 | NEEDS REPRO | api/client | `VITE_API_BASE` unset in prod → `/api` calls hit wrong origin. Live app works, so verify. |
+| 003 | S3 | FIXED | BulkAddPage | `setState` in the search-debounce effect. Restructured into the timeout callback. |
+| 004 | S3 | OPEN | BinderPickerModal, CollectionPage, ConventionModePage, OwnedPage | `setState` called synchronously inside effects (cascading renders). |
+| 005 | S4 | OPEN | Main.scala (CORS) | Wildcard origin + `allowCredentials` is an invalid CORS pair (latent). |
+| 006 | S4 | OPEN | ConventionModePage | React Compiler bailout ("memoization could not be preserved"), line 139. |
+| 007 | S4 | OPEN | OwnedPage | `prefer-const` lint error (line 115). |
+| 008 | S4 | OPEN | api/cards | Stale doc comment: search is "by name" but also matches numbers. |
+| 009 | S2 | FIXED | Search (bulk) | `N/M` number search. Now a set-based lookup with an ambiguity picker. |
+| 010 | S3 | OPEN | binder.css | Binder card images cropped left/right (`object-fit:cover`, unconstrained slot). |
+| 011 | S2 | FIXED | Collection / catalog | Orphan prevention + repair deployed. (The export blank-rows symptom was actually BUG-014.) |
+| 012 | S2 | OPEN | AnalyzerPage | "Quick Add from Your Collection" panel is a placeholder stub. |
+| 013 | S3 | OPEN | Styling (all pages) | No central design system; per-page CSS, inconsistent colors + scaling. |
+| 014 | ENH | FIXED | Import/Export | Export scope picker (set owned/full, collection, binder). Also fixes blank-row export. |
+| 015 | S3 | OPEN | Import (UX/docs) | Import format is undocumented. |
+| 016 | ENH | FIXED | Bulk search + quick-add | Two number boxes + set selector. Shipped with the BulkAddPage rewrite. |
+| 017 | ENH | OPEN | Card detail + pricing | Click-through card view; optional purchase price; price-vs-cost + history. |
+| 018 | ENH | OPEN | Pricing data | TCGplayer "last sold" price, per condition. |
+| 019 | S2 | OPEN | Pricing / catalog | Some cards show "no price" — catalog has no price rows for them. **Next up.** |
 
 ---
 
-## S2 — Correctness
+## Fixed this session (2026-06-29)
 
-### BUG-001 — BulkAddPage tile state is a ref + manual re-render counter
-**Area:** `web/src/pages/BulkAddPage.tsx`
-**Status:** OPEN
-**Symptom:** Flaky bulk-add behavior; risk of a hook-order crash on login/logout.
-**Root cause:** The session grid's source of truth is `tilesRef` (a `Map` in a
-`useRef`), mutated in place by every handler, with a `version` `useState` that
-gets `bump()`-ed to force re-renders. This produces three linked lint/runtime
-violations:
-- the `tiles`/`totals` `useMemo` (~line 320) sits *after* the `if (!user) return`
-  early return (~line 159), so it's a **conditionally-called hook** (rules-of-hooks).
-- refs are read during render in two places (~lines 321 and 387, the
-  "×N in session" badge), a stale-render source under the React 19 compiler.
-- `version` is flagged as an "unnecessary dependency" — a symptom of the pattern.
-**Proposed fix:** Move tiles into real state (`useReducer`, or `useState<Map>`
-with immutable updates). Delete `tilesRef` / `orderRef`-as-state / `version` /
-`bump()`. Ensure all hooks run before any early return.
-**Notes:** Likely the real source of several "weird bulk" reports; may also
-resolve BUG-009. Contained to one file.
+### BUG-001 / BUG-003 / BUG-009 / BUG-016 — BulkAddPage rewrite
+**Status:** FIXED (frontend; delivered, verify on Railway build)
+`BulkAddPage.tsx` was rewritten from scratch and `RecentSidebar.tsx` deleted.
+- **State** now lives in a `useReducer` (one immutable source of truth) instead
+  of a mutable ref + manual `version` counter. The session count and Save button
+  are always accurate (BUG-001).
+- **Persistence:** the session is mirrored to `localStorage` per user and
+  restored on load, so navigating away or refreshing no longer loses entered
+  cards. A "N unsaved · saved locally" note shows in the header.
+- **Set selector** added — picking a set makes "add by number" an instant,
+  reliable local lookup (and pulls that set's prices).
+- **Two number boxes** (`No.` / `Total`) plus a **Name** search (BUG-016).
+- **Number search fixed** (BUG-009): no longer uses the broken backend text
+  search. With a set selected → local match. Without a set → the total finds the
+  set(s), which are loaded and matched locally. Leading zeros (`080` vs `80`) are
+  handled. When a number/total matches **multiple** sets (numbers aren't globally
+  unique), the candidates are shown in the dropdown to pick by set name instead
+  of guessing. The Name box recognizes `number/total` queries too.
+- **Debounced search** no longer calls `setState` synchronously in the effect
+  body (BUG-003).
+- **Sidebar removed** — the binder sidebar was only used here and was unwanted.
+Typecheck + lint clean for this file.
 
-### BUG-002 — Production API base URL may be empty
-**Area:** `web/src/api/client.ts`
-**Status:** NEEDS REPRO (verify against live Railway deploy)
-**Symptom:** In a production build, every `/api/...` request 404s / hits the
-frontend's own origin instead of the backend.
-**Root cause:** `const BASE = import.meta.env.VITE_API_BASE ?? ''`. The Vite dev
-proxy that rewrites `/api → Railway` only runs in `vite dev`; a production build
-relies entirely on `VITE_API_BASE` being set at build time.
-**Proposed fix:** Confirm `VITE_API_BASE` is set on the Railway frontend
-service. If the live app works, mark FIXED/WONTFIX. Optionally fail loudly in
-prod when the var is missing.
+### BUG-011 — Orphaned catalog cards (prevention + repair)
+**Status:** FIXED (backend; deployed — `/api/admin/refresh-orphans` returned
+`{"setsRefreshed": 0}`, confirming no DB orphans and that the build compiled).
+- `CardService.ensureCached(cardIds)` runs on every save; any card with no
+  catalog row has its set refreshed from the API (cards + prices). Both
+  `CollectionRoutes` save paths call it, so import / bulk / quick-add can no
+  longer create orphans.
+- `CardRepository.findOrphanedCardIds` + `CardService.refreshOrphans` + endpoint
+  `GET /api/admin/refresh-orphans` repair existing orphans in one call.
+- **Note:** the originally-reported "missing data in the export" was *not* DB
+  orphans — it was the export reading only the current set's cards on the
+  frontend. That is fixed by BUG-014. BUG-011's value is preventing genuine
+  future orphans (e.g. importing a CSV of an unloaded set).
+- *Deferred:* flipping the `/owned` query to LEFT JOIN as a safety net (needs
+  `Option` columns + frontend handling). Revisit only if needed.
 
-### BUG-009 — `N/M` collector-number search
-**Area:** full stack — `CardRepository.searchCards` (DB), `CardService.searchCards`
-(API fallback), `web/src/lib/cardSearch.ts` (`narrowByCollectorNumber`)
-**Status:** NEEDS REPRO
-**Symptom:** (Historically) typing a collector number like `119/117` returned
-nothing or the wrong card.
-**Root cause:** The previously-broken API fallback (`name:*query*` for numeric
-queries) now uses `number:N`; the DB query handles `split_part`; the frontend
-disambiguates the denominator. The diagnostic readout has been removed.
-**Proposed fix:** Hit the live backend with `119/117` (a secret rare) and a few
-normal numbers. If broken, capture the exact query + response here. Possible it
-was actually BUG-001 manifesting as stale dropdown results.
-
-### BUG-011 — Cards added from the API fallback are never saved to the catalog
-**Area:** save path (`bulkSave` / collection save) + catalog (`cards`/`card_prices`),
-surfaced by `findByUserWithCards` JOIN (Owned page, export, stats)
-**Status:** OPEN
-**Symptom:** In the test export, **92 of 165 rows are blank** — Name, Number,
-Rarity empty and Market Price $0. Every blank row is from set **`sv6`**. The
-same cards will show blank / $0 on the Owned page and contribute $0 to stats.
-**Root cause:** When a card is added that came from the pokemontcg.io API
-fallback (not already in the local DB), the collection entry is saved with that
-`cardId` but the card itself is never upserted into `cards` (and prices never
-into `card_prices`). Later the owned/export JOIN finds the entry but no catalog
-row, so it returns nulls. `sv6` (Twilight Masquerade) was evidently never
-backfilled and got added live.
-**Proposed fix:** Two parts —
-1. *Prevent new orphans:* on save, upsert the card + prices into the catalog if
-   the `cardId` isn't already present (the API fallback already has the full `Card`).
-2. *Repair existing orphans:* one-off backfill of `sv6` (and any other missing
-   sets) from pokemontcg.io; or a general "fill catalog for any cardId in
-   collection_entries but missing from cards" job.
-**Notes:** High impact — actual cause of the "missing data" in the export and
-silently zeroes out collection value.
-
-### BUG-012 — Analyzer "Quick Add from Your Collection" is a placeholder
-**Area:** `web/src/pages/AnalyzerPage.tsx` (~lines 272–282)
-**Status:** OPEN
-**Symptom:** The panel header promises "Quick Add from Your Collection" but the
-body only renders static hint text — there's nothing to add from.
-**Root cause:** The panel was stubbed: `cp-grid` contains only a muted
-"Search for a card above…" line. It never fetches the user's owned cards. The
-modal search beside it queries the whole catalog, not the collection.
-**Proposed fix:** Fetch owned cards (`getOwnedCards`) and render them as
-clickable quick-add tiles inside `cp-grid`, wired to the give/get lists.
+### BUG-014 — Export scope picker
+**Status:** FIXED (frontend; delivered via patch — confirm it's deployed).
+Wired the existing-but-unconnected `ExportModal` into `CollectionPage`. Export
+options: this set (owned only / full checklist), whole collection (owned), or a
+binder. The collection-owned path pulls full card data from `/api/.../owned`,
+which is what fixes the blank/$0 rows in exports.
 
 ---
 
-## S3 — Minor / UX
+## Open — by severity
 
-### BUG-003 — setState inside the search-debounce effect
-**Area:** `web/src/pages/BulkAddPage.tsx` (~line 139)
-**Status:** OPEN
-**Symptom:** Cascading renders on each keystroke; no visible break today.
-**Root cause:** The debounce `useEffect` calls `setHi(0)` (and others)
-synchronously in the effect body.
-**Proposed fix:** Restructure so the effect only schedules the timeout; reset
-highlight in the `onChange` handler or inside the timeout callback. (Will likely
-fold into the BUG-001 refactor.)
+### S2 — Correctness
 
-### BUG-004 — setState inside the binder-load effect
-**Area:** `web/src/components/BinderPickerModal.tsx` (~line 65)
-**Status:** OPEN
-**Symptom:** Cascading renders when the modal opens.
-**Root cause:** `setLoading(true)` is called synchronously in the effect body
-before the async `listBinders` call.
-**Proposed fix:** Set loading state as part of the same async flow, or guard so
-the effect only kicks off the fetch.
+**BUG-002 — Production API base URL may be empty** · `web/src/api/client.ts`
+`BASE = import.meta.env.VITE_API_BASE ?? ''`; the Vite dev proxy is dev-only, so
+a prod build needs `VITE_API_BASE` set. If the live app reaches the backend,
+this is effectively fine — verify the Railway frontend env var, then close.
 
-### BUG-010 — Binder card images cropped on the left/right
-**Area:** `web/src/styles/binder.css` (`.slv img`, ~line 102)
-**Status:** OPEN
-**Symptom:** Cards placed in a binder have their left and right edges cut off.
-**Root cause:** `.slv img { width:100%; height:100%; object-fit:cover }` fills the
-slot, and the slot isn't constrained to a card's 2.5:3.5 aspect ratio, so the
-image scales to fill the (narrower) slot height and crops the sides.
-**Proposed fix:** Either set `object-fit:contain` on `.slv img`, or give the slot
-container `aspect-ratio:2.5/3.5` (as `.pcd` at line 138 already does for the
-picker grid) so width/height match the card and nothing is cropped.
+**BUG-012 — Analyzer "Quick Add from Your Collection" is a stub** ·
+`web/src/pages/AnalyzerPage.tsx` (~272–282). The panel renders only hint text and
+never fetches owned cards. Fix: fetch `getOwnedCards` and render clickable
+quick-add tiles wired to the give/get lists.
 
-### BUG-013 — No central design system
-**Area:** all of `web/src/styles/*` (analyzer.css, binder.css, convention.css,
-shelf.css, tracker.css) and inline styles across pages
-**Status:** OPEN
-**Symptom:** Sections look unrelated — different colors, fonts, and scale per
-page; nothing reads as one product.
-**Root cause:** Each page ships its own CSS file with hard-coded colors and sizes
-(e.g. binder.css uses `#1c1c24`/`#fff`/`'Inter'` directly instead of the shared
-`var(--*)` tokens that tracker.css defines). No shared tokens, spacing scale, or
-component classes.
-**Proposed fix:** Define one token set (colors, spacing, radius, type scale,
-font) in a single place; refactor each page's CSS to consume the tokens; unify
-shared components (buttons, cards, headers, panels). Larger effort — worth
-scoping into stages.
+**BUG-019 — Some cards show "no price"** · backend `PriceService` + price storage,
+surfaced on tiles / search. A card can have a catalog row but no price rows, so
+it displays "no price" / $0 (seen on Galarian Zapdos V, Chilling Reign). Likely
+the price fetch (TCGTracking) failed for that set/card, or the source lacks it.
+Fix: investigate the price-fetch path; add a way to (re)fetch prices for a card
+or set; decide a fallback when the source has no price. **Next up.**
 
-### BUG-015 — Import format is undocumented
-**Area:** `web/src/components/ImportModal.tsx`, `web/src/lib/csv.ts`
-**Status:** OPEN
-**Symptom:** Users don't know what file/columns import expects or where the data
-lands.
-**Root cause:** `parseImport` requires a `Card ID` column and a `Quantity`
-column (`Condition` optional, defaults NM), and matches card IDs against the
-pattern `setcode-number` (e.g. `sv6-66`). None of this is surfaced in the UI.
-**Proposed fix:** Show the expected columns + an example row in the modal, link a
-"download template" CSV, and report skipped-row reasons. Tie into BUG-014.
+### S3 — Minor / UX
 
----
+**BUG-004 — setState synchronously inside effects** · BinderPickerModal (~65),
+CollectionPage (~144), ConventionModePage (~95), OwnedPage (~45). Cascading
+renders; works today. Restructure each effect so state changes happen in async
+callbacks / handlers, not the effect body. (The BulkAddPage instance is fixed.)
 
-## S4 — Hygiene / Docs
+**BUG-010 — Binder card images cropped** · `web/src/styles/binder.css` (`.slv img`,
+~102). `object-fit:cover` on an unconstrained slot crops the sides. Fix: use
+`object-fit:contain`, or give the slot `aspect-ratio:2.5/3.5`.
 
-### BUG-005 — Invalid CORS combination
-**Area:** `poketracker-v2/.../Main.scala` (CORS middleware, ~line 130)
-**Status:** OPEN
-**Symptom:** None today; latent. Any future cookie/credentialed request fails.
-**Root cause:** `allowedOrigin = _ => Some(...All)` (wildcard `*`) combined with
-`allowCredentials = Allow`. Browsers reject `*` + credentials together.
-**Proposed fix:** Either drop `allowCredentials` (current model passes `userId`
-in the URL, no cookies) or echo the specific request origin instead of `*`.
+**BUG-013 — No central design system** · all of `web/src/styles/*`. Per-page CSS
+with hard-coded colors/sizes; nothing reads as one product. Fix: one token set
+(colors, spacing, radius, type scale), refactor each page to consume it, unify
+shared components. Larger effort — scope into stages.
 
-### BUG-006 — React Compiler memoization bailouts
-**Area:** `web/src/pages/CollectionPage.tsx` (~142), `ConventionModePage.tsx` (~95, ~139)
-**Status:** OPEN
-**Symptom:** Lint "Compilation Skipped: Existing memoization could not be
-preserved." Performance only, not correctness.
-**Proposed fix:** Rework the flagged `useMemo`/dependency so the compiler can
-preserve it. Low priority.
+**BUG-015 — Import format undocumented** · `ImportModal.tsx`, `lib/csv.ts`. Import
+needs a `Card ID` + `Quantity` column (`Condition` optional, defaults NM) with
+IDs like `sv6-66`; none of this is shown. Fix: show expected columns + an example
+row, a "download template" CSV, and skipped-row reasons. Pairs with BUG-014.
 
-### BUG-007 — `prefer-const` lint error
-**Area:** `web/src/pages/OwnedPage.tsx` (line 115)
-**Status:** OPEN
-**Root cause:** `list` is declared `let` but never reassigned.
-**Proposed fix:** Change to `const` (eslint `--fix` handles it).
+### S4 — Hygiene / Docs
 
-### BUG-008 — Stale doc comment in cards API
-**Area:** `web/src/api/cards.ts`
-**Status:** OPEN
-**Root cause:** Header says search is "by name" but the backend also matches
-collector numbers.
-**Proposed fix:** Update the comment to reflect name + number search.
+**BUG-005 — Invalid CORS combination** · `Main.scala` (~130). Wildcard origin +
+`allowCredentials = Allow` is rejected by browsers together. Works now (no
+cookies; userId is in the URL). Fix: drop `allowCredentials`, or echo the request
+origin instead of `*`.
+
+**BUG-006 — React Compiler memoization bailout** · `ConventionModePage.tsx` (~139).
+Performance only. Rework the flagged `useMemo`/deps so the compiler preserves it.
+
+**BUG-007 — `prefer-const`** · `OwnedPage.tsx` (115). `list` is `let` but never
+reassigned. `eslint --fix` handles it.
+
+**BUG-008 — Stale doc comment** · `api/cards.ts`. Header says search is "by name"
+but the backend also matches numbers. Update the comment.
 
 ---
 
-## ENH — Enhancements / redesigns (feature requests, not defects)
+## ENH — Enhancements / future work
 
-### BUG-014 — Choose what to export / where to import
-**Area:** `CollectionPage` import/export, `web/src/lib/csv.ts`
-**Status:** OPEN
-**Want:** Pick the scope of an export — a single binder, a set, or the whole
-collection — instead of one undifferentiated "Export CSV." On import, make it
-clear what the data merges into.
-**Notes:** Pairs with BUG-015 (format docs). Needs UI (scope picker); the
-backend already exposes owned/by-set data to build the rows.
+**BUG-017 — Card detail view + purchase price + price history.** Click a card →
+detail view (modal or page); optionally record what was paid (never required);
+show price change since purchase and price over time. Needs a `purchases` table
+(user_id, card_id, condition, qty, price, purchased_at), `price_history`
+snapshots, save/read routes, and a chart (recharts). Largest item — stage it
+(detail view → purchase price → history chart).
 
-### BUG-016 — Redesign bulk search + quick-add (numerator / denominator)
-**Area:** `web/src/pages/BulkAddPage.tsx` search + quick-add inputs,
-`web/src/lib/cardSearch.ts`
-**Status:** OPEN
-**Want:** Replace the single text box with two boxes — left = card number,
-right = set total — e.g. `188 | 236`. Open question: how to handle promos like
-`SWSH158` that have no denominator.
-**Direction (proposed):** Make both boxes *text* (not numeric); right box
-optional and labelled "/ total (optional)". Left box matches the card's `number`
-field; right box matches the set printed total and is only a disambiguator.
-- Standard `188/236` and secret rares `245/236` → both boxes.
-- Subset cards `TG12/TG30`, `GG01/GG70` → left box (`TG12`) matches; the right
-  box won't map to a real set total, so treat as left-box-only too.
-- Promos `SWSH158`, `SVP-001`, `SM210` → type in the left box, leave right empty;
-  name search stays the primary path since people rarely know promo numbers.
-**Decision needed:** confirm this approach (text boxes + optional right) vs. a
-type toggle (Standard / Promo / Subset). See chat for full reasoning.
-
-### BUG-017 — Card detail view + purchase price + price history
-**Area:** new card detail route/modal; backend `purchases` + `price_history`
-tables; `web/` charting (recharts)
-**Status:** OPEN
-**Want:**
-- Click a card to open a detail view (modal or its own page), not just the big
-  image overlay.
-- Optionally record what was paid (purchase price) — never required.
-- Show price change since purchase (cost basis line) and price over time.
-**Notes:** Matches the long-standing purchase-price + price-graph asks. Needs a
-`purchases` table (user_id, card_id, condition, qty, price, purchased_at),
-`price_history` snapshots, save/read routes, and a chart. Largest item — scope
-into stages (detail view → purchase price → history chart).
-
-### BUG-018 — TCGplayer "last sold" price, by condition
-**Area:** backend `PriceService` + price storage; surfaced on card detail/tiles
-**Status:** OPEN
-**Want:** Show TCGplayer last-sold prices, broken out per condition
-(NM/LP/MP/HP/DMG), alongside market price.
-**Notes:** Current `PriceService` scrapes per-condition prices from another
-source; sourcing "last sold" specifically from TCGplayer needs investigation
-(data availability / terms). Pairs with BUG-017's detail view.
+**BUG-018 — TCGplayer "last sold" price, by condition.** Show TCGplayer last-sold
+prices per condition alongside market price. Sourcing this specifically needs
+investigation (data availability / terms). Pairs with BUG-017.
 
 ---
 
 ## Triage — reported, not yet investigated
 
-_Add new bugs here with a one-line description; promote to a severity section
-once root cause is understood._
-
-- (none yet)
+- (none)
