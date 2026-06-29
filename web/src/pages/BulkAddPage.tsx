@@ -252,6 +252,7 @@ export function BulkAddPage() {
   const [num, setNum] = useState('')
   const [den, setDen] = useState('')
   const [numFlash, setNumFlash] = useState<{ text: string; err: boolean } | null>(null)
+  const [numBusy, setNumBusy] = useState(false)
   const numRef = useRef<HTMLInputElement>(null)
 
   // NAME SEARCH — debounced dropdown.
@@ -265,8 +266,11 @@ export function BulkAddPage() {
   // SAVE
   const [saving, setSaving] = useState(false)
 
-  // Debounced name search. All state updates happen inside the timeout callback
+  // Debounced search. All state updates happen inside the timeout callback
   // (asynchronously), which keeps the effect body free of synchronous setState.
+  // A "number/total" query (e.g. "080/198") is resolved the reliable way — find
+  // the set by its total, load it, and match the number — instead of the backend
+  // text search, so the Name box works for numbers too.
   useEffect(() => {
     const q = query.trim()
     const delay = q.length < 2 ? 0 : 250
@@ -276,8 +280,21 @@ export function BulkAddPage() {
       setSearching(true)
       setSearchErr(false)
       try {
-        const hits = await searchCards(q)
-        setResults(narrowByCollectorNumber(hits, q, setTotals).slice(0, 40))
+        const slash = q.match(/^([A-Za-z0-9]+)\s*\/\s*(\d+)$/)
+        if (slash) {
+          // "<number>/<total>" — the total identifies the set(s) to look in.
+          const [, numStr, denStr] = slash
+          const candidates = sets.filter(s => String(s.printedTotal) === denStr || String(s.total) === denStr)
+          const found: Card[] = []
+          for (const s of candidates) {
+            const cards = await getCards(s.id)
+            found.push(...cards.filter(c => numberMatches(c.number, numStr)))
+          }
+          setResults(found.slice(0, 40))
+        } else {
+          const hits = await searchCards(q)
+          setResults(narrowByCollectorNumber(hits, q, setTotals).slice(0, 40))
+        }
       } catch {
         setResults([]); setSearchErr(true)
       } finally {
@@ -285,7 +302,7 @@ export function BulkAddPage() {
       }
     }, delay)
     return () => clearTimeout(timer)
-  }, [query, setTotals])
+  }, [query, setTotals, sets])
 
   // Derived session views — plain memoized reads of real state (no re-render hacks).
   const tiles = useMemo(
@@ -313,13 +330,17 @@ export function BulkAddPage() {
   }
 
   /**
-   * PURPOSE: Add a card from the number boxes. With a set selected, this is an
-   *   instant local lookup in that set's cards (reliable). Without a set, it
-   *   falls back to a global backend lookup filtered by number (+ optional total).
+   * PURPOSE: Add a card from the number boxes.
+   *   - Set selected → instant local match in that set's loaded cards.
+   *   - No set, but a total given → use the total to find the set(s), load each
+   *     (getCards falls back to the API and pulls prices), and match the number
+   *     there. This avoids the unreliable global text search entirely.
+   *   - No set and no total → a bare number is ambiguous across sets, so ask for
+   *     a total or a set rather than guessing.
    */
   const addByNumber = async () => {
     const n = num.trim()
-    if (!n) return
+    if (!n || numBusy) return
 
     // Fast path: a set is selected → match against its already-loaded cards.
     if (activeSet) {
@@ -330,23 +351,32 @@ export function BulkAddPage() {
       return
     }
 
-    // Global path: search the backend, then keep cards whose number matches and,
-    // if a total was given, whose set total matches it.
+    // Global path: the total identifies the set; a bare number can't.
+    const d = den.trim()
+    if (!d) { flash('add the set total on the right, or pick a set above', true); numRef.current?.focus(); return }
+    const candidates = sets.filter(s => String(s.printedTotal) === d || String(s.total) === d)
+    if (candidates.length === 0) { flash(`no set with total ${d}`, true); numRef.current?.focus(); return }
+
+    setNumBusy(true)
     try {
-      const hits = await searchCards(n)
-      const d = den.trim()
-      const card = hits.find(c => {
-        if (!numberMatches(c.number, n)) return false
-        if (!d) return true
-        const tot = setTotals.get(c.setId)
-        return !!tot && (String(tot.printed).startsWith(d) || String(tot.total).startsWith(d))
-      }) ?? hits.find(c => numberMatches(c.number, n)) ?? null
-      if (card) { addCard(card); flash(`✓ #${card.number} ${card.name}`, false); setNum(''); setDen('') }
-      else flash(`no card #${n}${den.trim() ? '/' + den.trim() : ''}`, true)
+      // Usually one candidate; load each (cached or via API) and match the number.
+      for (const s of candidates) {
+        const cards = await getCards(s.id)
+        const card = cards.find(c => numberMatches(c.number, n))
+        if (card) {
+          addCard(card)
+          flash(`✓ #${card.number} ${card.name}`, false)
+          setNum(''); setDen('')
+          return
+        }
+      }
+      flash(`no card #${n}/${d}`, true)
     } catch {
       flash('lookup failed — check the backend', true)
+    } finally {
+      setNumBusy(false)
+      numRef.current?.focus()
     }
-    numRef.current?.focus()
   }
 
   /** Enter in the name box: add the highlighted (or top) result. */
@@ -465,13 +495,13 @@ export function BulkAddPage() {
               onChange={e => setDen(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addByNumber() } }}
             />
-            <button className="tb-btn primary" onClick={addByNumber}>Add</button>
+            <button className="tb-btn primary" onClick={addByNumber} disabled={numBusy}>{numBusy ? '…' : 'Add'}</button>
             {numFlash && <span className={'num-flash ' + (numFlash.err ? 'err' : 'ok')}>{numFlash.text}</span>}
           </div>
           <span style={{ color: 'var(--muted)', fontSize: 12, flexBasis: '100%' }}>
             {activeSet
               ? `Type the card number and press Enter — the total box is optional when a set is picked.`
-              : `Type number / set total (e.g. 188 / 236). Promos like SWSH158 go in the left box.`}
+              : `Type number / set total (e.g. 080 / 198) — the total finds the set. Or pick a set above. Promos like SWSH158 go in the left box.`}
           </span>
         </div>
 
