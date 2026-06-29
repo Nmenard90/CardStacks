@@ -1,46 +1,48 @@
 /**
- * FILE: BulkAddPage.tsx — high-volume bulk card entry, the main card-add hub.
+ * FILE: BulkAddPage.tsx — high-volume bulk card entry.
  *
  * PURPOSE:
- *   The primary place to add cards to your collection and binders.
- *   Two entry modes:
- *     1. Name / number SEARCH — type any part of a name or number, pick from
- *        the live dropdown, and the card lands in the session grid below.
- *     2. QUICK ADD — type a collector number and press Enter for even faster
- *        entry when you're sorting a physical pile of known cards.
- *   The Recently Added sidebar (moved here from CollectionPage) shows every
- *   card added this session and lets you place them into binders immediately,
- *   before or after saving to the collection.
- *   "Save" merges the entire session into the existing collection in one request.
+ *   The fast place to enter a physical pile of cards into your collection.
+ *   Rewritten to fix the old page's data-loss and stale-count bugs:
+ *     - Session state lives in a useReducer (one immutable source of truth),
+ *       not a mutable ref with a manual re-render counter. The on-screen count
+ *       and the Save button are therefore always correct.
+ *     - The session is mirrored to localStorage on every change and restored on
+ *       load, so navigating away — or a refresh — never loses entered cards.
+ *     - A set can be selected, which makes "add by number" an instant local
+ *       lookup in that set (no flaky backend number search).
+ *   Three ways to add a card:
+ *     1. SET + NUMBER  — pick a set, type the collector number, Enter.
+ *     2. NUMBER / TOTAL — two boxes ("188" / "236") for a global number lookup
+ *        when no set is selected; promos like "SWSH158" go in the left box.
+ *     3. NAME SEARCH   — type a name, pick from the dropdown.
+ *   "Save" merges the whole session into the existing collection in one request.
  *
  * IMPORTS EXPLAINED:
- *   useEffect/useMemo/useRef/useState — debounced search, ref-held tile Map,
- *                                       quick-add flash, sidebar session list
- *   useQuery                — load all sets once (to label search results by set name)
- *   Link                    — back to the collection
- *   getSets/searchCards     — set list + backend all-sets name/number search
- *                             (backend falls back to pokemontcg.io API if DB is empty)
- *   getCollection/bulkSave  — read existing collection before merging, then save
- *   CardTile / usePreview   — shared card tile component + hover-preview overlay
- *   RecentSidebar           — the "recently added" panel for binder placement
- *   LoginScreen             — shown when no user is logged in
- *   useToast                — bottom-right toast for success / error messages
- *   useUser                 — the currently logged-in user from context
- *   conditions helpers      — condition keys, price math, list <-> map conversions
+ *   useReducer/useState/useMemo/useEffect/useRef — session state, search, persistence
+ *   useQuery               — load the set list, and the selected set's cards
+ *   getCards/getSets/searchCards — set cards, set list, backend name/number search
+ *   getCollection/bulkSave — read existing collection, then merge-save the session
+ *   CardTile / usePreview  — shared tile component + hover preview overlay
+ *   SetSelector / ALL_SETS — the set picker (shared with CollectionPage)
+ *   LoginScreen / HeaderNav / useToast / useUser — shell + auth + feedback
+ *   conditions helpers     — condition keys, price math, list <-> map conversions
+ *   cardSearch helpers     — set totals + collector-number narrowing for name search
  *
  * USED BY: App.tsx route "/bulk"
- * DEPENDS ON: backend GET /api/search, GET /api/sets, POST /api/collection/:userId/bulk
+ * DEPENDS ON: GET /api/sets, GET /api/cards/:setId, GET /api/search,
+ *             GET /api/collection/:userId, POST /api/collection/:userId/bulk
  */
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { getSets, searchCards } from '../api/cards'
-import { buildSetTotals, narrowByCollectorNumber } from '../lib/cardSearch'
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { getCards, getSets, searchCards } from '../api/cards'
 import { bulkSave, getCollection, type BulkItem } from '../api/collection'
+import { buildSetTotals, narrowByCollectorNumber } from '../lib/cardSearch'
 import { CardTile } from '../components/CardTile'
 import { usePreview } from '../components/CardPreview'
 import { LoginScreen } from '../components/LoginScreen'
 import { HeaderNav } from '../components/HeaderNav'
-import { RecentSidebar, type SessionCard } from '../components/RecentSidebar'
+import { SetSelector, ALL_SETS } from '../components/SetSelector'
 import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
 import {
@@ -48,7 +50,11 @@ import {
 } from '../lib/conditions'
 import type { Card } from '../types'
 
-/** One card tile in the bulk grid: a card and how many of each condition. */
+/* ─── Session state model ─────────────────────────────────────────────────── */
+
+/** One card in the session: the card, how many of each condition, and the
+ *  currently-selected condition for quick +/- in the tile. `order` is a counter
+ *  so the most recently added card sorts to the top of the grid. */
 interface Tile {
   card: Card
   conds: CondMap
@@ -56,12 +62,135 @@ interface Tile {
   order: number
 }
 
+/** The whole bulk session. Keyed by cardId so a card is merged, not duplicated. */
+interface State {
+  tiles: Record<string, Tile>
+  nextOrder: number
+}
+
+/** Every mutation the session supports. The reducer is the ONLY place state
+ *  changes, which is what keeps the count and Save button always accurate. */
+type Action =
+  | { type: 'add'; card: Card; condKey: string; step: number }
+  | { type: 'adjSel'; cardId: string; delta: number }
+  | { type: 'setQty'; cardId: string; qty: number }
+  | { type: 'selectCond'; cardId: string; cond: string }
+  | { type: 'adjCond'; cardId: string; cond: string; delta: number }
+  | { type: 'clear' }
+
+const EMPTY: State = { tiles: {}, nextOrder: 1 }
+
 /**
- * VALUE: STYLE
- * PURPOSE: Scoped CSS for the search dropdown and quick-add flash.
- *   All selectors are prefixed with .bulk-page so they cannot leak into
- *   other pages even though this <style> block is injected into the DOM.
+ * PURPOSE: Apply a mutation to one tile, copying the tile so the update is
+ *   immutable, and drop the tile entirely when it reaches zero total quantity.
+ * @param state   Current session state
+ * @param cardId  Which tile to change
+ * @param fn      Edits the (already-copied) tile in place
+ * @return        New state
  */
+function withTile(state: State, cardId: string, fn: (t: Tile) => void): State {
+  const existing = state.tiles[cardId]
+  if (!existing) return state
+  const tile: Tile = { ...existing, conds: { ...existing.conds } }
+  fn(tile)
+  const tiles = { ...state.tiles }
+  if (totalQty(tile.conds) === 0) delete tiles[cardId]
+  else tiles[cardId] = tile
+  return { ...state, tiles }
+}
+
+/**
+ * PURPOSE: The session reducer — pure, returns a new State for every action.
+ * @param state   Current state
+ * @param action  What happened
+ * @return        Next state
+ */
+function reducer(state: State, action: Action): State {
+  switch (action.type) {
+    case 'add': {
+      const prev = state.tiles[action.card.id]
+      const conds = { ...(prev?.conds ?? {}) }
+      conds[action.condKey] = (conds[action.condKey] ?? 0) + action.step
+      const tile: Tile = { card: action.card, conds, selCond: action.condKey, order: state.nextOrder }
+      return { tiles: { ...state.tiles, [action.card.id]: tile }, nextOrder: state.nextOrder + 1 }
+    }
+    case 'adjSel':
+      return withTile(state, action.cardId, t => {
+        const k = t.selCond
+        const n = Math.max(0, (t.conds[k] ?? 0) + action.delta)
+        if (n === 0) delete t.conds[k]; else t.conds[k] = n
+      })
+    case 'setQty':
+      return withTile(state, action.cardId, t => {
+        if (action.qty <= 0) delete t.conds[t.selCond]; else t.conds[t.selCond] = action.qty
+      })
+    case 'selectCond':
+      return withTile(state, action.cardId, t => { t.selCond = action.cond })
+    case 'adjCond':
+      return withTile(state, action.cardId, t => {
+        const n = Math.max(0, (t.conds[action.cond] ?? 0) + action.delta)
+        if (n === 0) delete t.conds[action.cond]; else t.conds[action.cond] = n
+      })
+    case 'clear':
+      return EMPTY
+  }
+}
+
+/* ─── localStorage persistence ────────────────────────────────────────────── */
+
+/** Per-user storage key so two accounts on one browser don't collide. */
+const storageKey = (userId: string) => `poketracker_bulk_${userId}`
+
+/**
+ * PURPOSE: Lazy initializer for the reducer — restore a saved session if one
+ *   exists for this user. Runs synchronously before any persist, so it can
+ *   never be clobbered by an empty write.
+ * @param userId  The logged-in user's id, or undefined if not yet known
+ * @return        The restored session, or an empty one
+ */
+function initSession(userId: string | undefined): State {
+  if (!userId) return EMPTY
+  try {
+    const raw = localStorage.getItem(storageKey(userId))
+    if (raw) {
+      const parsed = JSON.parse(raw) as State
+      if (parsed && parsed.tiles) return parsed
+    }
+  } catch { /* corrupt or unavailable — fall through to empty */ }
+  return EMPTY
+}
+
+/**
+ * PURPOSE: Mirror the session to localStorage; remove the key when empty so a
+ *   cleared/saved session doesn't linger.
+ */
+function persistSession(userId: string, state: State) {
+  try {
+    if (Object.keys(state.tiles).length === 0) localStorage.removeItem(storageKey(userId))
+    else localStorage.setItem(storageKey(userId), JSON.stringify(state))
+  } catch { /* quota or private mode — non-fatal, session still works in memory */ }
+}
+
+/* ─── Number matching helpers ─────────────────────────────────────────────── */
+
+/**
+ * PURPOSE: Does a card's printed number match what the user typed? Matches
+ *   exactly (case-insensitive, e.g. "SWSH158") or numerically ignoring leading
+ *   zeros for plain numbers (e.g. "007" === "7"), but never matches "7" to "7a".
+ * @param cardNumber  The card's number field
+ * @param typed       What the user typed in the number box
+ * @return            true on a confident match
+ */
+function numberMatches(cardNumber: string, typed: string): boolean {
+  const a = cardNumber.trim().toLowerCase()
+  const b = typed.trim().toLowerCase()
+  if (!b) return false
+  if (a === b) return true
+  // Numeric compare only when BOTH are pure digits (so "7a" never matches "7").
+  if (/^\d+$/.test(a) && /^\d+$/.test(b)) return parseInt(a, 10) === parseInt(b, 10)
+  return false
+}
+
 const STYLE = `
 .bulk-page .bulk-search-wrap{position:relative;flex:1;min-width:240px}
 .bulk-page .bulk-search{width:100%;font-size:15px;padding:11px 14px}
@@ -79,154 +208,153 @@ const STYLE = `
 .bulk-page .brow .bp{color:var(--green);font-weight:700;font-size:13px}
 .bulk-page .brow .bhave{color:var(--accent);font-size:11px;font-weight:800;margin-left:6px}
 .bulk-page .bulk-hint{color:var(--muted);font-size:13px;padding:10px 12px}
+.bulk-page .num-entry{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.bulk-page .num-entry input{width:88px;text-align:center;font-size:16px;padding:10px 8px}
+.bulk-page .num-entry .slash{color:var(--muted);font-weight:700}
+.bulk-page .num-flash{font-size:13px;font-weight:700}
+.bulk-page .num-flash.ok{color:var(--green)}
+.bulk-page .num-flash.err{color:var(--red,#e55)}
+.bulk-page .unsaved{font-size:12px;color:var(--accent);margin-right:6px}
 `
 
 export function BulkAddPage() {
+  // CONTEXT + shared data
   const { user } = useUser()
   const toast = useToast()
   const preview = usePreview()
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets, enabled: !!user })
   const setName = useMemo(() => new Map(sets.map(s => [s.id, s.name])), [sets])
-  // setId -> totals lookup, used to resolve "117/123" to the one card meant.
-  const setTotal = useMemo(() => buildSetTotals(sets), [sets])
+  const setTotals = useMemo(() => buildSetTotals(sets), [sets])
 
-  // ── Tile map: source of truth for session counts ─────────────────────────────
-  // Ref-held so large sessions don't cause unnecessary re-renders on every keystroke.
-  // `version` is bumped whenever the map changes to trigger memoized tile array recalc.
-  const tilesRef = useRef<Map<string, Tile>>(new Map())
-  const orderRef = useRef(0)
-  const [version, setVersion] = useState(0)
-  const bump = () => setVersion(v => v + 1)
+  // SESSION STATE — restored from localStorage on first render.
+  const [state, dispatch] = useReducer(reducer, user?.id, initSession)
 
-  // ── Name/number search ───────────────────────────────────────────────────────
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState<Card[]>([])
-  const [searching, setSearching] = useState(false)
-  // Distinct from "no results" — true when the API call itself errors.
-  const [searchErr, setSearchErr] = useState(false)
-  // Keyboard-highlighted index in the results dropdown.
-  const [hi, setHi] = useState(0)
-  const timer = useRef<number | null>(null)
-  const searchRef = useRef<HTMLInputElement>(null)
+  // Mirror every change back to localStorage (per user). Skipped when logged out.
+  useEffect(() => {
+    if (user) persistSession(user.id, state)
+  }, [state, user])
 
-  // ── Add controls (shared by both search and quick-add) ───────────────────────
+  // SET SELECTION — drives the instant local "add by number" path.
+  const [setId, setSetId] = useState<string | null>(null)
+  const { data: setCards = [] } = useQuery({
+    queryKey: ['cards', setId],
+    queryFn: () => getCards(setId as string),
+    enabled: !!user && !!setId && setId !== ALL_SETS,
+  })
+
+  // ADD CONTROLS — condition, 1st edition, and how many copies per add.
   const [cond, setCond] = useState<(typeof CONDS)[number]>('NM')
   const [firstEd, setFirstEd] = useState(false)
   const [step, setStep] = useState(1)
-
-  // ── Quick add by collector number ────────────────────────────────────────────
-  const [quickNum, setQuickNum] = useState('')
-  const [quickFlash, setQuickFlash] = useState<'' | 'flash-ok' | 'flash-err'>('')
-  const [quickMsg, setQuickMsg] = useState<{ text: string; err: boolean } | null>(null)
-  const quickRef = useRef<HTMLInputElement>(null)
-
-  // ── Sidebar: recently added this session ─────────────────────────────────────
-  const [session, setSession] = useState<SessionCard[]>([])
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-
-  // ── Save state ───────────────────────────────────────────────────────────────
-  const [saving, setSaving] = useState(false)
   const [lastAdded, setLastAdded] = useState('')
 
-  /**
-   * PURPOSE: Debounced live search as the user types in the name/number box.
-   *   Fires 250 ms after the last keystroke to avoid hammering the backend.
-   *   Uses the `searchErr` flag to distinguish a real API failure from "no cards".
-   */
+  // NUMBER ENTRY — two boxes: numerator (card #) and optional denominator (total).
+  const [num, setNum] = useState('')
+  const [den, setDen] = useState('')
+  const [numFlash, setNumFlash] = useState<{ text: string; err: boolean } | null>(null)
+  const numRef = useRef<HTMLInputElement>(null)
+
+  // NAME SEARCH — debounced dropdown.
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<Card[]>([])
+  const [searching, setSearching] = useState(false)
+  const [searchErr, setSearchErr] = useState(false)
+  const [hi, setHi] = useState(0)
+  const searchRef = useRef<HTMLInputElement>(null)
+
+  // SAVE
+  const [saving, setSaving] = useState(false)
+
+  // Debounced name search. All state updates happen inside the timeout callback
+  // (asynchronously), which keeps the effect body free of synchronous setState.
   useEffect(() => {
-    if (timer.current) clearTimeout(timer.current)
     const q = query.trim()
-    setHi(0)
-    if (q.length < 2) { setResults([]); setSearching(false); setSearchErr(false); return }
-    setSearching(true)
-    setSearchErr(false)
-    timer.current = window.setTimeout(async () => {
+    const delay = q.length < 2 ? 0 : 250
+    const timer = window.setTimeout(async () => {
+      setHi(0)
+      if (q.length < 2) { setResults([]); setSearching(false); setSearchErr(false); return }
+      setSearching(true)
+      setSearchErr(false)
       try {
         const hits = await searchCards(q)
-        // Narrow "117/123" to the right set; plain queries pass through unchanged.
-        setResults(narrowByCollectorNumber(hits, q, setTotal).slice(0, 40))
-        setSearchErr(false)
+        setResults(narrowByCollectorNumber(hits, q, setTotals).slice(0, 40))
       } catch {
-        setResults([])
-        setSearchErr(true)
+        setResults([]); setSearchErr(true)
       } finally {
         setSearching(false)
       }
-    }, 250)
-    return () => { if (timer.current) clearTimeout(timer.current) }
-  }, [query, setTotal])
+    }, delay)
+    return () => clearTimeout(timer)
+  }, [query, setTotals])
+
+  // Derived session views — plain memoized reads of real state (no re-render hacks).
+  const tiles = useMemo(
+    () => Object.values(state.tiles).sort((a, b) => b.order - a.order),
+    [state.tiles],
+  )
+  const totalCards = useMemo(() => tiles.reduce((s, t) => s + totalQty(t.conds), 0), [tiles])
+  const totalValue = useMemo(() => tiles.reduce((s, t) => s + cardValue(t.conds, t.card), 0), [tiles])
 
   if (!user) return <div className="page-tracker bulk-page"><LoginScreen /></div>
 
-  /**
-   * PURPOSE: Add `step` copies of `card` in the current condition to the tile grid
-   *   AND push one entry to the Recently Added sidebar so the card is available
-   *   for binder placement without waiting for the session to be saved first.
-   * @param card  The card to add
-   */
+  const activeSet = setId && setId !== ALL_SETS ? sets.find(s => s.id === setId) : undefined
+
+  /** Add `step` copies of a card in the current condition to the session. */
   const addCard = (card: Card) => {
     const condKey = firstEd ? `${cond} 1st Ed` : cond
-    const map = tilesRef.current
-    const t = map.get(card.id) ?? { card, conds: {}, selCond: condKey, order: 0 }
-    t.conds[condKey] = (t.conds[condKey] ?? 0) + step
-    t.selCond = condKey
-    t.order = ++orderRef.current
-    map.set(card.id, t)
+    dispatch({ type: 'add', card, condKey, step })
     setLastAdded(`+${step} ${card.name} (${condKey})`)
-    // Push to sidebar session so it's immediately available for binder placement.
-    setSession(s => [{ uid: crypto.randomUUID(), card, condKey, price: condPrice(card, condKey) }, ...s])
-    setSidebarOpen(true)
-    bump()
+  }
+
+  /** Brief confirmation shown under the number boxes. */
+  const flash = (text: string, err: boolean) => {
+    setNumFlash({ text, err })
+    window.setTimeout(() => setNumFlash(null), err ? 1600 : 1100)
   }
 
   /**
-   * PURPOSE: Quick-add by collector number — search backend for the exact number,
-   *   prefer an exact match, and add to tiles. Faster than the name search for
-   *   known numbers because there is no dropdown to click through.
+   * PURPOSE: Add a card from the number boxes. With a set selected, this is an
+   *   instant local lookup in that set's cards (reliable). Without a set, it
+   *   falls back to a global backend lookup filtered by number (+ optional total).
    */
-  const quickAdd = async () => {
-    const raw = quickNum.trim()
-    if (!raw) return
-    try {
-      const hits = await searchCards(raw)
-      const card =
-        hits.find(h => h.number.toLowerCase() === raw.toLowerCase()) ??
-        hits.find(h => h.number.toLowerCase().startsWith(raw.toLowerCase())) ??
-        hits[0] ??
-        null
-      if (!card) {
-        setQuickFlash('flash-err')
-        setQuickMsg({ text: `not found: ${raw}`, err: true })
-        setTimeout(() => setQuickFlash(''), 600)
-        setQuickNum('')
-        return
-      }
-      addCard(card)
-      setQuickFlash('flash-ok')
-      const p = condPrice(card, firstEd ? `${cond} 1st Ed` : cond)
-      setQuickMsg({ text: `✓ #${card.number} ${card.name}${p > 0 ? ' · $' + p.toFixed(2) : ''}`, err: false })
-      setTimeout(() => setQuickFlash(''), 400)
-      setQuickNum('')
-    } catch {
-      toast('Quick add failed — check the backend.')
+  const addByNumber = async () => {
+    const n = num.trim()
+    if (!n) return
+
+    // Fast path: a set is selected → match against its already-loaded cards.
+    if (activeSet) {
+      const card = setCards.find(c => numberMatches(c.number, n))
+      if (card) { addCard(card); flash(`✓ #${card.number} ${card.name}`, false); setNum(''); setDen('') }
+      else flash(`#${n} not found in ${activeSet.name}`, true)
+      numRef.current?.focus()
+      return
     }
-    quickRef.current?.focus()
+
+    // Global path: search the backend, then keep cards whose number matches and,
+    // if a total was given, whose set total matches it.
+    try {
+      const hits = await searchCards(n)
+      const d = den.trim()
+      const card = hits.find(c => {
+        if (!numberMatches(c.number, n)) return false
+        if (!d) return true
+        const tot = setTotals.get(c.setId)
+        return !!tot && (String(tot.printed).startsWith(d) || String(tot.total).startsWith(d))
+      }) ?? hits.find(c => numberMatches(c.number, n)) ?? null
+      if (card) { addCard(card); flash(`✓ #${card.number} ${card.name}`, false); setNum(''); setDen('') }
+      else flash(`no card #${n}${den.trim() ? '/' + den.trim() : ''}`, true)
+    } catch {
+      flash('lookup failed — check the backend', true)
+    }
+    numRef.current?.focus()
   }
 
-  /**
-   * PURPOSE: When Enter is pressed in the name/number search box, take the
-   *   keyboard-highlighted result (or the top result) and add it immediately.
-   *   If no results are loaded yet, fires a fresh search and takes the top hit.
-   */
-  const onEnter = async () => {
+  /** Enter in the name box: add the highlighted (or top) result. */
+  const onSearchEnter = async () => {
     const q = query.trim()
     if (!q) return
     if (results.length) {
-      addCard(results[hi] ?? results[0])
-      setQuery('')
-      setResults([])
-      searchRef.current?.focus()
-      return
+      addCard(results[hi] ?? results[0]); setQuery(''); setResults([]); searchRef.current?.focus(); return
     }
     try {
       const hits = await searchCards(q)
@@ -236,53 +364,20 @@ export function BulkAddPage() {
     searchRef.current?.focus()
   }
 
-  /**
-   * PURPOSE: Mutate one tile's condition counts.
-   *   Deletes the tile entirely when every condition reaches zero so stale
-   *   tiles don't linger in the grid after decrementing to nothing.
-   * @param cardId  Which card's tile to update
-   * @param fn      Mutation applied to the tile in place
-   */
-  const editTile = (cardId: string, fn: (t: Tile) => void) => {
-    const t = tilesRef.current.get(cardId)
-    if (!t) return
-    fn(t)
-    if (totalQty(t.conds) === 0) tilesRef.current.delete(cardId)
-    bump()
-  }
-  const onAdj = (cardId: string, d: number) => editTile(cardId, t => {
-    const k = t.selCond; const n = Math.max(0, (t.conds[k] ?? 0) + d)
-    if (n === 0) delete t.conds[k]; else t.conds[k] = n
-  })
-  const onSetQty = (cardId: string, q: number) => editTile(cardId, t => {
-    if (q === 0) delete t.conds[t.selCond]; else t.conds[t.selCond] = q
-  })
-  const onSelectCond = (cardId: string, c: string) => editTile(cardId, t => { t.selCond = c })
-  const onAdjCond = (cardId: string, c: string, d: number) => editTile(cardId, t => {
-    const n = Math.max(0, (t.conds[c] ?? 0) + d)
-    if (n === 0) delete t.conds[c]; else t.conds[c] = n
-  })
-
-  /**
-   * PURPOSE: Clear the in-progress bulk session (tile map + sidebar + last-added label).
-   *   Does NOT touch the saved collection — only the unsaved session state.
-   */
+  /** Clear the unsaved session (does not touch the saved collection). */
   const clearAll = () => {
-    if (!tilesRef.current.size) return
+    if (tiles.length === 0) return
     if (!confirm('Clear the bulk session? Your saved collection is untouched.')) return
-    tilesRef.current.clear()
-    setSession([])
+    dispatch({ type: 'clear' })
     setLastAdded('')
-    bump()
   }
 
   /**
-   * PURPOSE: Merge the session tiles into the existing collection and POST once.
-   *   Reads the current collection first so quantities are additive, not replacing.
-   *   On success clears the session; on failure leaves everything intact so nothing is lost.
+   * PURPOSE: Merge the session into the existing collection and POST once.
+   *   Reads the current collection first so quantities are additive, not
+   *   replacing. On success clears the session; on failure leaves it intact.
    */
   const save = async () => {
-    const tiles = [...tilesRef.current.values()]
     if (tiles.length === 0) { toast('Nothing to save yet.'); return }
     setSaving(true)
     try {
@@ -301,28 +396,14 @@ export function BulkAddPage() {
       await bulkSave(user.id, items)
       const n = tiles.reduce((s, t) => s + totalQty(t.conds), 0)
       toast(`Saved ${n} cards across ${items.length} unique cards.`)
-      tilesRef.current.clear()
-      setSession([])
+      dispatch({ type: 'clear' })
       setLastAdded('')
-      bump()
     } catch {
-      toast('Save failed — nothing was stored.')
+      toast('Save failed — nothing was stored. Your session is still here.')
     } finally {
       setSaving(false)
     }
   }
-
-  /**
-   * PURPOSE: Derive the sorted tile array and session totals from the tile map.
-   *   Recalculates whenever `version` is bumped (i.e., whenever a tile changes).
-   *   Newest additions first so the last-added card appears at the top of the grid.
-   */
-  const { tiles, totalCards, totalValue } = useMemo(() => {
-    const arr = [...tilesRef.current.values()].sort((a, b) => b.order - a.order)
-    let cards = 0, val = 0
-    for (const t of arr) { cards += totalQty(t.conds); val += cardValue(t.conds, t.card) }
-    return { tiles: arr, totalCards: cards, totalValue: val }
-  }, [version])
 
   return (
     <div className="page-tracker bulk-page">
@@ -332,9 +413,7 @@ export function BulkAddPage() {
           <div className="logo">⚡ BULK <span>ADD</span></div>
           <div className="user-badge">👤 <b>{user.username}</b></div>
           <div className="header-right">
-            <button className="tb-btn" onClick={() => setSidebarOpen(o => !o)}>
-              🗂 Binder{session.length > 0 && <span style={{ color: 'var(--accent)', marginLeft: 4 }}>{session.length}</span>}
-            </button>
+            {tiles.length > 0 && <span className="unsaved">{totalCards} unsaved · saved locally</span>}
             <button className="tb-btn" onClick={clearAll}>Clear</button>
             <button className="tb-btn primary" onClick={save} disabled={saving || tiles.length === 0}>
               {saving ? 'Saving…' : `Save${tiles.length ? ` (${totalCards})` : ''}`}
@@ -343,7 +422,18 @@ export function BulkAddPage() {
           </div>
         </header>
 
-        {/* ── Shared condition / step controls ───────────────────────────────── */}
+        {/* ── Set picker — scopes the number entry to one set ─────────────────── */}
+        <div className="toolbar" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span className="sort-label">Set:</span>
+          <SetSelector sets={sets} selectedId={setId} onSelect={setSetId} />
+          {activeSet && (
+            <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+              {setCards.length} cards{activeSet.printedTotal ? ` · /${activeSet.printedTotal}` : ''}
+            </span>
+          )}
+        </div>
+
+        {/* ── Condition / 1st Ed / step ───────────────────────────────────────── */}
         <div className="toolbar" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <span className="sort-label">Condition:</span>
           <select value={cond} onChange={e => setCond(e.target.value as (typeof CONDS)[number])}>
@@ -358,15 +448,43 @@ export function BulkAddPage() {
           </label>
         </div>
 
-        {/* ── Name / number search ────────────────────────────────────────────── */}
+        {/* ── Add by number — two boxes ───────────────────────────────────────── */}
         <div className="toolbar" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span className="sort-label">No.:</span>
+          <div className="num-entry">
+            <input
+              ref={numRef} type="text" placeholder="188" maxLength={12}
+              autoComplete="off" spellCheck={false} value={num}
+              onChange={e => setNum(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addByNumber() } }}
+            />
+            <span className="slash">/</span>
+            <input
+              type="text" placeholder="236" maxLength={12}
+              autoComplete="off" spellCheck={false} value={den}
+              onChange={e => setDen(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addByNumber() } }}
+            />
+            <button className="tb-btn primary" onClick={addByNumber}>Add</button>
+            {numFlash && <span className={'num-flash ' + (numFlash.err ? 'err' : 'ok')}>{numFlash.text}</span>}
+          </div>
+          <span style={{ color: 'var(--muted)', fontSize: 12, flexBasis: '100%' }}>
+            {activeSet
+              ? `Type the card number and press Enter — the total box is optional when a set is picked.`
+              : `Type number / set total (e.g. 188 / 236). Promos like SWSH158 go in the left box.`}
+          </span>
+        </div>
+
+        {/* ── Add by name — search dropdown ───────────────────────────────────── */}
+        <div className="toolbar" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span className="sort-label">Name:</span>
           <div className="bulk-search-wrap">
             <input
-              ref={searchRef} className="bulk-search" autoFocus value={query}
-              placeholder="Search by name or number — e.g. Charizard, 119/117, SWSH158"
+              ref={searchRef} className="bulk-search" value={query}
+              placeholder="Search by name — e.g. Charizard"
               onChange={e => setQuery(e.target.value)}
               onKeyDown={e => {
-                if (e.key === 'Enter') { e.preventDefault(); onEnter() }
+                if (e.key === 'Enter') { e.preventDefault(); onSearchEnter() }
                 else if (e.key === 'ArrowDown') { e.preventDefault(); setHi(i => Math.min(i + 1, results.length - 1)) }
                 else if (e.key === 'ArrowUp') { e.preventDefault(); setHi(i => Math.max(i - 1, 0)) }
                 else if (e.key === 'Escape') { setQuery(''); setResults([]) }
@@ -376,15 +494,11 @@ export function BulkAddPage() {
               <div className="bulk-results">
                 {searching && results.length === 0 && <div className="bulk-hint">Searching…</div>}
                 {!searching && searchErr && (
-                  <div className="bulk-hint" style={{ color: 'var(--red, #e55)' }}>
-                    Search failed — check the backend.
-                  </div>
+                  <div className="bulk-hint" style={{ color: 'var(--red, #e55)' }}>Search failed — check the backend.</div>
                 )}
-                {!searching && !searchErr && results.length === 0 && (
-                  <div className="bulk-hint">No matches.</div>
-                )}
+                {!searching && !searchErr && results.length === 0 && <div className="bulk-hint">No matches.</div>}
                 {results.map((card, i) => {
-                  const have = totalQty(tilesRef.current.get(card.id)?.conds ?? {})
+                  const have = totalQty(state.tiles[card.id]?.conds ?? {})
                   return (
                     <button
                       key={card.id} className={'brow' + (i === hi ? ' hi' : '')}
@@ -407,22 +521,7 @@ export function BulkAddPage() {
           </div>
         </div>
 
-        {/* ── Quick add by collector number ───────────────────────────────────── */}
-        <div className="quick-entry">
-          <label>Quick add #</label>
-          <input
-            ref={quickRef} type="text" placeholder="007" maxLength={12}
-            autoComplete="off" spellCheck={false} className={quickFlash}
-            value={quickNum} onChange={e => setQuickNum(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); quickAdd() } }}
-          />
-          <span className={'quick-confirm' + (quickMsg ? ' show' : '') + (quickMsg?.err ? ' err' : '')}>
-            {quickMsg?.text}
-          </span>
-          <span className="quick-hint">Type card #, hit <b>Enter</b></span>
-        </div>
-
-        {/* ── Stats bar ───────────────────────────────────────────────────────── */}
+        {/* ── Stats ───────────────────────────────────────────────────────────── */}
         <div className="stats-bar">
           <div className="stat"><div className="stat-label">Cards entered</div><div className="stat-value">{totalCards}</div></div>
           <div className="stat"><div className="stat-label">Unique cards</div><div className="stat-value">{tiles.length}</div></div>
@@ -435,37 +534,27 @@ export function BulkAddPage() {
           )}
         </div>
 
-        {/* ── Card grid + binder sidebar ──────────────────────────────────────── */}
+        {/* ── Session grid ────────────────────────────────────────────────────── */}
         <div id="app-wrap">
           <div id="main">
             {tiles.length === 0 && (
-              <div className="empty">Search a card above or quick-add by number to start.</div>
+              <div className="empty">Pick a set and type a number, or search by name, to start.</div>
             )}
             {tiles.length > 0 && (
               <div className="card-grid">
                 {tiles.map(t => (
                   <CardTile
                     key={t.card.id} card={t.card} conds={t.conds} selCond={t.selCond}
-                    onAdj={d => onAdj(t.card.id, d)}
-                    onSetQty={q => onSetQty(t.card.id, q)}
-                    onSelectCond={c => onSelectCond(t.card.id, c)}
-                    onAdjCond={(c, d) => onAdjCond(t.card.id, c, d)}
+                    onAdj={d => dispatch({ type: 'adjSel', cardId: t.card.id, delta: d })}
+                    onSetQty={q => dispatch({ type: 'setQty', cardId: t.card.id, qty: q })}
+                    onSelectCond={c => dispatch({ type: 'selectCond', cardId: t.card.id, cond: c })}
+                    onAdjCond={(c, d) => dispatch({ type: 'adjCond', cardId: t.card.id, cond: c, delta: d })}
                     onPreview={src => (src ? preview.show(src) : preview.hide())}
                   />
                 ))}
               </div>
             )}
           </div>
-
-          <RecentSidebar
-            userId={user.id}
-            open={sidebarOpen}
-            items={session}
-            onClose={() => setSidebarOpen(false)}
-            onRemove={uid => setSession(s => s.filter(sc => sc.uid !== uid))}
-            onRemoveMany={uids => setSession(s => s.filter(sc => !uids.includes(sc.uid)))}
-            onClear={() => setSession([])}
-          />
         </div>
       </div>
       {preview.overlay}
