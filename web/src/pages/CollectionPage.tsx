@@ -139,9 +139,14 @@ export function CollectionPage() {
   useEffect(() => {
     if (globalTimer.current) clearTimeout(globalTimer.current)
     const q = search.trim()
-    if (q.length < 2 || activeSetId !== ALL_SETS) { setGlobalHits([]); setGlobalSearching(false); return }
-    setGlobalSearching(true)
+    // All setState calls inside the timer callback — no synchronous setState in the effect body.
     globalTimer.current = window.setTimeout(async () => {
+      if (q.length < 2 || activeSetId !== ALL_SETS) {
+        setGlobalHits([])
+        setGlobalSearching(false)
+        return
+      }
+      setGlobalSearching(true)
       try { setGlobalHits(narrowByCollectorNumber(await searchCards(q), q, setTotals)) }
       catch { setGlobalHits([]); toast('Search failed - please try again.') }
       finally { setGlobalSearching(false) }

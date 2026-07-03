@@ -88,15 +88,16 @@ export function ConventionModePage() {
 
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current)
-    // After picking a card we set the query to its name. Don't re-run the
-    // search in that case — otherwise the results list repopulates and lingers
-    // underneath the selected card.
-    if (selectedCard && query.trim() === selectedCard.name.trim()) {
-      setResults([])
-      setSearchMsg('')
-      return
-    }
+    // After picking a card the query is set to its name — use 0ms delay to clear
+    // results immediately without re-running the search. All setState calls stay
+    // inside the timer callback so there's no synchronous setState in the effect body.
+    const isCardSelected = selectedCard !== null && query.trim() === selectedCard.name.trim()
     timer.current = setTimeout(async () => {
+      if (isCardSelected) {
+        setResults([])
+        setSearchMsg('')
+        return
+      }
       const q = query.trim()
       if (q.length < 2) {
         setResults([])
@@ -111,7 +112,7 @@ export function ConventionModePage() {
       } catch {
         setSearchMsg('Search failed — check your backend connection')
       }
-    }, 300)
+    }, isCardSelected ? 0 : 300)
   }, [query, selectedCard])
 
   const selectedSetName = selectedCard ? (setName.get(selectedCard.setId) ?? selectedCard.setId) : ''
@@ -128,15 +129,17 @@ export function ConventionModePage() {
   const askVsMarket = market > 0 && ask > 0 ? ((ask - market) / market) * 100 : 0
 
   const riskScore = useMemo(() => {
-    let score = 18
     if (!selectedCard) return 0
+    let score = 18
     if (ask > market * 1.1 && market > 0) score += 15
     if (ask > 75) score += 15
     if (condition === 'NM') score += 10
-    if (reportedForCard.length < 3) score += 8
+    // Recompute the count from `reports` (stable state) rather than the derived
+    // `reportedForCard` array, so the React Compiler can preserve this memo.
+    if (reports.filter(r => r.cardId === selectedCard.id).length < 3) score += 8
     if (!booth.trim()) score += 5
     return clamp(score, 0, 100)
-  }, [selectedCard, ask, market, condition, reportedForCard.length, booth])
+  }, [selectedCard, ask, market, condition, reports, booth])
 
   const riskLabel = riskScore >= 65 ? 'High' : riskScore >= 40 ? 'Medium' : riskScore > 0 ? 'Low' : '—'
   const checklist = fakeRiskChecklist(selectedCard, ask, condition)

@@ -247,19 +247,37 @@ object PriceService:
      * @return     Some(tcgSetId) if found, None if not
      */
     private def findTcgSetId(set: CardSet): Task[Option[Int]] =
-      val query = set.ptcgoCode.getOrElse(set.name)
+      // URL-encode so names with spaces or & (e.g. "Scarlet & Violet") don't break the query
+      val raw   = set.ptcgoCode.getOrElse(set.name)
+      val query = java.net.URLEncoder.encode(raw, "UTF-8")
       get(s"$BASE/$POKEMON_CAT/search?q=$query")
-        .flatMap(parse[TcgSearchResponse])
-        .map { resp =>
-          val norm = (s: String) => s.toLowerCase.replaceAll("[^a-z0-9]", "")
-          // Try exact abbreviation match first
-          resp.sets.find(s => set.ptcgoCode.exists(c => norm(s.abbreviation) == norm(c)))
-            // Fall back to name match
-            .orElse(resp.sets.find(s => norm(s.name) == norm(set.name)))
-            .map(_.id)
+        .flatMap { json =>
+          parse[TcgSearchResponse](json)
+            // Log the raw response body on parse failure so we can spot API schema changes
+            .tapError(e => ZIO.logWarning(
+              s"TCGTracking: failed to parse search response for '${set.name}': $e | " +
+              s"body (first 300 chars): ${json.take(300)}"
+            ))
         }
-        // If search fails (network error, set not found), return None rather than crashing
-        .catchAll(_ => ZIO.succeed(None))
+        .flatMap { resp =>
+          val norm    = (s: String) => s.toLowerCase.replaceAll("[^a-z0-9]", "")
+          val matched =
+            resp.sets.find(s => set.ptcgoCode.exists(c => norm(s.abbreviation) == norm(c)))
+              .orElse(resp.sets.find(s => norm(s.name) == norm(set.name)))
+          if matched.isEmpty then
+            // Log the candidates so we can see what TCGTracking returned and fix the matching
+            ZIO.logInfo(
+              s"TCGTracking: no set match for '${set.name}' (ptcgoCode: ${set.ptcgoCode}, searched: '$raw'). " +
+              s"Candidates: ${resp.sets.take(5).map(s => s"${s.abbreviation}/${s.name}").mkString(", ")}"
+            ).as(None)
+          else
+            ZIO.succeed(matched.map(_.id))
+        }
+        .catchAll(e =>
+          // Network error or unrecoverable parse failure — log and skip prices for this set
+          ZIO.logWarning(s"TCGTracking: search failed for '${set.name}': ${e.getMessage}") *>
+          ZIO.succeed(None)
+        )
 
     /**
      * METHOD: fetchAndStorePrices
@@ -281,36 +299,52 @@ object PriceService:
     def fetchAndStorePrices(set: CardSet, cards: List[Card]): Task[Unit] =
       findTcgSetId(set).flatMap {
         case None =>
-          // Set not in TCGTracking yet (common for newest sets) — skip silently
-          ZIO.logInfo(s"No TCGTracking match for set: ${set.name}")
+          ZIO.logInfo(s"TCGTracking: skipping prices for '${set.name}' — no set match found")
 
         case Some(tcgSetId) =>
           for
-            // Fetch products to get number → productId mapping
             productsJson <- get(s"$BASE/$POKEMON_CAT/sets/$tcgSetId")
             products     <- parse[TcgProductResponse](productsJson)
-            // Fetch SKUs to get productId → condition prices
+              .tapError(e => ZIO.logWarning(
+                s"TCGTracking: failed to parse products for '${set.name}': $e | " +
+                s"body (first 300 chars): ${productsJson.take(300)}"
+              ))
             skusJson     <- get(s"$BASE/$POKEMON_CAT/sets/$tcgSetId/skus")
             skuResp      <- parse[TcgSkuResponse](skusJson)
+              .tapError(e => ZIO.logWarning(
+                s"TCGTracking: failed to parse SKUs for '${set.name}': $e | " +
+                s"body (first 300 chars): ${skusJson.take(300)}"
+              ))
 
-            // Build a map from productId to English NM/LP/MP/HP/DMG prices.
-            // TCGTracking returns SKUs nested under product IDs, not as a flat list.
             pricesByProductId = buildPriceMap(skuResp.products)
 
-            // Build a map from normalized collector number to productId
-            // number is "161/162" format — take the part before "/" as collector number
             numberToProductId = products.products
                                   .flatMap(p => p.number.map(n => normalizeCollectorNumber(n) -> p.id))
                                   .toMap
 
-            // For each card, find prices and save
-            _ <- ZIO.foreach(cards) { card =>
-                   numberToProductId.get(normalizeCollectorNumber(card.number))
-                     .flatMap(pricesByProductId.get) match
-                     case Some(prices) => repo.upsertPrices(card.id, prices)
-                     case None         => ZIO.unit // No price data for this card
-                 }
-            _ <- ZIO.logInfo(s"Prices stored for set: ${set.name}")
+            _ <- ZIO.logInfo(
+                   s"TCGTracking: '${set.name}' — ${products.products.size} products, " +
+                   s"${pricesByProductId.size} with prices, ${numberToProductId.size} with numbers"
+                 )
+
+            saved <- ZIO.foreach(cards) { card =>
+                       numberToProductId.get(normalizeCollectorNumber(card.number))
+                         .flatMap(pricesByProductId.get) match
+                         case Some(prices) => repo.upsertPrices(card.id, prices).as(true)
+                         case None         => ZIO.succeed(false)
+                     }
+
+            matched = saved.count(identity)
+            // Log matched count; if any unmatched, append a sample so we can spot number-format mismatches
+            unmatchedSample = if matched < cards.size then
+                                val names = cards.zip(saved)
+                                              .collect { case (c, false) => s"${c.name}(${c.number})" }
+                                s"; unmatched: ${names.take(10).mkString(", ")}" +
+                                (if names.size > 10 then s" …+${names.size - 10} more" else "")
+                              else ""
+            _ <- ZIO.logInfo(
+                   s"TCGTracking: '${set.name}' — $matched/${cards.size} cards matched to prices$unmatchedSample"
+                 )
           yield ()
       }
 

@@ -17,6 +17,6 @@ export const getSets = () =>
 export const getCards = (setId: string) =>
   api.get<Card[]>(`/api/cards/${setId}`).then(r => r.data)
 
-/** Name search across every set. Backend caps results at 60. */
+/** Name or collector-number search across every set. Backend caps results at 60. */
 export const searchCards = (q: string) =>
   api.get<Card[]>('/api/search', { params: { q } }).then(r => r.data)

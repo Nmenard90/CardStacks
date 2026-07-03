@@ -52,21 +52,20 @@ interface Props {
  */
 export function BinderPickerModal({ card, userId, onClose }: Props) {
   const toast = useToast()
-  const [binders, setBinders] = useState<Binder[]>([])
-  const [loading, setLoading] = useState(false)
+  // null = not yet loaded (loading state); Binder[] = loaded (may be empty)
+  const [binders, setBinders] = useState<Binder[] | null>(null)
   const [busy, setBusy] = useState(false)
 
   /**
    * PURPOSE: Reload the binder list each time the modal opens (card changes
    * from null to a value).  This picks up any binders created since last open.
+   * All setState calls are in async callbacks — no synchronous setState in the effect body.
    */
   useEffect(() => {
     if (!card) return
-    setLoading(true)
     listBinders(userId)
-      .then(setBinders)
-      .catch(() => toast('Could not load binders.'))
-      .finally(() => setLoading(false))
+      .then(b => setBinders(b))
+      .catch(() => { setBinders([]); toast('Could not load binders.') })
   }, [card, userId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!card) return null
@@ -114,15 +113,15 @@ export function BinderPickerModal({ card, userId, onClose }: Props) {
           </span>
         </p>
 
-        {loading && <p style={{ color: 'var(--muted)' }}>Loading binders…</p>}
+        {binders === null && <p style={{ color: 'var(--muted)' }}>Loading binders…</p>}
 
-        {!loading && binders.length === 0 && (
+        {binders !== null && binders.length === 0 && (
           <p style={{ color: 'var(--muted)', marginBottom: 16 }}>
             No binders yet — create one on the <b>Binders</b> page.
           </p>
         )}
 
-        {!loading && binders.length > 0 && (
+        {binders !== null && binders.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
             {binders.map(b => (
               <button

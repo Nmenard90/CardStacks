@@ -177,6 +177,28 @@ trait CardRepository:
   def upsertPrices(cardId: String, prices: CardPrices): Task[Unit]
 
   /**
+   * METHOD: isPricesFetchStale
+   * PURPOSE: Returns true if prices have never been fetched for this set, or were
+   *          last fetched more than 6 hours ago. Used by getCardsBySet to decide
+   *          whether to call TCGTracking again or serve the cached (partial) result.
+   *          Prevents an infinite-retry loop when a set has cards that TCGTracking
+   *          simply has no data for.
+   * @param setId  The set to check
+   * @return       true = should fetch; false = skip (recently fetched)
+   */
+  def isPricesFetchStale(setId: String): Task[Boolean]
+
+  /**
+   * METHOD: markPricesFetched
+   * PURPOSE: Records NOW() as the last price-fetch timestamp for a set.
+   *          Called after every fetchAndStorePrices attempt (success or not) so
+   *          the stale check knows we tried and won't retry for 6 hours.
+   * @param setId  The set that was just attempted
+   * @return       Unit
+   */
+  def markPricesFetched(setId: String): Task[Unit]
+
+  /**
    * METHOD: findOrphanedCardIds
    * PURPOSE: Returns the IDs of every card that a user owns (appears in
    *          collection_entries) but that has no matching row in the cards
@@ -414,6 +436,25 @@ object CardRepository:
           price_hp   = EXCLUDED.price_hp,
           price_dmg  = EXCLUDED.price_dmg,
           fetched_at = NOW()
+      """
+        .update.run.void.transact(xa)
+
+    def isPricesFetchStale(setId: String): Task[Boolean] =
+      // prices_fetched_at IS NULL means never attempted; < 6 hours ago means recent enough.
+      // Falls back to true (stale) if the set row doesn't exist — shouldn't happen in practice.
+      sql"""
+        SELECT prices_fetched_at IS NULL
+            OR prices_fetched_at < NOW() - INTERVAL '6 hours'
+        FROM card_sets WHERE id = $setId
+      """
+        .query[Boolean]
+        .option
+        .map(_.getOrElse(true))
+        .transact(xa)
+
+    def markPricesFetched(setId: String): Task[Unit] =
+      sql"""
+        UPDATE card_sets SET prices_fetched_at = NOW() WHERE id = $setId
       """
         .update.run.void.transact(xa)
 

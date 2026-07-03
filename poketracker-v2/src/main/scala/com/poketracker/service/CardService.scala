@@ -220,6 +220,17 @@ trait CardService:
   def ensureCached(cardIds: List[String]): Task[Int]
 
   /**
+   * METHOD: refreshPrices
+   * PURPOSE: Re-fetches prices from TCGTracking for a set without re-downloading
+   *          card metadata from pokemontcg.io. Cheaper than refreshSet when only
+   *          price data is stale or was missing. Resets the stale timer so the
+   *          next regular load picks up the new prices from the DB cache.
+   * @param setId  Set to re-price
+   * @return       Unit
+   */
+  def refreshPrices(setId: String): Task[Unit]
+
+  /**
    * METHOD: refreshOrphans
    * PURPOSE: One-shot repair. Finds every orphaned card across all collections
    *          (owned but missing from the catalog) and backfills their sets, so
@@ -368,38 +379,46 @@ object CardService:
 
     def getCardsBySet(setId: String): Task[List[Card]] =
       repo.findCardsBySet(setId).flatMap {
-        // If every cached card already has prices, serve directly from the database.
+        // All prices present — serve directly from the cache.
         case cards if cards.nonEmpty && cards.forall(_.prices.nonEmpty) =>
           ZIO.succeed(cards)
 
-        // If cards are cached but any prices are missing, try to fill prices
-        // from TCGTracking, then re-read the cards so the response includes prices.
+        // Cards cached but some prices missing. Only hit TCGTracking when stale (> 6 h since last
+        // attempt) so cards that genuinely have no TCGTracking data don't cause a retry every load.
         case cards if cards.nonEmpty =>
           for
-            setOpt <- repo.findSetById(setId)
-            _      <- setOpt match
-                        case Some(set) =>
-                          priceService.fetchAndStorePrices(set, cards)
-                            // Price failures are non-fatal: cards still load without prices.
-                            .catchAll(e => ZIO.logWarning(s"Price fetch failed for cached $setId: ${e.getMessage}"))
-                        case None => ZIO.unit
+            stale  <- repo.isPricesFetchStale(setId)
+                        // If the stale-check itself fails (column not yet migrated), default to stale
+                        // so the app keeps working and prices are fetched normally.
+                        .catchAll(_ => ZIO.succeed(true))
+            _      <- if stale then
+                        repo.findSetById(setId).flatMap {
+                          case Some(set) =>
+                            priceService.fetchAndStorePrices(set, cards)
+                              .catchAll(e => ZIO.logWarning(s"Price fetch failed for cached $setId: ${e.getMessage}"))
+                              *> repo.markPricesFetched(setId)
+                          case None => ZIO.unit
+                        }
+                      else ZIO.unit
             updated <- repo.findCardsBySet(setId)
           yield updated
+
         case _ =>
           for
             cards  <- fetchPages(setId).map(_.map(toCard))
             result  = sorted(cards)
             _      <- ZIO.foreach(result)(repo.upsertCard)
-            // Fetch and store prices from TCGTracking after caching cards.
-            // We look up the set metadata to help match the TCGTracking set.
             setOpt <- repo.findSetById(setId)
             _      <- setOpt match
                         case Some(set) =>
                           priceService.fetchAndStorePrices(set, result)
-                            // Price failures are non-fatal: cards still load without prices.
                             .catchAll(e => ZIO.logWarning(s"Price fetch failed for $setId: ${e.getMessage}"))
+                            *> repo.markPricesFetched(setId)
                         case None => ZIO.unit
-          yield result
+            // Re-read from DB so prices stored above are included in the response.
+            // Without this, first-time loads always show "no price" even when prices were just stored.
+            withPrices <- repo.findCardsBySet(setId)
+          yield withPrices
       }
 
     def getCardById(id: String): Task[Option[Card]] =
@@ -461,7 +480,22 @@ object CardService:
                     case Some(set) =>
                       priceService.fetchAndStorePrices(set, cards)
                         .catchAll(e => ZIO.logWarning(s"Price refresh failed for $setId: ${e.getMessage}"))
+                        *> repo.markPricesFetched(setId)
                     case None => ZIO.unit
+      yield ()
+
+    def refreshPrices(setId: String): Task[Unit] =
+      for
+        cards  <- repo.findCardsBySet(setId)
+        setOpt <- repo.findSetById(setId)
+        _      <- setOpt match
+                    case Some(set) =>
+                      priceService.fetchAndStorePrices(set, cards)
+                        .catchAll(e => ZIO.logWarning(s"refreshPrices: price fetch failed for $setId: ${e.getMessage}"))
+                    case None =>
+                      ZIO.logWarning(s"refreshPrices: set '$setId' not found in DB")
+        // Mark as fetched so the 6-hour stale timer resets — next regular load uses DB cache
+        _ <- repo.markPricesFetched(setId).catchAll(_ => ZIO.unit)
       yield ()
 
     /**

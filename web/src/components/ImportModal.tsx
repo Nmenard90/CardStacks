@@ -52,23 +52,35 @@ export function ImportModal({ open, onClose, onImport }: Props) {
     }
   }
 
+  const downloadTemplate = () => {
+    const csv = 'Card ID,Quantity,Condition\nsv1-1,2,NM\nbase1-4,1,LP\n'
+    const a = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
+      download: 'poketracker-template.csv',
+    })
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
   return (
     <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="modal">
         <h3>⬆ IMPORT CSV</h3>
         <p>
-          Paste a CSV or upload a file. Expected columns: <b>Card ID</b> and <b>Quantity</b> (minimum).
-          A <b>Condition</b> column is used when present (defaults to NM).
-          <br /><br />
-          Card IDs look like <b>sv1-1</b>, <b>base1-4</b> etc. — same format as the Export CSV.
+          Required columns: <b>Card ID</b>, <b>Quantity</b>.
+          Optional: <b>Condition</b> (NM / LP / MP / HP / DMG — defaults to NM if omitted).
+          <br />
+          Card IDs look like <code>sv1-1</code>, <code>base1-4</code> — same format as the Export CSV.
+          Rows missing a valid Card ID or with Quantity&nbsp;≤&nbsp;0 are skipped.
         </p>
         <input ref={fileRef} type="file" accept=".csv" onChange={handleFile} />
         <textarea
-          placeholder={'Card ID,Quantity\nsv1-1,2\nbase1-4,1'}
+          placeholder={'Card ID,Quantity,Condition\nsv1-1,2,NM\nbase1-4,1,LP'}
           value={text} onChange={e => setText(e.target.value)}
         />
         {result && <div className={'import-result ' + (result.ok ? 'ok' : 'err')}>{result.msg}</div>}
         <div className="modal-btns">
+          <button className="tb-btn" onClick={downloadTemplate}>⬇ Template</button>
           <button className="tb-btn" onClick={() => fileRef.current?.click()}>📁 Upload file</button>
           <button className="tb-btn" onClick={onClose}>Cancel</button>
           <button className="tb-btn primary" onClick={run} disabled={busy}>Import</button>

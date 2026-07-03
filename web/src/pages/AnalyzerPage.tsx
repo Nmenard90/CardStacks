@@ -24,7 +24,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getCards, getSets, searchCards } from '../api/cards'
-import { getStats } from '../api/collection'
+import { getOwnedCards } from '../api/collection'
 import { useUser } from '../context/UserContext'
 import { HeaderNav } from '../components/HeaderNav'
 import { CONDS, condPrice, type Cond } from '../lib/conditions'
@@ -70,10 +70,15 @@ export function AnalyzerPage() {
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets })
   const setName = useMemo(() => new Map(sets.map(s => [s.id, s.name])), [sets])
 
-  // The hint panel shows once we know the user owns anything at all.
-  const { data: stats } = useQuery({
-    queryKey: ['stats', user?.id], queryFn: () => getStats(user!.id), enabled: !!user,
+  // Full owned-card list for the Quick Add panel.
+  const { data: owned = [] } = useQuery({
+    queryKey: ['owned', user?.id], queryFn: () => getOwnedCards(user!.id), enabled: !!user,
   })
+
+  // Which side the collection panel's one-click add targets.
+  const [collSide, setCollSide] = useState<Side>('give')
+  // Filter string inside the collection panel.
+  const [collFilter, setCollFilter] = useState('')
 
   // ── Search (debounced 350 ms, like the old page) ────────────────────────
   useEffect(() => {
@@ -119,6 +124,12 @@ export function AnalyzerPage() {
     if (modalSide === 'give') setGive(s => [...s, item])
     else setGet(s => [...s, item])
     closeModal()
+  }
+
+  const addCardToSide = (side: Side, card: Card) => {
+    const item: TradeItem = { card, setName: setName.get(card.setId) ?? card.setId, cond: 'NM', firstEd: false }
+    if (side === 'give') setGive(s => [...s, item])
+    else setGet(s => [...s, item])
   }
   const update = (side: Side, idx: number, patch: Partial<TradeItem>) => {
     const setter = side === 'give' ? setGive : setGet
@@ -269,17 +280,59 @@ export function AnalyzerPage() {
           Make sure the other party isn't taking advantage. Always verify card values on TCGPlayer before trading.
         </div>
 
-        {/* Collection hint panel — shown once the user owns anything */}
-        {user && (stats?.totalCards ?? 0) > 0 && (
-          <div id="collPanel" className="show">
-            <div className="cp-head">Quick Add from Your Collection</div>
-            <div className="cp-grid">
-              <div style={{ color: 'var(--muted)', fontSize: 12, padding: '4px 0' }}>
-                Search for a card above to quickly add from your collection
+        {/* Collection panel — shown once the user owns cards */}
+        {user && owned.length > 0 && (() => {
+          const q = collFilter.trim().toLowerCase()
+          const visible = q
+            ? owned.filter(o =>
+                o.card.name.toLowerCase().includes(q) ||
+                o.card.number.toLowerCase().includes(q)
+              )
+            : owned
+          return (
+            <div id="collPanel" className="show">
+              <div className="cp-head">
+                <span>Quick Add from Your Collection</span>
+                <span className="cp-side-toggle">
+                  <button
+                    className={'cp-side-btn' + (collSide === 'give' ? ' active' : '')}
+                    onClick={() => setCollSide('give')}
+                  >Give</button>
+                  <button
+                    className={'cp-side-btn' + (collSide === 'get' ? ' active' : '')}
+                    onClick={() => setCollSide('get')}
+                  >Get</button>
+                </span>
+                <input
+                  className="cp-filter"
+                  placeholder="Filter…"
+                  value={collFilter}
+                  onChange={e => setCollFilter(e.target.value)}
+                />
+              </div>
+              <div className="cp-grid">
+                {visible.slice(0, 48).map(o => (
+                  <div
+                    key={o.cardId}
+                    className="cp-card"
+                    title={`${o.card.name} — click to add to ${collSide}`}
+                    onClick={() => addCardToSide(collSide, o.card)}
+                  >
+                    {o.card.images?.small
+                      ? <img src={o.card.images.small} alt={o.card.name} />
+                      : <span className="cp-placeholder">🃏</span>
+                    }
+                  </div>
+                ))}
+                {visible.length === 0 && (
+                  <div style={{ color: 'var(--muted)', fontSize: 12, gridColumn: '1/-1' }}>
+                    No owned cards match "{collFilter}"
+                  </div>
+                )}
               </div>
             </div>
-          </div>
-        )}
+          )
+        })()}
       </div>
 
       {/* Add-a-card search modal */}

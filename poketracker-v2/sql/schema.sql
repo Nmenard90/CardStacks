@@ -318,3 +318,13 @@ CREATE TABLE IF NOT EXISTS user_reports (
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_reports_reported_user_id ON user_reports(reported_user_id);
+
+-- ── Migrations ────────────────────────────────────────────────────────────────
+-- Additive changes applied after initial setup. Run these in the Railway
+-- PostgreSQL service → Data tab → SQL Editor, then redeploy the backend.
+
+-- Migration 001 (BUG-019): Track when prices were last fetched per set.
+-- Prevents the backend from calling TCGTracking on every page load when a
+-- set has some cards with no TCGTracking data (promos, newer sets, etc.).
+-- The Scala code uses this to skip re-fetches that happened < 6 hours ago.
+ALTER TABLE card_sets ADD COLUMN IF NOT EXISTS prices_fetched_at TIMESTAMPTZ;

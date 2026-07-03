@@ -10,11 +10,12 @@
  *   have no knowledge of HTTP at all.
  *
  * ENDPOINTS:
- *   GET /api/sets              — all sets, newest first
- *   GET /api/cards/:setId      — all cards in a set with prices
- *   GET /api/cards/id/:cardId  — single card by ID
- *   GET /api/search?q=name     — search cards by name
- *   GET /api/admin/refresh/:setId — force re-fetch a set from the API
+ *   GET /api/sets                          — all sets, newest first
+ *   GET /api/cards/:setId                  — all cards in a set with prices
+ *   GET /api/cards/id/:cardId              — single card by ID
+ *   GET /api/search?q=name                 — search cards by name
+ *   GET /api/admin/refresh/:setId          — force re-fetch a set from the API
+ *   GET /api/admin/refresh-prices/:setId   — re-fetch prices only (no card re-download)
  *
  * HOW ZIO HTTP ROUTES WORK:
  *   Routes are defined as pattern matches on the HTTP method and URL path.
@@ -156,6 +157,21 @@ object CardRoutes:
      */
     Method.GET / "api" / "admin" / "refresh" / string("setId") -> handler { (setId: String, _: Request) =>
       ZIO.serviceWithZIO[CardService](_.refreshSet(setId))
+        .map(_ => Response.json("""{"ok": true}"""))
+        .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
+    },
+
+    /**
+     * ROUTE: GET /api/admin/refresh-prices/:setId
+     * PURPOSE: Re-fetches prices from TCGTracking for a set without re-downloading
+     *          card metadata from pokemontcg.io. Use when cards show "no price" and
+     *          a full refresh isn't needed.
+     * @param setId  The set to re-price e.g. "swsh6"
+     * RESPONSE: 200 JSON {"ok": true} on success
+     *           500 if the fetch fails
+     */
+    Method.GET / "api" / "admin" / "refresh-prices" / string("setId") -> handler { (setId: String, _: Request) =>
+      ZIO.serviceWithZIO[CardService](_.refreshPrices(setId))
         .map(_ => Response.json("""{"ok": true}"""))
         .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
     },

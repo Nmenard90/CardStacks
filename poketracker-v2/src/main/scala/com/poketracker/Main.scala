@@ -127,11 +127,13 @@ object Main extends ZIOAppDefault:
 
         // CORS middleware so the React frontend (different Railway domain) can call this API.
         // Allows all origins — tighten to specific frontend URL once we know it.
+        // allowCredentials must NOT be Allow when allowedOrigin is wildcard (*) —
+        // browsers reject that combination.  We don't use cookies (userId is in the URL)
+        // so Allow is unnecessary; drop it to use the safe default (Deny).
         cors        = Middleware.cors(Middleware.CorsConfig(
                         allowedOrigin    = _ => Some(Header.AccessControlAllowOrigin.All),
                         allowedMethods   = Header.AccessControlAllowMethods.All,
                         allowedHeaders   = Header.AccessControlAllowHeaders.All,
-                        allowCredentials = Header.AccessControlAllowCredentials.Allow,
                         exposedHeaders   = Header.AccessControlExposeHeaders.None,
                         maxAge           = None
                       ))

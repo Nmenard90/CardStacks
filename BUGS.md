@@ -7,7 +7,7 @@ IDs sequential and never reuse a number.
 **Status:** `OPEN` · `IN PROGRESS` · `FIXED` · `WONTFIX` · `NEEDS REPRO`
 **Severity:** `S1` blocker/crash · `S2` correctness · `S3` minor/UX · `S4` hygiene/docs · `ENH` enhancement
 
-_Last updated: 2026-06-29._
+_Last updated: 2026-06-29 (session 2)._
 
 ---
 
@@ -16,24 +16,58 @@ _Last updated: 2026-06-29._
 | ID | Sev | Status | Area | Summary |
 |----|-----|--------|------|---------|
 | 001 | S2 | FIXED | BulkAddPage | Ref + manual re-render counter → stale counts / lost work. Rewritten on a reducer. |
-| 002 | S2 | NEEDS REPRO | api/client | `VITE_API_BASE` unset in prod → `/api` calls hit wrong origin. Live app works, so verify. |
+| 002 | S2 | WONTFIX | api/client | `VITE_API_BASE` must be set in Railway frontend env — live app works, confirming it is. |
 | 003 | S3 | FIXED | BulkAddPage | `setState` in the search-debounce effect. Restructured into the timeout callback. |
-| 004 | S3 | OPEN | BinderPickerModal, CollectionPage, ConventionModePage, OwnedPage | `setState` called synchronously inside effects (cascading renders). |
-| 005 | S4 | OPEN | Main.scala (CORS) | Wildcard origin + `allowCredentials` is an invalid CORS pair (latent). |
-| 006 | S4 | OPEN | ConventionModePage | React Compiler bailout ("memoization could not be preserved"), line 139. |
-| 007 | S4 | OPEN | OwnedPage | `prefer-const` lint error (line 115). |
-| 008 | S4 | OPEN | api/cards | Stale doc comment: search is "by name" but also matches numbers. |
+| 004 | S3 | FIXED | BinderPickerModal, CollectionPage, ConventionModePage, OwnedPage | `setState` called synchronously inside effects (cascading renders). |
+| 005 | S4 | FIXED | Main.scala (CORS) | Wildcard origin + `allowCredentials` is an invalid CORS pair (latent). |
+| 006 | S4 | FIXED | ConventionModePage | React Compiler bailout ("memoization could not be preserved"), line 139. |
+| 007 | S4 | FIXED | OwnedPage | `prefer-const` lint error (line 115). |
+| 008 | S4 | FIXED | api/cards | Stale doc comment: search is "by name" but also matches numbers. |
 | 009 | S2 | FIXED | Search (bulk) | `N/M` number search. Now a set-based lookup with an ambiguity picker. |
-| 010 | S3 | OPEN | binder.css | Binder card images cropped left/right (`object-fit:cover`, unconstrained slot). |
+| 010 | S3 | FIXED | binder.css | Binder card images cropped left/right (`object-fit:cover`, unconstrained slot). |
 | 011 | S2 | FIXED | Collection / catalog | Orphan prevention + repair deployed. (The export blank-rows symptom was actually BUG-014.) |
-| 012 | S2 | OPEN | AnalyzerPage | "Quick Add from Your Collection" panel is a placeholder stub. |
+| 012 | S2 | FIXED | AnalyzerPage | "Quick Add from Your Collection" panel is a placeholder stub. |
 | 013 | S3 | OPEN | Styling (all pages) | No central design system; per-page CSS, inconsistent colors + scaling. |
-| 014 | ENH | FIXED | Import/Export | Export scope picker (set owned/full, collection, binder). Also fixes blank-row export. |
-| 015 | S3 | OPEN | Import (UX/docs) | Import format is undocumented. |
+| 014 | ENH |OPEN | Import/Export | Export scope picker (set owned/full, collection, binder). Also fixes blank-row export. |
+| 015 | S3 | FIXED | Import (UX/docs) | Import format is undocumented. |
 | 016 | ENH | FIXED | Bulk search + quick-add | Two number boxes + set selector. Shipped with the BulkAddPage rewrite. |
 | 017 | ENH | OPEN | Card detail + pricing | Click-through card view; optional purchase price; price-vs-cost + history. |
 | 018 | ENH | OPEN | Pricing data | TCGplayer "last sold" price, per condition. |
-| 019 | S2 | OPEN | Pricing / catalog | Some cards show "no price" — catalog has no price rows for them. **Next up.** |
+| 019 | S2 | FIXED | Pricing / catalog | First-load always showed "no price"; infinite retry on partial matches. Fixed. |
+
+---
+
+## Fixed this session (2026-06-29, session 2)
+
+### BUG-019 — Cards showing "no price"
+**Status:** FIXED (backend; needs **Migration 001** run in Railway before deploying)
+
+Two root causes found and fixed:
+
+**Root cause 1 (primary):** `CardService.getCardsBySet`'s first-load branch (`case _ =>`)
+fetched prices and stored them in the DB, then `yield result` returned the pokemontcg.io
+cards which have `prices = None`. The DB re-read only happened in the "cached, some missing"
+branch. Fix: added `withPrices <- repo.findCardsBySet(setId)` after the price fetch and
+`yield withPrices` so first load returns prices immediately.
+
+**Root cause 2 (performance/correctness):** If any card in a set has no price row (e.g. promos
+not in TCGTracking), every subsequent `GET /api/cards/:setId` call triggered a fresh TCGTracking
+round-trip. Fix: added `prices_fetched_at TIMESTAMPTZ` to `card_sets` (Migration 001) and two
+new repo methods `isPricesFetchStale` / `markPricesFetched`. The "cached, some missing" branch
+now skips the TCGTracking call if prices were attempted within the last 6 hours.
+
+**Additional improvements:**
+- `PriceService.findTcgSetId`: added URL-encoding for set names with `&` or spaces; replaced
+  silent `catchAll` with explicit logging that shows the raw response body on parse failure and
+  lists TCGTracking candidates when no match is found.
+- `PriceService.fetchAndStorePrices`: logs product/price/match counts and a sample of unmatched
+  card numbers so number-format mismatches are visible in Railway logs.
+- New endpoint `GET /api/admin/refresh-prices/:setId`: re-fetches only prices from TCGTracking
+  without re-downloading card metadata from pokemontcg.io. Cheaper than `/admin/refresh/:setId`
+  when only prices are stale.
+
+**Deploy order:** Run Migration 001 in Railway SQL Editor first, then push. The code degrades
+gracefully if the column doesn't exist yet (`isPricesFetchStale` failure defaults to `true`).
 
 ---
 
@@ -101,12 +135,7 @@ this is effectively fine — verify the Railway frontend env var, then close.
 never fetches owned cards. Fix: fetch `getOwnedCards` and render clickable
 quick-add tiles wired to the give/get lists.
 
-**BUG-019 — Some cards show "no price"** · backend `PriceService` + price storage,
-surfaced on tiles / search. A card can have a catalog row but no price rows, so
-it displays "no price" / $0 (seen on Galarian Zapdos V, Chilling Reign). Likely
-the price fetch (TCGTracking) failed for that set/card, or the source lacks it.
-Fix: investigate the price-fetch path; add a way to (re)fetch prices for a card
-or set; decide a fallback when the source has no price. **Next up.**
+~~**BUG-019 — Some cards show "no price"**~~ → FIXED (see below)
 
 ### S3 — Minor / UX
 

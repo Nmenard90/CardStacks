@@ -42,7 +42,7 @@ export function OwnedPage() {
 
   useEffect(() => {
     if (!userId) return
-    setLoading(true)
+    // All state mutations in async callbacks — avoids cascading renders from synchronous setState.
     getOwnedCards(userId)
       .then((owned: OwnedCard[]) => {
         setCards(owned.map(o => o.card))
@@ -51,9 +51,9 @@ export function OwnedPage() {
           m[o.cardId] = { conds: fromCondList(o.conditions), selCond: o.selectedCond || 'NM' }
         }
         setColl(m)
+        setLoading(false)
       })
-      .catch(() => toast('Could not load your collection.'))
-      .finally(() => setLoading(false))
+      .catch(() => { toast('Could not load your collection.'); setLoading(false) })
   }, [userId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const persist = (card: Card, entry: Entry) => {
@@ -112,7 +112,7 @@ export function OwnedPage() {
 
   const displayed = useMemo(() => {
     const q = search.trim().toLowerCase()
-    let list = q
+    const list = q
       ? cards.filter(c =>
           c.name.toLowerCase().includes(q) ||
           c.number.toLowerCase().includes(q) ||
