@@ -1,92 +1,247 @@
-# TCG V3
+# TCG V3 — Pokémon Card Collection App
 
-Production-minded restart of the Pokémon card collection app.
+Production-minded V3 restart of the Pokémon card collection app.
 
-## What this is
+This app is being rebuilt from scratch inside `tcg/V3`. The older repo code is reference material only. V3 is designed to be cleaner, easier to maintain, faster, safer, and easier to extend to web, mobile, and desktop clients later.
 
-TCG V3 is a clean TypeScript/PostgreSQL app for Pokémon card collectors, master set builders, high-volume inventory owners, kids, and vendors.
+## Product Goal
 
-The backend is the source of truth so web, mobile, and desktop clients can all use the same API.
+Build a Pokémon card collection app for collectors, vendors, kids, and master set builders.
 
-## Current V3 scope
+Core goals:
 
-- Supabase Auth support for email/password and Google login.
-- Fastify backend API with centralized error handling.
-- PostgreSQL database managed by Prisma migrations.
-- React/Vite web app shell.
-- Worker app for catalog and price sync jobs.
-- Rate limiting for DDoS/basic abuse protection.
-- PokémonTCG.io catalog sync support.
-- Open TCG / TCGTracking-style SKU price provider scaffold.
-- Collection, variants, quantity, condition, paid price/date schema.
-- Master set progress schema and routes.
-- Binder/share schema and routes.
-- CSV/XLSX import/export scaffolding.
-- Billing/subscription/admin override schema from day one.
+* Search all Pokémon sets and cards quickly.
+* Add and remove cards from a collection.
+* Track quantity, condition, variant, paid price, and purchase date.
+* Manage online binders.
+* Share binders publicly.
+* Track master set progress and missing cards.
+* Store current prices and historical price snapshots.
+* Support CSV and XLSX import/export.
+* Prepare for trade analysis, fake-card guidance, and monetization.
 
-## Required tools
+## Current Status
 
-```bash
-node --version   # Use Node 20+
-pnpm --version
+Last updated: 2026-07-03
+
+Current working state:
+
+* V3 workspace exists.
+* API and Web apps run locally.
+* Worker exists but is not part of the default local `pnpm dev` command.
+* Prisma schema exists.
+* Initial migration was started.
+* Environment loading was fixed by using `dotenv-cli` and Turbo `--env-mode=loose`.
+* Railway services have been created.
+* Railway deployment still needs to be verified service by service.
+
+## Tech Stack
+
+Backend:
+
+* TypeScript
+* Fastify
+* Prisma
+* PostgreSQL
+* Zod validation
+* Supabase Auth
+* Rate limiting
+
+Frontend:
+
+* React
+* TypeScript
+* Vite
+
+Worker:
+
+* TypeScript
+* Scheduled catalog/price jobs
+
+Database:
+
+* PostgreSQL
+* Prisma migrations
+
+Deployment:
+
+* Railway
+
+## Folder Structure
+
+```txt
+V3/
+  apps/
+    api/        Backend API
+    web/        React web app
+    worker/     Scheduled sync jobs
+  packages/
+    db/         Prisma schema, migrations, seed
+    shared/     Shared constants and types
+  docs/         Architecture, API notes, security, standards
+  README.md
+  HANDOFF.md
+  BUGS.md
+  .env.example
 ```
 
-## Setup
+## Local Setup
+
+From the repo root:
 
 ```bash
-cd tcg/V3
-cp .env.example .env
+cd V3
 pnpm install
+cp .env.example .env
+```
+
+Update `.env` with real local values.
+
+Important:
+
+* Do not commit `.env`.
+* Use Railway `DATABASE_PUBLIC_URL` only for local development.
+* Use Railway private `DATABASE_URL` inside Railway services.
+
+Required local env values:
+
+```env
+DATABASE_URL=
+PUBLIC_WEB_URL=http://localhost:5173
+API_BASE_URL=http://localhost:4000
+POKEMON_TCG_API_URL=https://api.pokemontcg.io/v2
+OPEN_TCG_API_BASE_URL=https://www.tcgtracking.com/tcgapi/v1
+```
+
+## Database Commands
+
+```bash
 pnpm db:generate
 pnpm db:migrate
+pnpm db:seed
+```
+
+Do not run seed until migration succeeds.
+
+## Local Development
+
+Run API and Web only:
+
+```bash
 pnpm dev
 ```
 
-## Important environment rule
+This starts:
 
-Never commit a real `.env` file. Commit only `.env.example`.
-
-## Commands
-
-```bash
-pnpm dev               # run API, web, and worker dev scripts
-pnpm lint              # lint all packages
-pnpm typecheck         # TypeScript check all packages
-pnpm test              # run tests
-pnpm db:generate       # generate Prisma client
-pnpm db:migrate        # apply local database migrations
-pnpm worker:catalog    # run catalog sync once
-pnpm worker:prices     # run price sync once
-pnpm prepush           # required checklist before pushing
+```txt
+apps/api
+apps/web
 ```
 
-## Railway services
-
-Recommended Railway services:
-
-1. `tcg-v3-api`
-2. `tcg-v3-web`
-3. `tcg-v3-worker-catalog`
-4. `tcg-v3-worker-prices`
-5. `PostgreSQL`
-
-## Push rule
-
-Every push must update these docs:
-
-- `README.md`
-- `HANDOFF.md`
-- `BUGS.md`
-
-Run:
+Run the worker separately:
 
 ```bash
+pnpm dev:worker
+```
+
+Run all services together only when env vars are fully configured:
+
+```bash
+pnpm dev:all
+```
+
+## Useful URLs
+
+Local web:
+
+```txt
+http://localhost:5173
+```
+
+Local API health:
+
+```txt
+http://localhost:4000/health
+```
+
+## Scripts
+
+```bash
+pnpm dev          # API + Web only
+pnpm dev:all      # API + Web + Worker
+pnpm dev:worker   # Worker only
+pnpm build
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm db:generate
+pnpm db:migrate
+pnpm db:seed
 pnpm prepush
 ```
 
-## API docs checked
+## Coding Standards
 
-- PokémonTCG.io API v2 for set/card data.
-- Open TCG API / TCGTracking for SKU-level condition/variant pricing.
+V3 code must follow senior-developer standards:
 
-See `docs/API_FIELD_MAP.md`.
+* Every file has a plain-English file heading.
+* Every function has a clear function heading.
+* Main files stay thin.
+* Business logic stays in services.
+* Database access stays in repositories.
+* Routes only handle HTTP-level concerns.
+* No hard-coded secrets or URLs.
+* All input is validated.
+* Errors are explicit and consistent.
+* No silent fallbacks.
+* Large data is paginated, batched, or streamed.
+* Database indexes should support fast search.
+* Tests should be added before piling on more features.
+
+## Deployment Notes
+
+Railway services:
+
+```txt
+tcg-v3-api
+tcg-v3-web
+tcg-v3-worker-prices
+Postgres
+```
+
+Deploy order:
+
+```txt
+1. Postgres
+2. API
+3. Web
+4. Worker
+```
+
+Do not deploy the worker before API/Web are verified.
+
+## Required Push Rule
+
+Before every push, update:
+
+```txt
+README.md
+HANDOFF.md
+BUGS.md
+```
+
+Then run:
+
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test
+```
+
+If those pass:
+
+```bash
+git add V3
+git commit -m "Describe the V3 change"
+git push origin main
+```

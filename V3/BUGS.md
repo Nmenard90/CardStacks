@@ -38,3 +38,20 @@ No fixed bugs yet.
 - Variant naming may require adjustment after real Open TCG SKU data is tested.
 - Large XLSX imports should be tested with 10k+ rows for memory usage.
 - Search indexing should be verified after first production-sized catalog sync.
+
+### BUG-007: DB package typecheck could not find Node `process`
+
+- Status: Fixed
+- Severity: Low
+- Area: TypeScript / DB Package
+- Found: 2026-07-03
+- Fixed: 2026-07-03
+
+#### Problem
+
+`pnpm typecheck` failed in `packages/db/prisma/seed.ts`.
+
+Error:
+
+```txt
+Cannot find name 'process'. Do you need to install type definitions for node?
