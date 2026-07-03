@@ -1,0 +1,24 @@
+{
+  "name": "tcg-v3",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Production-minded V3 restart of the Pokémon card collection app.",
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "db:generate": "pnpm --filter @tcg/db db:generate",
+    "db:migrate": "pnpm --filter @tcg/db db:migrate",
+    "db:seed": "pnpm --filter @tcg/db db:seed",
+    "worker:catalog": "pnpm --filter @tcg/worker sync:catalog",
+    "worker:prices": "pnpm --filter @tcg/worker sync:prices",
+    "prepush": "node scripts/prepush-check.js"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0",
+    "typescript": "^5.8.0"
+  }
+}

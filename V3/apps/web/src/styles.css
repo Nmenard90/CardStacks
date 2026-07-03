@@ -1,0 +1,71 @@
+/**
+ * File: styles.css
+ * Purpose:
+ *   Provides simple readable styling for the MVP web app.
+ *
+ * Why this file exists:
+ *   The deadline build needs to be usable without hiding functionality behind
+ *   heavy design work.
+ */
+
+:root {
+  font-family: Inter, system-ui, sans-serif;
+  color: #15202b;
+  background: #f5f7fb;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+header,
+.panel {
+  background: white;
+  border: 1px solid #d9e1ef;
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 18px;
+  box-shadow: 0 8px 20px rgb(15 23 42 / 6%);
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+}
+
+input,
+button {
+  font: inherit;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #b8c3d6;
+}
+
+button {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.card {
+  border: 1px solid #d9e1ef;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.card img {
+  width: 100%;
+  border-radius: 8px;
+}

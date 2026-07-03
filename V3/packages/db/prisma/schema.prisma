@@ -1,0 +1,460 @@
+// File: schema.prisma
+// Purpose:
+//   Defines the PostgreSQL database schema for TCG V3.
+//
+// Why this file exists:
+//   The backend, workers, imports, exports, and future mobile clients all rely
+//   on this database as the source of truth.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum CardCondition {
+  NEAR_MINT
+  LIGHTLY_PLAYED
+  MODERATELY_PLAYED
+  HEAVILY_PLAYED
+  DAMAGED
+}
+
+enum PlanCode {
+  FREE
+  COLLECTOR_PRO
+  VENDOR_PRO
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  CANCELED
+  PAST_DUE
+  INACTIVE
+}
+
+enum AccessLevel {
+  FREE
+  COLLECTOR_PRO
+  VENDOR_PRO
+  ADMIN_FULL
+}
+
+enum SyncRunStatus {
+  RUNNING
+  SUCCESS
+  PARTIAL_FAILURE
+  FAILED
+}
+
+enum SyncErrorSeverity {
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+enum BinderVisibility {
+  PRIVATE
+  UNLISTED
+  PUBLIC
+}
+
+enum ImportStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  PARTIAL_FAILURE
+  FAILED
+}
+
+enum TradeStatus {
+  DRAFT
+  SAVED
+  COMPLETED
+}
+
+enum TradeSide {
+  GIVE
+  RECEIVE
+}
+
+model AppUser {
+  id                String            @id @default(uuid()) @db.Uuid
+  authProvider      String            @map("auth_provider")
+  authSubject       String            @unique @map("auth_subject")
+  email             String            @unique
+  displayName       String?           @map("display_name")
+  role              UserRole          @default(USER)
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+  subscriptions     Subscription[]
+  grantedOverrides  AccessOverride[]  @relation("AccessOverrideGrantedBy")
+  accessOverrides   AccessOverride[]  @relation("AccessOverrideUser")
+  collectionItems   CollectionItem[]
+  purchaseLots      PurchaseLot[]
+  binders           Binder[]
+  importJobs        ImportJob[]
+  tradeAnalyses     TradeAnalysis[]
+
+  @@map("app_users")
+}
+
+model Plan {
+  id                String          @id @default(uuid()) @db.Uuid
+  code              PlanCode        @unique
+  name              String
+  description       String?
+  monthlyPriceCents Int             @default(0) @map("monthly_price_cents")
+  yearlyPriceCents  Int             @default(0) @map("yearly_price_cents")
+  isActive          Boolean         @default(true) @map("is_active")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  subscriptions     Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id                       String              @id @default(uuid()) @db.Uuid
+  userId                   String              @map("user_id") @db.Uuid
+  planId                   String              @map("plan_id") @db.Uuid
+  status                   SubscriptionStatus  @default(INACTIVE)
+  provider                 String
+  providerCustomerId       String?             @map("provider_customer_id")
+  providerSubscriptionId   String?             @map("provider_subscription_id")
+  currentPeriodStart       DateTime?           @map("current_period_start")
+  currentPeriodEnd         DateTime?           @map("current_period_end")
+  cancelAtPeriodEnd        Boolean             @default(false) @map("cancel_at_period_end")
+  createdAt                DateTime            @default(now()) @map("created_at")
+  updatedAt                DateTime            @updatedAt @map("updated_at")
+  user                     AppUser             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan                     Plan                @relation(fields: [planId], references: [id])
+
+  @@index([userId, status])
+  @@map("subscriptions")
+}
+
+model AccessOverride {
+  id              String       @id @default(uuid()) @db.Uuid
+  userId          String       @map("user_id") @db.Uuid
+  grantedByUserId String       @map("granted_by_user_id") @db.Uuid
+  accessLevel     AccessLevel  @map("access_level")
+  reason          String
+  startsAt        DateTime     @map("starts_at")
+  endsAt          DateTime?    @map("ends_at")
+  isActive        Boolean      @default(true) @map("is_active")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  user            AppUser      @relation("AccessOverrideUser", fields: [userId], references: [id], onDelete: Cascade)
+  grantedBy       AppUser      @relation("AccessOverrideGrantedBy", fields: [grantedByUserId], references: [id])
+
+  @@index([userId, isActive, startsAt, endsAt])
+  @@map("access_overrides")
+}
+
+model Set {
+  id              String    @id
+  name            String
+  series          String?
+  printedTotal    Int?      @map("printed_total")
+  total           Int?
+  releaseDate     DateTime? @map("release_date") @db.Date
+  sourceUpdatedAt DateTime? @map("source_updated_at")
+  ptcgoCode       String?   @map("ptcgo_code")
+  symbolUrl       String?   @map("symbol_url")
+  logoUrl         String?   @map("logo_url")
+  source          String
+  rawJson         Json?     @map("raw_json")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  cards           Card[]
+
+  @@index([name])
+  @@index([releaseDate])
+  @@map("sets")
+}
+
+model Card {
+  id               String              @id
+  setId            String              @map("set_id")
+  name             String
+  normalizedName   String              @map("normalized_name")
+  number           String
+  numberInt        Int?                @map("number_int")
+  rarity           String?
+  artist           String?
+  supertype        String?
+  subtypes         String[]
+  imageSmall       String?             @map("image_small")
+  imageLarge       String?             @map("image_large")
+  rawJson          Json                @map("raw_json")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+  set              Set                 @relation(fields: [setId], references: [id], onDelete: Cascade)
+  variants         CardVariant[]
+  collectionItems  CollectionItem[]
+  purchaseLots     PurchaseLot[]
+  currentPrices    MarketPriceCurrent[]
+  priceSnapshots   MarketPriceSnapshot[]
+  binderSlots      BinderSlot[]
+  tradeItems       TradeAnalysisItem[]
+
+  @@index([setId])
+  @@index([normalizedName])
+  @@index([number])
+  @@index([setId, number])
+  @@index([numberInt])
+  @@map("cards")
+}
+
+model CardVariant {
+  id                  String                @id @default(uuid()) @db.Uuid
+  cardId              String                @map("card_id")
+  variantKey          String                @map("variant_key")
+  finish              String?
+  edition             String?
+  language            String                @default("EN")
+  isMasterSetVariant  Boolean               @default(true) @map("is_master_set_variant")
+  displayName         String                @map("display_name")
+  source              String
+  sourceProductId     String?               @map("source_product_id")
+  sourceSkuId         String?               @map("source_sku_id")
+  createdAt           DateTime              @default(now()) @map("created_at")
+  updatedAt           DateTime              @updatedAt @map("updated_at")
+  card                Card                  @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  collectionItems     CollectionItem[]
+  purchaseLots        PurchaseLot[]
+  currentPrices       MarketPriceCurrent[]
+  priceSnapshots      MarketPriceSnapshot[]
+  binderSlots         BinderSlot[]
+  tradeItems          TradeAnalysisItem[]
+
+  @@unique([cardId, variantKey, language])
+  @@index([source, sourceProductId, sourceSkuId])
+  @@map("card_variants")
+}
+
+model CollectionItem {
+  id              String        @id @default(uuid()) @db.Uuid
+  userId          String        @map("user_id") @db.Uuid
+  cardId          String        @map("card_id")
+  variantId       String        @map("variant_id") @db.Uuid
+  condition       CardCondition
+  quantity        Int
+  storageLocation String?       @map("storage_location")
+  notes           String?
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  user            AppUser       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card            Card          @relation(fields: [cardId], references: [id])
+  variant         CardVariant   @relation(fields: [variantId], references: [id])
+
+  @@unique([userId, cardId, variantId, condition, storageLocation])
+  @@index([userId])
+  @@index([cardId, variantId])
+  @@map("collection_items")
+}
+
+model PurchaseLot {
+  id              String        @id @default(uuid()) @db.Uuid
+  userId          String        @map("user_id") @db.Uuid
+  cardId          String        @map("card_id")
+  variantId       String        @map("variant_id") @db.Uuid
+  condition       CardCondition
+  quantity        Int
+  pricePaidTotal  Decimal?      @map("price_paid_total") @db.Decimal(12, 2)
+  pricePaidEach   Decimal?      @map("price_paid_each") @db.Decimal(12, 2)
+  purchasedAt     DateTime?     @map("purchased_at") @db.Date
+  seller          String?
+  source          String?
+  notes           String?
+  createdAt       DateTime      @default(now()) @map("created_at")
+  user            AppUser       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card            Card          @relation(fields: [cardId], references: [id])
+  variant         CardVariant   @relation(fields: [variantId], references: [id])
+
+  @@index([userId, purchasedAt])
+  @@index([cardId, variantId])
+  @@map("purchase_lots")
+}
+
+model MarketPriceCurrent {
+  id              String        @id @default(uuid()) @db.Uuid
+  cardId          String        @map("card_id")
+  variantId       String        @map("variant_id") @db.Uuid
+  condition       CardCondition
+  source          String
+  marketPrice     Decimal?      @map("market_price") @db.Decimal(12, 2)
+  lowPrice        Decimal?      @map("low_price") @db.Decimal(12, 2)
+  midPrice        Decimal?      @map("mid_price") @db.Decimal(12, 2)
+  highPrice       Decimal?      @map("high_price") @db.Decimal(12, 2)
+  lastSoldPrice   Decimal?      @map("last_sold_price") @db.Decimal(12, 2)
+  currency        String        @default("USD")
+  fetchedAt       DateTime      @map("fetched_at")
+  card            Card          @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  variant         CardVariant   @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@unique([cardId, variantId, condition, source])
+  @@index([fetchedAt])
+  @@map("market_prices_current")
+}
+
+model MarketPriceSnapshot {
+  id              String        @id @default(uuid()) @db.Uuid
+  cardId          String        @map("card_id")
+  variantId       String        @map("variant_id") @db.Uuid
+  condition       CardCondition
+  source          String
+  marketPrice     Decimal?      @map("market_price") @db.Decimal(12, 2)
+  lowPrice        Decimal?      @map("low_price") @db.Decimal(12, 2)
+  midPrice        Decimal?      @map("mid_price") @db.Decimal(12, 2)
+  highPrice       Decimal?      @map("high_price") @db.Decimal(12, 2)
+  lastSoldPrice   Decimal?      @map("last_sold_price") @db.Decimal(12, 2)
+  currency        String        @default("USD")
+  capturedAt      DateTime      @default(now()) @map("captured_at")
+  card            Card          @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  variant         CardVariant   @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([cardId, variantId, condition, capturedAt])
+  @@map("market_price_snapshots")
+}
+
+model SyncRun {
+  id              String          @id @default(uuid()) @db.Uuid
+  jobType         String          @map("job_type")
+  status          SyncRunStatus
+  source          String
+  startedAt       DateTime        @default(now()) @map("started_at")
+  finishedAt      DateTime?       @map("finished_at")
+  recordsSeen     Int             @default(0) @map("records_seen")
+  recordsUpdated  Int             @default(0) @map("records_updated")
+  recordsFailed   Int             @default(0) @map("records_failed")
+  errorSummary    String?         @map("error_summary")
+  errors          SyncError[]
+
+  @@index([jobType, status, startedAt])
+  @@map("sync_runs")
+}
+
+model SyncError {
+  id              String              @id @default(uuid()) @db.Uuid
+  syncRunId       String              @map("sync_run_id") @db.Uuid
+  severity        SyncErrorSeverity
+  entityType      String              @map("entity_type")
+  entityId        String?             @map("entity_id")
+  message         String
+  rawPayload      Json?               @map("raw_payload")
+  createdAt       DateTime            @default(now()) @map("created_at")
+  syncRun         SyncRun             @relation(fields: [syncRunId], references: [id], onDelete: Cascade)
+
+  @@index([syncRunId, severity])
+  @@map("sync_errors")
+}
+
+model Binder {
+  id              String            @id @default(uuid()) @db.Uuid
+  userId          String            @map("user_id") @db.Uuid
+  name            String
+  description     String?
+  visibility      BinderVisibility  @default(PRIVATE)
+  shareSlug       String?           @unique @map("share_slug")
+  pocketSize      Int               @default(9) @map("pocket_size")
+  coverCardId     String?           @map("cover_card_id")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+  user            AppUser           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slots           BinderSlot[]
+
+  @@index([userId])
+  @@map("binders")
+}
+
+model BinderSlot {
+  id              String        @id @default(uuid()) @db.Uuid
+  binderId        String        @map("binder_id") @db.Uuid
+  pageNumber      Int           @map("page_number")
+  slotNumber      Int           @map("slot_number")
+  cardId          String        @map("card_id")
+  variantId       String        @map("variant_id") @db.Uuid
+  condition       CardCondition?
+  quantity        Int           @default(1)
+  note            String?
+  binder          Binder        @relation(fields: [binderId], references: [id], onDelete: Cascade)
+  card            Card          @relation(fields: [cardId], references: [id])
+  variant         CardVariant   @relation(fields: [variantId], references: [id])
+
+  @@unique([binderId, pageNumber, slotNumber])
+  @@index([binderId])
+  @@map("binder_slots")
+}
+
+model ImportJob {
+  id              String        @id @default(uuid()) @db.Uuid
+  userId          String        @map("user_id") @db.Uuid
+  status          ImportStatus
+  filename        String
+  rowsTotal       Int           @default(0) @map("rows_total")
+  rowsImported    Int           @default(0) @map("rows_imported")
+  rowsFailed      Int           @default(0) @map("rows_failed")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  finishedAt      DateTime?     @map("finished_at")
+  user            AppUser       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  errors          ImportError[]
+
+  @@index([userId, createdAt])
+  @@map("import_jobs")
+}
+
+model ImportError {
+  id              String      @id @default(uuid()) @db.Uuid
+  importJobId     String      @map("import_job_id") @db.Uuid
+  rowNumber       Int         @map("row_number")
+  message         String
+  rawRow          Json        @map("raw_row")
+  importJob       ImportJob   @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+
+  @@index([importJobId])
+  @@map("import_errors")
+}
+
+model TradeAnalysis {
+  id              String              @id @default(uuid()) @db.Uuid
+  userId          String              @map("user_id") @db.Uuid
+  title           String?
+  status          TradeStatus         @default(DRAFT)
+  notes           String?
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+  user            AppUser             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items           TradeAnalysisItem[]
+
+  @@index([userId, createdAt])
+  @@map("trade_analyses")
+}
+
+model TradeAnalysisItem {
+  id                String          @id @default(uuid()) @db.Uuid
+  tradeAnalysisId   String          @map("trade_analysis_id") @db.Uuid
+  side              TradeSide
+  cardId            String          @map("card_id")
+  variantId         String          @map("variant_id") @db.Uuid
+  condition         CardCondition
+  quantity          Int
+  marketPriceEach   Decimal?        @map("market_price_each") @db.Decimal(12, 2)
+  manualPriceEach   Decimal?        @map("manual_price_each") @db.Decimal(12, 2)
+  tradeAnalysis     TradeAnalysis   @relation(fields: [tradeAnalysisId], references: [id], onDelete: Cascade)
+  card              Card            @relation(fields: [cardId], references: [id])
+  variant           CardVariant     @relation(fields: [variantId], references: [id])
+
+  @@index([tradeAnalysisId])
+  @@map("trade_analysis_items")
+}
