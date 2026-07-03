@@ -336,12 +336,14 @@ object PriceService:
 
             matched = saved.count(identity)
             // Log matched count; if any unmatched, append a sample so we can spot number-format mismatches
-            unmatchedSample = if matched < cards.size then
-                                val names = cards.zip(saved)
-                                              .collect { case (c, false) => s"${c.name}(${c.number})" }
-                                s"; unmatched: ${names.take(10).mkString(", ")}" +
-                                (if names.size > 10 then s" …+${names.size - 10} more" else "")
-                              else ""
+            unmatchedSample = {
+                                if matched < cards.size then
+                                  val names = cards.zip(saved)
+                                                .collect { case (c, false) => s"${c.name}(${c.number})" }
+                                  s"; unmatched: ${names.take(10).mkString(", ")}" +
+                                  (if names.size > 10 then s" …+${names.size - 10} more" else "")
+                                else ""
+                              }
             _ <- ZIO.logInfo(
                    s"TCGTracking: '${set.name}' — $matched/${cards.size} cards matched to prices$unmatchedSample"
                  )

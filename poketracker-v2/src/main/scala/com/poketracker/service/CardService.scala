@@ -391,7 +391,7 @@ object CardService:
                         // If the stale-check itself fails (column not yet migrated), default to stale
                         // so the app keeps working and prices are fetched normally.
                         .catchAll(_ => ZIO.succeed(true))
-            _      <- if stale then
+            _      <- ZIO.when(stale)(
                         repo.findSetById(setId).flatMap {
                           case Some(set) =>
                             priceService.fetchAndStorePrices(set, cards)
@@ -399,7 +399,7 @@ object CardService:
                               *> repo.markPricesFetched(setId)
                           case None => ZIO.unit
                         }
-                      else ZIO.unit
+                      )
             updated <- repo.findCardsBySet(setId)
           yield updated
 
