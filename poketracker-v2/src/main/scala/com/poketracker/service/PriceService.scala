@@ -165,7 +165,7 @@ object PriceService:
    * @param name         Set name
    * @param abbreviation Set abbreviation e.g. "SVI" — matches our ptcgoCode
    */
-  private case class TcgSetResult(id: Int, name: String, abbreviation: String)
+  private case class TcgSetResult(id: Int, name: String, abbreviation: Option[String])
   private given JsonDecoder[TcgSetResult] = DeriveJsonDecoder.gen
 
   /**
@@ -247,37 +247,47 @@ object PriceService:
      * @return     Some(tcgSetId) if found, None if not
      */
     private def findTcgSetId(set: CardSet): Task[Option[Int]] =
-      // URL-encode so names with spaces or & (e.g. "Scarlet & Violet") don't break the query
-      val raw   = set.ptcgoCode.getOrElse(set.name)
-      val query = java.net.URLEncoder.encode(raw, "UTF-8")
-      get(s"$BASE/$POKEMON_CAT/search?q=$query")
-        .flatMap { json =>
-          parse[TcgSearchResponse](json)
-            // Log the raw response body on parse failure so we can spot API schema changes
-            .tapError(e => ZIO.logWarning(
-              s"TCGTracking: failed to parse search response for '${set.name}': $e | " +
-              s"body (first 300 chars): ${json.take(300)}"
-            ))
+      val norm = (s: String) => s.toLowerCase.replaceAll("[^a-z0-9]", "")
+
+      // Fetch TCGTracking search results for a query; returns empty list on any failure.
+      def searchSets(q: String): Task[List[TcgSetResult]] =
+        val encoded = java.net.URLEncoder.encode(q, "UTF-8")
+        get(s"$BASE/$POKEMON_CAT/search?q=$encoded")
+          .flatMap { json =>
+            parse[TcgSearchResponse](json)
+              .tapError(e => ZIO.logWarning(
+                s"TCGTracking: parse error for '${set.name}' (q='$q'): $e | body: ${json.take(200)}"
+              ))
+              .map(_.sets)
+              .catchAll(_ => ZIO.succeed(List.empty[TcgSetResult]))
+          }
+          .catchAll(e =>
+            ZIO.logWarning(s"TCGTracking: network error for '${set.name}' (q='$q'): ${e.getMessage}") *>
+            ZIO.succeed(List.empty[TcgSetResult])
+          )
+
+      def matchSet(candidates: List[TcgSetResult]): Option[Int] =
+        candidates
+          .find(s => s.abbreviation.exists(a => set.ptcgoCode.exists(c => norm(a) == norm(c))))
+          .orElse(candidates.find(s => norm(s.name) == norm(set.name)))
+          .map(_.id)
+
+      // Try ptcgoCode first. If it returns no candidates (TCGTracking searches names,
+      // not abbreviations, so a code like "TEU" may return nothing), retry with the set name.
+      searchSets(set.ptcgoCode.getOrElse(set.name))
+        .flatMap { initial =>
+          if initial.nonEmpty || set.ptcgoCode.isEmpty then ZIO.succeed(initial)
+          else searchSets(set.name)
         }
-        .flatMap { resp =>
-          val norm    = (s: String) => s.toLowerCase.replaceAll("[^a-z0-9]", "")
-          val matched =
-            resp.sets.find(s => set.ptcgoCode.exists(c => norm(s.abbreviation) == norm(c)))
-              .orElse(resp.sets.find(s => norm(s.name) == norm(set.name)))
-          if matched.isEmpty then
-            // Log the candidates so we can see what TCGTracking returned and fix the matching
-            ZIO.logInfo(
-              s"TCGTracking: no set match for '${set.name}' (ptcgoCode: ${set.ptcgoCode}, searched: '$raw'). " +
-              s"Candidates: ${resp.sets.take(5).map(s => s"${s.abbreviation}/${s.name}").mkString(", ")}"
-            ).as(None)
-          else
-            ZIO.succeed(matched.map(_.id))
+        .flatMap { candidates =>
+          matchSet(candidates) match
+            case Some(id) => ZIO.succeed(Some(id))
+            case None =>
+              ZIO.logInfo(
+                s"TCGTracking: no match for '${set.name}' (code: ${set.ptcgoCode.getOrElse("none")}). " +
+                s"Candidates: ${candidates.take(5).map(s => s"${s.abbreviation.getOrElse("?")}/${s.name}").mkString(", ")}"
+              ).as(None)
         }
-        .catchAll(e =>
-          // Network error or unrecoverable parse failure — log and skip prices for this set
-          ZIO.logWarning(s"TCGTracking: search failed for '${set.name}': ${e.getMessage}") *>
-          ZIO.succeed(None)
-        )
 
     /**
      * METHOD: fetchAndStorePrices

@@ -377,6 +377,7 @@ export function BulkAddPage() {
         // to the dropdown so the user picks the right set by name.
         setNum(''); setDen('')
         setQuery(`${n}/${d}`)
+        searchRef.current?.focus()
         flash(`${matches.length} sets have #${n}/${d} — pick one below`, true)
       }
     } catch {
@@ -521,6 +522,7 @@ export function BulkAddPage() {
               ref={searchRef} className="bulk-search" value={query}
               placeholder="Search by name — e.g. Charizard"
               onChange={e => setQuery(e.target.value)}
+              onBlur={() => window.setTimeout(() => { setResults([]); setQuery('') }, 150)}
               onKeyDown={e => {
                 if (e.key === 'Enter') { e.preventDefault(); onSearchEnter() }
                 else if (e.key === 'ArrowDown') { e.preventDefault(); setHi(i => Math.min(i + 1, results.length - 1)) }
