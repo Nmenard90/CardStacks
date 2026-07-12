@@ -31,9 +31,19 @@
 
 ## Fixed
 
-No fixed bugs yet.
+### BUG-004: Fresh clone could not typecheck (missing build dependency + committed cache)
+
+- Status: Fixed
+- Severity: High
+- Area: Build / Repo hygiene
+- Found: 2026-07-12
+- Notes: Two causes. (1) `turbo.json` had `typecheck` depend on `^typecheck`, but dependents resolve `@tcg/shared` types from its `dist/` output, so a clone with no `dist/` failed with TS2307/TS2305. (2) `V3/.turbo/cache` (57 files) was committed, so turbo replayed stale "successful" logs from the original machine instead of running checks, masking the failure.
+- Fix: `typecheck` and `lint` now depend on `^build`; `.turbo` added to `.gitignore` and the committed cache removed from the index. Verified by deleting `packages/shared/dist` and re-running `turbo typecheck --force` (6/6 tasks pass, shared builds first).
+
 
 ## Suspected / Watchlist
+
+- Test coverage is effectively zero: one test file exists (`apps/api/src/tests/error-handler.test.ts`). Each new feature must land with tests before this list can shrink.
 
 - Variant naming may require adjustment after real Open TCG SKU data is tested.
 - Large XLSX imports should be tested with 10k+ rows for memory usage.

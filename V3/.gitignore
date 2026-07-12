@@ -26,3 +26,6 @@ pnpm-debug.log*
 
 # Prisma generated artifacts that should not be hand-edited
 packages/db/prisma/migrations/dev-*
+
+# Turborepo local task cache — machine-specific, never commit
+.turbo

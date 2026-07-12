@@ -295,3 +295,28 @@ git push origin main
 * Worker is not ready to be part of default local dev.
 * Pricing provider mapping still needs real API fixture verification.
 * XLSX import/export needs implementation verification.
+
+## Fresh clone — verified working order (2026-07-12)
+
+Run these in order after cloning; each was verified in a clean environment:
+
+```bash
+pnpm install                       # installs all workspaces
+pnpm db:generate                   # generates the Prisma client (@prisma/client types)
+pnpm typecheck && pnpm lint && pnpm test
+```
+
+Why the order matters: `@tcg/db`, `@tcg/api`, and `@tcg/worker` import generated
+Prisma types, so `db:generate` must run before any typecheck. `turbo.json` now
+builds `@tcg/shared` automatically before dependent typecheck/lint (BUG-004).
+
+Note for sandboxed/offline environments: Prisma engine downloads can be blocked.
+`prisma generate` still works with stubbed engines:
+`PRISMA_SCHEMA_ENGINE_BINARY=/bin/true PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1 npx prisma generate --no-engine`
+
+## Client strategy (owner decision, 2026-07-12)
+
+This product ships as an app, not only a web page. The architecture rule that
+keeps that cheap: all business logic lives in `apps/api` and `packages/shared`;
+clients stay thin. Future mobile (Expo/React Native) or desktop (Tauri) clients
+are added under `apps/` and consume the same API — never fork logic into a client.
