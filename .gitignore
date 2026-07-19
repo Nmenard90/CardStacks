@@ -2,3 +2,6 @@ files/node_modules/
 files/card-data/
 files/package-lock.json
 package-lock.json
+
+# Applied patch files from the Claude workflow — never commit these
+*.patch
