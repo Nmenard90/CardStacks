@@ -22,6 +22,16 @@
 
 ## Fixed
 
+### BUG-005: Worker undeployable on Railway (missing shared build + missing start script)
+
+- Status: Fixed
+- Severity: High
+- Area: Worker / Deployment
+- Found: 2026-07-19 (Railway build logs)
+- Notes: Railway's build command compiles @tcg/worker directly with tsc, so @tcg/shared dist never existed (TS2307). Separately, Railway's deploy command calls a `start` script the worker did not have, so deploy would have failed even after a successful build.
+- Fix: worker `build` now builds @tcg/shared first (verified by reproducing Railway's exact command from a clean state); added `start: node dist/index.js`. Cron requirement documented in HANDOFF.md.
+
+
 ### BUG-002: Import upload UI is not finished
 
 - Status: Fixed

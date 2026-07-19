@@ -335,3 +335,15 @@ storage_location, notes). Rules that must never regress:
 Logic layout: import.parser.ts (pure, tested), import.repository.ts
 (increment-upsert on the CollectionItem unique key), import.service.ts
 (job bookkeeping). Web: features/imports/ImportPanel.tsx + apiUpload helper.
+
+## Railway deployment notes (2026-07-19)
+
+* Worker build on Railway compiles the package directly (not via turbo), so
+  `@tcg/worker` build now builds `@tcg/shared` itself, and `start` runs
+  `node dist/index.js` (Railway passes the sync command as an argument).
+* The worker is one-shot by design: it runs a command and exits. The Railway
+  service needs a Cron Schedule (service Settings) or Railway will restart it
+  endlessly and it will re-sync in a loop.
+* API requires these env vars as full URLs including https://
+  (see .env.example): PUBLIC_WEB_URL, API_BASE_URL, POKEMON_TCG_API_URL,
+  OPEN_TCG_API_BASE_URL. Missing/malformed values crash at startup on purpose.
