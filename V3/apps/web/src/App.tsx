@@ -9,6 +9,7 @@
 
 import { LoginPanel } from "./features/auth/LoginPanel.js";
 import { CollectionPanel } from "./features/collection/CollectionPanel.js";
+import { ImportPanel } from "./features/imports/ImportPanel.js";
 import { SearchPanel } from "./features/search/SearchPanel.js";
 import "./styles.css";
 
@@ -25,6 +26,7 @@ export function App() {
       <LoginPanel />
       <SearchPanel />
       <CollectionPanel />
+      <ImportPanel />
     </main>
   );
 }

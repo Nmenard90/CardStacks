@@ -320,3 +320,18 @@ This product ships as an app, not only a web page. The architecture rule that
 keeps that cheap: all business logic lives in `apps/api` and `packages/shared`;
 clients stay thin. Future mobile (Expo/React Native) or desktop (Tauri) clients
 are added under `apps/` and consume the same API — never fork logic into a client.
+
+## Import feature (implemented 2026-07-12)
+
+`POST /api/v1/imports/collection` accepts one CSV/XLSX file as multipart field
+`file`. Columns: card_id, condition, quantity (+ optional variant_key,
+storage_location, notes). Rules that must never regress:
+
+* Quantities merge only within the same condition (owner rule). Different
+  condition, variant, or storage location = separate entries.
+* Bad rows produce ImportError records; they never abort the file.
+* variant_key is required when a card has more than one variant.
+
+Logic layout: import.parser.ts (pure, tested), import.repository.ts
+(increment-upsert on the CollectionItem unique key), import.service.ts
+(job bookkeeping). Web: features/imports/ImportPanel.tsx + apiUpload helper.
