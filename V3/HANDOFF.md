@@ -347,3 +347,10 @@ Logic layout: import.parser.ts (pure, tested), import.repository.ts
 * API requires these env vars as full URLs including https://
   (see .env.example): PUBLIC_WEB_URL, API_BASE_URL, POKEMON_TCG_API_URL,
   OPEN_TCG_API_BASE_URL. Missing/malformed values crash at startup on purpose.
+
+## Web serving on Railway (2026-07-19)
+
+The web service serves the built app with `vite preview` via the `start`
+script. vite.config.ts pins preview to Railway's PORT and allows all hosts
+(frontend is static; secrets and auth live in the API). If serving ever moves
+to a real static host or CDN, delete the preview config rather than fighting it.

@@ -22,6 +22,16 @@
 
 ## Fixed
 
+### BUG-006: Web service unservable on Railway (missing start script, port, and host allowance)
+
+- Status: Fixed
+- Severity: High
+- Area: Web / Deployment
+- Found: 2026-07-19 (bad gateway; deploy log: "None of the selected packages has a start script")
+- Notes: Three stacked causes. (1) Railway's deploy command calls `start`, which @tcg/web did not define — the service had only ever built and exited, hence its historical "Completed" status. (2) `vite preview` listens on 4173, not Railway's injected PORT. (3) Vite 6's preview host check rejects requests addressed to unlisted domains, which presents as a bad gateway with empty logs.
+- Fix: added `start: vite preview`; new vite.config.ts sets preview host/PORT and `allowedHosts: true` (static frontend holds no secrets; the API enforces auth). Web build also compiles @tcg/shared first, same defense as BUG-005. Verified in-container: built with production-style env, served under PORT=8123, HTTP 200 both plain and with a Railway Host header.
+
+
 ### BUG-005: Worker undeployable on Railway (missing shared build + missing start script)
 
 - Status: Fixed
