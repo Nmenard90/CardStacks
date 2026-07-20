@@ -10,3 +10,8 @@ package-lock.json
 tcg-agent-worktrees/
 *.foreman.log
 .turbo/
+
+# Scala/Metals/Bloop IDE build-server caches (legacy poketracker-v2 tooling)
+.metals/
+.bloop/
+target/

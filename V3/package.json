@@ -4,6 +4,10 @@
   "private": true,
   "description": "Production-minded V3 restart of the Pokémon card collection app.",
   "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": "^22.0.0",
+    "pnpm": "^9.15.0"
+  },
   "scripts": {
     "dev": "dotenv -e .env -- turbo dev --filter=@tcg/api --filter=@tcg/web --env-mode=loose",
     "dev:all": "dotenv -e .env -- turbo dev --env-mode=loose",

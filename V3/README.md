@@ -87,6 +87,11 @@ V3/
 
 ## Local Setup
 
+Requires:
+
+* Node.js `22.x` (matches the `node:22-alpine` images used by `apps/api` and `apps/web` Dockerfiles).
+* pnpm `9.15.0` (pinned via `packageManager` in `package.json`; use `corepack enable` to get the matching version automatically).
+
 From the repo root:
 
 ```bash
@@ -122,6 +127,24 @@ pnpm db:seed
 ```
 
 Do not run seed until migration succeeds.
+
+## Verifying a Clean Clone
+
+`@tcg/db`, `@tcg/api`, and `@tcg/worker` import generated Prisma client types,
+so `db:generate` must run before `lint`/`typecheck`/`build` or those commands
+fail with `Module "@prisma/client" has no exported member 'PrismaClient'`.
+From a fresh clone/checkout, in order:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm db:generate
+pnpm prepush   # lint && typecheck && test
+pnpm build
+```
+
+`db:generate` only needs a syntactically valid `DATABASE_URL` (Prisma reads
+the schema, it does not need to reach a live database), so this sequence
+works even before a real local Postgres instance is configured.
 
 ## Local Development
 
