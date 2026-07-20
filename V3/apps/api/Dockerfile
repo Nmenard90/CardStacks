@@ -22,7 +22,11 @@ RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
 COPY . .
-RUN pnpm --filter @tcg/db exec prisma generate --schema prisma/schema.prisma
+# Prisma validates the datasource URL while generating, but does not connect.
+# Scope a non-secret placeholder to this command so the build never depends on
+# an ambient .env file and the value is not retained as runtime configuration.
+RUN DATABASE_URL="postgresql://prisma:prisma@localhost:5432/build" \
+    pnpm --filter @tcg/db exec prisma generate --schema prisma/schema.prisma
 RUN pnpm --filter @tcg/shared build
 RUN pnpm --filter @tcg/api build
 
