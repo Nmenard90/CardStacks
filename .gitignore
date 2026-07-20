@@ -9,3 +9,4 @@ package-lock.json
 .foreman/
 tcg-agent-worktrees/
 *.foreman.log
+.turbo/
