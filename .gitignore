@@ -5,3 +5,7 @@ package-lock.json
 
 # Applied patch files from the Claude workflow — never commit these
 *.patch
+# Local Foreman runtime
+.foreman/
+tcg-agent-worktrees/
+*.foreman.log
