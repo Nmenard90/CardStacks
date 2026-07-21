@@ -36,6 +36,16 @@ export async function syncPrices(prisma: PrismaClient, env: WorkerEnv): Promise<
     await prisma.syncRun.update({ where: { id: syncRun.id }, data: { status: "FAILED", finishedAt: new Date(), errorSummary: error instanceof Error ? error.message : "Unknown price sync failure" } });
     throw error;
   }
+
+  // The run is recorded as PARTIAL_FAILURE above, but the job as a whole must
+  // still fail the process: PRICE-703 (real SKU mapping) is unimplemented, so
+  // this invocation never writes a price. Throwing here — outside the try
+  // block above, so it does not overwrite the PARTIAL_FAILURE status with
+  // FAILED — makes main() set a nonzero exit code instead of reporting a
+  // deceptive success for a job that wrote nothing.
+  throw new Error(
+    `Price sync recorded PARTIAL_FAILURE (syncRun ${syncRun.id}): Open TCG SKU mapping (PRICE-703) is not implemented, so no prices were written.`
+  );
 }
 
 /**

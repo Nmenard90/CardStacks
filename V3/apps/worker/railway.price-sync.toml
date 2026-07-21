@@ -1,0 +1,43 @@
+# File: apps/worker/railway.price-sync.toml
+# Purpose:
+#   Railway config-as-code for the "worker-price-sync" service (SPEC.md
+#   section 10: "Worker/price schedule").
+#
+# How to use:
+#   Create a Railway service with Root Directory = `V3/`, then set this
+#   service's "Config-as-code path" (Service Settings > Config-as-code) to
+#   `apps/worker/railway.price-sync.toml`. Railway builds
+#   apps/worker/Dockerfile and runs it on the cron schedule below, once per
+#   trigger, to completion.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "apps/worker/Dockerfile"
+
+[deploy]
+startCommand = "pnpm --filter @tcg/worker start:sync-prices"
+# DO NOT set cronSchedule for this service yet. The price sync job itself
+# (apps/worker/src/jobs/sync-prices.ts) is a scaffold: it records a
+# PARTIAL_FAILURE sync run, writes no real prices, and now deliberately
+# exits nonzero every run because PRICE-703 (real Open TCG SKU mapping) is
+# not implemented. SPEC.md section 10 requires provider mappings and overlap
+# protection to be tested before a worker schedule is deployed. Uncomment the
+# line below, with a product-approved cadence, only once PRICE-703 ships.
+# cronSchedule = "0 */6 * * *"
+# The container runs one job to completion and exits; it is not a long-lived
+# process, so Railway must not restart it between scheduled triggers.
+restartPolicyType = "NEVER"
+numReplicas = 1
+
+# Required environment variables (see apps/worker/src/config/env.ts and
+# .env.example; set actual values in the Railway service, never here).
+# loadWorkerEnv() validates the full schema for every command, so both the
+# catalog and price services need the complete set below, not just the
+# variables their own job reads:
+#   DATABASE_URL
+#   POKEMON_TCG_API_URL
+#   POKEMON_TCG_API_KEY        (optional)
+#   POKEMON_TCG_PAGE_SIZE      (optional, default 250)
+#   OPEN_TCG_API_BASE_URL
+#   OPEN_TCG_POKEMON_CATEGORY_ID (optional)
+#   OPEN_TCG_PRICE_SOURCE_NAME   (optional, default "open_tcg")
