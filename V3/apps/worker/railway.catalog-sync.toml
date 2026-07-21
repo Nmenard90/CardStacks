@@ -16,11 +16,16 @@ dockerfilePath = "apps/worker/Dockerfile"
 
 [deploy]
 startCommand = "pnpm --filter @tcg/worker start:sync-catalog"
-# TBD (product decision): exact cadence has not been set by the product
-# owner. Every 12 hours is a conservative placeholder that keeps the local
-# catalog reasonably fresh without hammering the PokémonTCG.io API on every
-# deploy. Revisit once real catalog change frequency is known.
-cronSchedule = "0 */12 * * *"
+# DO NOT set cronSchedule for this service yet. docs/SPEC.md section 10
+# requires provider mappings and overlap protection to be tested before a
+# worker schedule is deployed, and apps/worker/src/jobs/sync-catalog.ts has
+# no concurrency guard: two overlapping triggers (a slow run plus a new
+# scheduled trigger) can race on the same Set/Card/CardVariant upserts. That
+# guard is tracked separately under CAT-302 ("Optimize catalog
+# synchronization" — concurrent-run prevention). Uncomment the line below,
+# with a product-approved cadence, only once CAT-302 ships. Every 12 hours
+# was the previous placeholder cadence; TBD until a real decision is made.
+# cronSchedule = "0 */12 * * *"
 # The container runs one job to completion and exits; it is not a long-lived
 # process, so Railway must not restart it between scheduled triggers.
 restartPolicyType = "NEVER"
