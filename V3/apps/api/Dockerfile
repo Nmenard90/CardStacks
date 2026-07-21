@@ -36,9 +36,23 @@ FROM build AS prod
 # or worker into the runtime image.
 RUN pnpm --filter @tcg/api deploy --prod /prod/api
 
-FROM base AS runner
+# `pnpm deploy` resolves the deployed node_modules straight from the pnpm
+# content-addressable store, so it does not carry over the Prisma Client
+# generated earlier in this stage (Prisma writes generated code directly to
+# disk, which the store does not track). Without this, the deployed
+# @prisma/client is a stub and the runtime image fails to start. Regenerate
+# the client directly into the deployed package so it is self-contained, then
+# drop the schema copy — it is only needed to steer generation output.
+RUN mkdir -p /prod/api/prisma \
+    && cp packages/db/prisma/schema.prisma /prod/api/prisma/schema.prisma \
+    && DATABASE_URL="postgresql://prisma:prisma@localhost:5432/build" \
+       pnpm --filter @tcg/db exec prisma generate --schema /prod/api/prisma/schema.prisma \
+    && rm -rf /prod/api/prisma
+
+FROM node:22-alpine AS runner
 ENV NODE_ENV=production
 WORKDIR /app
-COPY --from=prod /prod/api ./
+COPY --from=prod --chown=node:node /prod/api ./
+USER node
 EXPOSE 4000
 CMD ["node", "dist/server.js"]
