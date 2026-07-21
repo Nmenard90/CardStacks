@@ -22,6 +22,10 @@ RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
 COPY . .
+# Recreate the pnpm workspace links after the complete source tree is copied.
+# This guarantees that package-level executables such as Prisma point into the
+# Linux pnpm store rather than a missing or overwritten package directory.
+RUN pnpm install --offline --frozen-lockfile --force
 # Prisma validates the datasource URL while generating, but does not connect.
 # Scope a non-secret placeholder to this command so the build never depends on
 # an ambient .env file and the value is not retained as runtime configuration.
