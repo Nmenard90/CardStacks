@@ -16,13 +16,14 @@ dockerfilePath = "apps/worker/Dockerfile"
 
 [deploy]
 startCommand = "pnpm --filter @tcg/worker start:sync-prices"
-# TBD (product decision): exact cadence has not been set by the product
-# owner. Every 6 hours is a conservative placeholder. Note the price sync job
-# itself (apps/worker/src/jobs/sync-prices.ts) is currently a scaffold that
-# records a PARTIAL_FAILURE sync run without writing real prices (PRICE-703
-# is not yet implemented) — do not enable this schedule in production until
-# that job is finished.
-cronSchedule = "0 */6 * * *"
+# DO NOT set cronSchedule for this service yet. The price sync job itself
+# (apps/worker/src/jobs/sync-prices.ts) is a scaffold: it records a
+# PARTIAL_FAILURE sync run, writes no real prices, and now deliberately
+# exits nonzero every run because PRICE-703 (real Open TCG SKU mapping) is
+# not implemented. SPEC.md section 10 requires provider mappings and overlap
+# protection to be tested before a worker schedule is deployed. Uncomment the
+# line below, with a product-approved cadence, only once PRICE-703 ships.
+# cronSchedule = "0 */6 * * *"
 # The container runs one job to completion and exits; it is not a long-lived
 # process, so Railway must not restart it between scheduled triggers.
 restartPolicyType = "NEVER"
