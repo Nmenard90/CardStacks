@@ -32,6 +32,10 @@ describe("resolveWorkerCommand", () => {
     expect(() => resolveWorkerCommand("delete-everything")).toThrow(/delete-everything/);
   });
 
+  it("throws for inherited object prototype keys", () => {
+    expect(() => resolveWorkerCommand("toString")).toThrow(/toString/);
+  });
+
   it("exposes exactly the catalog and price sync commands", () => {
     expect(Object.keys(WORKER_COMMANDS).sort()).toEqual(["sync-catalog", "sync-prices"]);
   });

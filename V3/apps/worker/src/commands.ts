@@ -30,7 +30,7 @@ export type WorkerCommand = keyof typeof WORKER_COMMANDS;
  * instead of silently doing nothing.
  */
 export function resolveWorkerCommand(command: string | undefined): (typeof WORKER_COMMANDS)[WorkerCommand] {
-  if (command !== undefined && command in WORKER_COMMANDS) {
+  if (command !== undefined && Object.hasOwn(WORKER_COMMANDS, command)) {
     return WORKER_COMMANDS[command as WorkerCommand];
   }
 
