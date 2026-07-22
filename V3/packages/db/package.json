@@ -4,12 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "generate": "prisma generate --schema=prisma/schema.prisma",
+    "postinstall": "pnpm generate",
+    "prebuild": "pnpm generate",
     "build": "tsc -p tsconfig.json",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
-    "db:generate": "prisma generate --schema prisma/schema.prisma",
+    "test:generate": "node scripts/verify-client-generation.mjs",
+    "db:generate": "pnpm generate",
     "db:migrate": "prisma migrate dev --schema prisma/schema.prisma",
+    "predb:seed": "pnpm generate",
     "db:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {

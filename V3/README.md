@@ -130,21 +130,25 @@ Do not run seed until migration succeeds.
 
 ## Verifying a Clean Clone
 
-`@tcg/db`, `@tcg/api`, and `@tcg/worker` import generated Prisma client types,
-so `db:generate` must run before `lint`/`typecheck`/`build` or those commands
-fail with `Module "@prisma/client" has no exported member 'PrismaClient'`.
-From a fresh clone/checkout, in order:
+`@tcg/db`, `@tcg/api`, and `@tcg/worker` import generated Prisma client types.
+The database package generates those types during installation and before its
+build, lint, typecheck, test, and seed commands, so clean-worktree verification
+does not require a separate generation step. From a fresh clone/checkout:
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm db:generate
 pnpm prepush   # lint && typecheck && test
 pnpm build
 ```
 
-`db:generate` only needs a syntactically valid `DATABASE_URL` (Prisma reads
-the schema, it does not need to reach a live database), so this sequence
-works even before a real local Postgres instance is configured.
+Manual `db:generate` remains available and only needs a syntactically valid
+`DATABASE_URL` (Prisma reads the schema, it does not need to reach a live
+database), so this sequence works even before a real local Postgres instance
+is configured.
+
+To exercise the clean-worktree regression directly, run
+`pnpm --filter @tcg/db test:generate`. It temporarily invalidates one generated
+declaration and verifies that the normal database lint command regenerates it.
 
 ## Local Development
 

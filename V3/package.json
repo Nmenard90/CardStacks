@@ -13,13 +13,17 @@
     "dev:all": "dotenv -e .env -- turbo dev --env-mode=loose",
     "dev:worker": "dotenv -e .env -- pnpm --filter @tcg/worker dev",
     "build": "dotenv -e .env -- turbo build",
-    "lint": "turbo lint",
-    "typecheck": "dotenv -e .env -- turbo typecheck",
-    "test": "dotenv -e .env -- turbo test",
+    "lint": "pnpm run prisma:generate && pnpm run lint:turbo",
+    "typecheck": "pnpm run prisma:generate && pnpm run typecheck:turbo",
+    "test": "pnpm run prisma:generate && pnpm run test:turbo",
     "db:generate": "dotenv -e .env -- pnpm --filter @tcg/db db:generate",
     "db:migrate": "dotenv -e .env -- pnpm --filter @tcg/db db:migrate",
     "db:seed": "dotenv -e .env -- pnpm --filter @tcg/db db:seed",
-    "prepush": "pnpm lint && pnpm typecheck && pnpm test"
+    "prepush": "pnpm run prisma:generate && pnpm run lint:turbo && pnpm run typecheck:turbo && pnpm run test:turbo",
+    "prisma:generate": "pnpm --filter @tcg/db generate",
+    "lint:turbo": "turbo lint",
+    "typecheck:turbo": "dotenv -e .env -- turbo typecheck",
+    "test:turbo": "dotenv -e .env -- turbo test"
   },
   "devDependencies": {
     "@types/node": "^22.20.0",
