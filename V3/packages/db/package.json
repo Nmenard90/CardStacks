@@ -14,6 +14,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pretest": "pnpm generate",
     "test": "vitest run --passWithNoTests && node scripts/verify-client-generation.mjs",
+    "test:generate": "node scripts/verify-client-generation.mjs",
     "db:generate": "pnpm generate",
     "db:migrate": "prisma migrate dev --schema prisma/schema.prisma",
     "predb:seed": "pnpm generate",
