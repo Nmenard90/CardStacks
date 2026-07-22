@@ -7,7 +7,7 @@
  *   Fetch/error handling should be centralized so UI components stay simple.
  */
 
-import { supabase } from "./supabase.js";
+import { getSupabase } from "./supabase.js";
 import { WEB_ENV } from "./env.js";
 
 /**
@@ -17,7 +17,7 @@ import { WEB_ENV } from "./env.js";
  *   Throws readable errors when the backend returns the standard error shape.
  */
 export async function apiGet<T>(path: string): Promise<T> {
-  const session = await supabase.auth.getSession();
+  const session = await getSupabase().auth.getSession();
   const token = session.data.session?.access_token;
 
   const response = await fetch(`${WEB_ENV.apiBaseUrl}${path}`, {
@@ -37,7 +37,7 @@ export async function apiGet<T>(path: string): Promise<T> {
  * Sends JSON to the backend API and returns the `data` property.
  */
 export async function apiSend<T>(path: string, method: "POST" | "PATCH" | "DELETE", body?: unknown): Promise<T> {
-  const session = await supabase.auth.getSession();
+  const session = await getSupabase().auth.getSession();
   const token = session.data.session?.access_token;
 
   const response = await fetch(`${WEB_ENV.apiBaseUrl}${path}`, {
@@ -66,7 +66,7 @@ export async function apiSend<T>(path: string, method: "POST" | "PATCH" | "DELET
  *   multipart boundary itself, so this helper never touches Content-Type.
  */
 export async function apiUpload<T>(path: string, file: File, fieldName = "file"): Promise<T> {
-  const session = await supabase.auth.getSession();
+  const session = await getSupabase().auth.getSession();
   const token = session.data.session?.access_token;
 
   const body = new FormData();

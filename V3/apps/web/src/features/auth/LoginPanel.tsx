@@ -8,7 +8,7 @@
  */
 
 import { useState } from "react";
-import { supabase } from "../../lib/supabase.js";
+import { getSupabase } from "../../lib/supabase.js";
 
 /**
  * Renders login controls and handles Supabase auth actions.
@@ -23,6 +23,7 @@ export function LoginPanel() {
    */
   async function signInWithEmail() {
     setMessage(null);
+    const supabase = getSupabase();
     const result = await supabase.auth.signInWithPassword({ email, password });
 
     if (result.error) {
@@ -38,6 +39,7 @@ export function LoginPanel() {
    * Starts Google OAuth login.
    */
   async function signInWithGoogle() {
+    const supabase = getSupabase();
     await supabase.auth.signInWithOAuth({ provider: "google" });
   }
 
