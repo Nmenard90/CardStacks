@@ -22,6 +22,14 @@
 
 ## Fixed
 
+### BUG-008: Clean worktree verification required manual Prisma Client generation
+
+- Status: Fixed
+- Severity: High
+- Area: Database / Build
+- Found: 2026-07-22
+- Fix: `@tcg/db` now generates Prisma Client during installation and before every package command that compiles or executes Prisma-dependent code. A regression check invalidates the generated declaration and confirms the normal database lint command restores it automatically.
+
 ### BUG-006: Web service unservable on Railway (missing start script, port, and host allowance)
 
 - Status: Fixed
