@@ -1,32 +1,105 @@
-/**
- * File: App.tsx
- * Purpose:
- *   Composes the first working web UI.
- *
- * Why this file exists:
- *   The app shell should stay simple and delegate real work to feature panels.
- */
+import { useEffect, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
+import { AppShell } from "./components/layout/AppShell.js";
+import { RouteView, normalizePath } from "./routes/RouteView.js";
+import { getSupabase } from "./lib/supabase.js";
+import { apiGet } from "./lib/api.js";
+import "./styles/global.css";
 
-import { LoginPanel } from "./features/auth/LoginPanel.js";
-import { CollectionPanel } from "./features/collection/CollectionPanel.js";
-import { ImportPanel } from "./features/imports/ImportPanel.js";
-import { SearchPanel } from "./features/search/SearchPanel.js";
-import "./styles.css";
+export type AppSession = "loading" | Session | null;
+
+interface AppProps {
+  session?: AppSession;
+  initialPath?: string;
+  isAdmin?: boolean;
+}
+
+function useBrowserSession(override: AppSession | undefined): AppSession {
+  const [session, setSession] = useState<AppSession>(override ?? "loading");
+
+  useEffect(() => {
+    if (override !== undefined) {
+      setSession(override);
+      return;
+    }
+
+    let active = true;
+    const supabase = getSupabase();
+
+    void supabase.auth.getSession().then(({ data }) => {
+      if (active) setSession(data.session);
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (active) setSession(nextSession);
+    });
+
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, [override]);
+
+  return session;
+}
 
 /**
- * Renders the main web app.
+ * Admin status is authoritative server-side (packages/db AppUser.role, set from
+ * an admin-email allowlist) and is never mirrored onto the Supabase auth
+ * session. Resolve it from `/api/v1/me` rather than guessing from session claims.
  */
-export function App() {
+function useIsAdmin(session: AppSession, override: boolean | undefined): boolean {
+  const [isAdmin, setIsAdmin] = useState(override ?? false);
+
+  useEffect(() => {
+    if (override !== undefined) {
+      setIsAdmin(override);
+      return;
+    }
+
+    if (session === "loading" || session === null) {
+      setIsAdmin(false);
+      return;
+    }
+
+    let active = true;
+    apiGet<{ role: string }>("/api/v1/me")
+      .then((me) => {
+        if (active) setIsAdmin(me.role === "ADMIN");
+      })
+      .catch(() => {
+        if (active) setIsAdmin(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [session, override]);
+
+  return isAdmin;
+}
+
+export function App({ session: sessionOverride, initialPath, isAdmin: isAdminOverride }: AppProps) {
+  const session = useBrowserSession(sessionOverride);
+  const isAdmin = useIsAdmin(session, isAdminOverride);
+  const [path, setPath] = useState(() => normalizePath(initialPath ?? window.location.pathname));
+
+  useEffect(() => {
+    if (initialPath !== undefined) return;
+    const handlePopState = () => setPath(normalizePath(window.location.pathname));
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [initialPath]);
+
+  function navigate(nextPath: string) {
+    const normalized = normalizePath(nextPath);
+    if (initialPath === undefined) window.history.pushState({}, "", normalized);
+    setPath(normalized);
+  }
+
   return (
-    <main>
-      <header>
-        <h1>TCG V3</h1>
-        <p>Clean Pokémon card collection tracking, built backend-first.</p>
-      </header>
-      <LoginPanel />
-      <SearchPanel />
-      <CollectionPanel />
-      <ImportPanel />
-    </main>
+    <AppShell path={path} session={session} isAdmin={isAdmin} onNavigate={navigate}>
+      <RouteView path={path} session={session} isAdmin={isAdmin} onNavigate={navigate} />
+    </AppShell>
   );
 }
