@@ -1,7 +1,12 @@
+import { useEffect, useState } from "react";
 import type { AppSession } from "../App.js";
 import { Card } from "../components/ui/Card.js";
 import { StatePanel } from "../components/ui/StatePanel.js";
 import { NAVIGATION } from "../components/layout/navigation.js";
+import { apiGet } from "../lib/api.js";
+import { SearchPanel } from "../features/search/SearchPanel.js";
+import { ImportPanel } from "../features/imports/ImportPanel.js";
+import { LoginPanel } from "../features/auth/LoginPanel.js";
 
 interface RouteViewProps {
   path: string;
@@ -19,7 +24,6 @@ const unavailableCopy: Record<string, string> = {
   "/bulk-add": "Bulk Add",
   "/binders": "Binders",
   "/master-sets": "Master Sets",
-  "/imports-exports": "Imports / Exports",
   "/trade-tools": "Trade Tools",
   "/convention": "Convention Mode",
   "/profile": "Profile",
@@ -61,13 +65,19 @@ export function RouteView({ path, session, isAdmin, onNavigate }: RouteViewProps
         <section className="page-heading">
           <p className="eyebrow">Search / Catalog</p>
           <h1>Find your next card</h1>
-          <p>The V3 catalog will make cards easy to find by name, set, or collector number.</p>
+          <p>Search by name, set, or collector number, then add cards straight to your collection.</p>
         </section>
-        <StatePanel
-          kind="unavailable"
-          title="Catalog search is not available yet"
-          message="The V3 catalog workflow has not been connected. No search or collection changes can be made from this screen."
-        />
+        {signedIn ? (
+          <SearchPanel />
+        ) : (
+          <>
+            <StatePanel
+              title="Sign in to search and collect"
+              message="Catalog search and quick add are only available to signed-in collectors. Sign in below to get started."
+            />
+            <LoginPanel />
+          </>
+        )}
       </>
     );
   }
@@ -80,7 +90,24 @@ export function RouteView({ path, session, isAdmin, onNavigate }: RouteViewProps
           <h1>Your cards</h1>
           <p>Track the cards and variants you own.</p>
         </section>
-        <StatePanel kind="empty" title="Your collection is empty" message="Use catalog search or Bulk Add to add your first card." />
+        <CollectionRoute />
+      </>
+    );
+  }
+
+  if (path === "/imports-exports") {
+    return (
+      <>
+        <section className="page-heading">
+          <p className="eyebrow">Imports / Exports</p>
+          <h1>Move your collection in and out</h1>
+        </section>
+        <ImportPanel />
+        <StatePanel
+          kind="unavailable"
+          title="Export is not available yet"
+          message="Exporting your collection to CSV or XLSX is planned for V3, but it has not been implemented."
+        />
       </>
     );
   }
@@ -101,13 +128,91 @@ export function RouteView({ path, session, isAdmin, onNavigate }: RouteViewProps
   );
 }
 
-export function RouteStatePreview({ state }: { state: "empty" | "error" }) {
-  if (state === "error") {
-    return <StatePanel kind="error" title="Something went wrong" message="We could not load this page. Please try again." />;
-  }
-  return <StatePanel kind="empty" title="Nothing here yet" message="There are no items to show." />;
+interface CollectionItemSummary {
+  id: string;
+  condition: string;
+  quantity: number;
+  card: { name: string; number: string; imageSmall?: string; set: { name: string } };
+  variant: { displayName: string };
 }
 
-export function CardPreview({ imageUrl }: { imageUrl?: string }) {
-  return <Card title="Pikachu" subtitle="Base Set · #58" imageUrl={imageUrl} imageAlt="Pikachu card" />;
+type CollectionState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "loaded"; items: CollectionItemSummary[] };
+
+/**
+ * Loads the signed-in user's collection through the existing generic API
+ * client and renders real loading/error/empty/data states. Kept local to the
+ * route (rather than mounting the legacy CollectionPanel) so these states are
+ * genuinely reachable through normal routing instead of hard-coded page copy.
+ */
+function CollectionRoute() {
+  const [state, setState] = useState<CollectionState>({ status: "loading" });
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    setState({ status: "loading" });
+
+    apiGet<CollectionItemSummary[]>("/api/v1/collection")
+      .then((items) => {
+        if (active) setState({ status: "loaded", items });
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setState({
+            status: "error",
+            message: error instanceof Error ? error.message : "Could not load your collection."
+          });
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [attempt]);
+
+  if (state.status === "loading") {
+    return <StatePanel kind="loading" title="Loading your collection" message="Fetching the cards you own." />;
+  }
+
+  if (state.status === "error") {
+    return (
+      <StatePanel
+        kind="error"
+        title="Could not load your collection"
+        message={state.message}
+        action={{ label: "Try again", onClick: () => setAttempt((value) => value + 1) }}
+      />
+    );
+  }
+
+  if (state.items.length === 0) {
+    return (
+      <StatePanel
+        kind="empty"
+        title="Your collection is empty"
+        message="Use catalog search or Bulk Add to add your first card."
+      />
+    );
+  }
+
+  return (
+    <div className="grid">
+      {state.items.map((item) => (
+        <Card
+          key={item.id}
+          title={item.card.name}
+          subtitle={`${item.card.set.name} #${item.card.number}`}
+          imageUrl={item.card.imageSmall}
+          imageAlt={item.card.name}
+        >
+          <p>
+            {item.variant.displayName} · {item.condition} · Qty {item.quantity}
+          </p>
+        </Card>
+      ))}
+    </div>
+  );
 }

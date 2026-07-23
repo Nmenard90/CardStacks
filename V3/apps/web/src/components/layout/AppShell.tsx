@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { AppSession } from "../../App.js";
 import { NAVIGATION } from "./navigation.js";
+import { getSupabase } from "../../lib/supabase.js";
 
 interface AppShellProps {
   children: ReactNode;
@@ -22,6 +23,10 @@ export function AppShell({ children, path, session, isAdmin, onNavigate }: AppSh
   function navigate(nextPath: string) {
     setMenuOpen(false);
     onNavigate(nextPath);
+  }
+
+  async function signOut() {
+    await getSupabase().auth.signOut();
   }
 
   const navigation = (
@@ -61,6 +66,11 @@ export function AppShell({ children, path, session, isAdmin, onNavigate }: AppSh
           <span className="session-label">
             {session === "loading" ? "Checking session…" : signedIn ? session.user.email ?? "Collector" : "Guest"}
           </span>
+          {signedIn ? (
+            <button className="button" type="button" onClick={() => void signOut()}>
+              Sign out
+            </button>
+          ) : null}
           <button
             className="menu-button"
             type="button"

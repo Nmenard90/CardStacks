@@ -62,6 +62,11 @@ function useIsAdmin(session: AppSession, override: boolean | undefined): boolean
       return;
     }
 
+    // Reset before resolving the new session's role so a stale "true" from a
+    // previous admin session never lingers on screen while this lookup is
+    // in flight (e.g. after one admin signs out and another user signs in).
+    setIsAdmin(false);
+
     let active = true;
     apiGet<{ role: string }>("/api/v1/me")
       .then((me) => {

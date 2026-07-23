@@ -73,6 +73,35 @@ h1 { font-size: clamp(28px, 5vw, 44px); margin-bottom: 10px; line-height: 1.08; 
 .card-body h2 { font-size: 17px; margin-bottom: 6px; }
 .mobile-navigation { display: none; }
 
+input { background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; color: var(--text); }
+input:focus-visible, button:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
+.panel {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 24px; margin-top: 20px;
+}
+.panel + .panel { margin-top: 16px; }
+.panel h2 { font-size: 18px; margin-bottom: 14px; }
+.panel p { color: var(--muted); }
+.panel code { background: var(--surface-2); border-radius: 4px; padding: 1px 5px; color: var(--text); }
+.panel button {
+  cursor: pointer; border: 1px solid var(--border); border-radius: 9px; padding: 10px 16px;
+  background: var(--surface-2); color: var(--text); font-weight: 600;
+}
+.panel button:hover { border-color: var(--accent); color: var(--accent); }
+.panel [role="alert"] { color: var(--danger); }
+.row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-top: 8px; }
+.grid .card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px;
+}
+.grid .card img { width: 100%; border-radius: 8px; display: block; margin-bottom: 10px; }
+.grid .card h3 { font-size: 15px; margin: 0 0 6px; }
+.grid .card p { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
+.grid .card button {
+  cursor: pointer; border: 1px solid var(--border); border-radius: 9px; padding: 8px 12px;
+  background: var(--surface-2); color: var(--text); font-weight: 600;
+}
+
 @media (max-width: 760px) {
   .app-shell { display: block; }
   .app-header { height: 64px; padding: 0 16px; }
