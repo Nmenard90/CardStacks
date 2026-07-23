@@ -60,7 +60,7 @@ afterEach(async () => {
 describe("application shell", () => {
   it("shows only public navigation to guests", async () => {
     const view = await renderApp(null);
-    expect(linkLabels(view.querySelector(".sidebar")!)).toEqual(["Search / Catalog"]);
+    expect(linkLabels(view.querySelector(".sidebar")!)).toEqual(["Search / Catalog", "Browse Sets", "Search"]);
     expect(view.textContent).not.toContain("Quick Add");
     expect(view.textContent).not.toContain("Remove");
     expect(view.textContent).not.toContain("Upload and Import");

@@ -7,6 +7,13 @@ import { apiGet } from "../lib/api.js";
 import { SearchPanel } from "../features/search/SearchPanel.js";
 import { ImportPanel } from "../features/imports/ImportPanel.js";
 import { LoginPanel } from "../features/auth/LoginPanel.js";
+import { SetsPage } from "../pages/catalog/SetsPage.js";
+import { SetDetailPage } from "../pages/catalog/SetDetailPage.js";
+import { CardDetailPage } from "../pages/catalog/CardDetailPage.js";
+import { SearchPage } from "../pages/search/SearchPage.js";
+
+const SET_DETAIL_PATH = /^\/catalog\/([^/]+)$/;
+const CARD_DETAIL_PATH = /^\/cards\/([^/]+)$/;
 
 interface RouteViewProps {
   path: string;
@@ -36,6 +43,27 @@ export function RouteView({ path, session, isAdmin, onNavigate }: RouteViewProps
   }
 
   const signedIn = session !== null;
+
+  const setDetailMatch = SET_DETAIL_PATH.exec(path);
+  if (setDetailMatch) {
+    return (
+      <SetDetailPage
+        setId={decodeURIComponent(setDetailMatch[1])}
+        onSelectCard={(cardId) => onNavigate(`/cards/${encodeURIComponent(cardId)}`)}
+      />
+    );
+  }
+
+  const cardDetailMatch = CARD_DETAIL_PATH.exec(path);
+  if (cardDetailMatch) {
+    return (
+      <CardDetailPage
+        cardId={decodeURIComponent(cardDetailMatch[1])}
+        onSelectSet={(setId) => onNavigate(`/catalog/${encodeURIComponent(setId)}`)}
+      />
+    );
+  }
+
   const route = NAVIGATION.find((item) => item.path === path);
 
   if (!route || (route.auth === "admin" && !isAdmin)) {
@@ -80,6 +108,14 @@ export function RouteView({ path, session, isAdmin, onNavigate }: RouteViewProps
         )}
       </>
     );
+  }
+
+  if (path === "/catalog") {
+    return <SetsPage onSelectSet={(setId) => onNavigate(`/catalog/${encodeURIComponent(setId)}`)} />;
+  }
+
+  if (path === "/search") {
+    return <SearchPage onSelectCard={(cardId) => onNavigate(`/cards/${encodeURIComponent(cardId)}`)} />;
   }
 
   if (path === "/collection") {

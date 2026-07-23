@@ -32,33 +32,54 @@ export function SearchPanel() {
 
   /**
    * Searches cards using the backend API.
+   *
+   * The search endpoint returns a bounded, paginated `{ items, pageInfo,
+   * ambiguous }` result (CAT-303/CAT-304), not a bare array.
    */
   async function searchCards() {
     setMessage(null);
+
+    if (!query.trim()) {
+      setCards([]);
+      setMessage("Enter a card name, set id, or collector number to search.");
+      return;
+    }
+
     const params = new URLSearchParams({ q: query, limit: "20" });
-    setCards(await apiGet<SearchCard[]>(`/api/v1/search/cards?${params}`));
+
+    try {
+      const result = await apiGet<{ items: SearchCard[] }>(`/api/v1/search/cards?${params}`);
+      setCards(result.items);
+    } catch (error) {
+      setCards([]);
+      setMessage(error instanceof Error ? error.message : "Search failed.");
+    }
   }
 
   /**
    * Adds the first available variant of a card as a near-mint copy.
    */
   async function quickAdd(cardId: string) {
-    const detail = await apiGet<CardDetail>(`/api/v1/cards/${cardId}`);
-    const variant = detail.variants[0];
+    try {
+      const detail = await apiGet<CardDetail>(`/api/v1/cards/${cardId}`);
+      const variant = detail.variants[0];
 
-    if (!variant) {
-      setMessage("This card has no variants yet. Run catalog sync again.");
-      return;
+      if (!variant) {
+        setMessage("This card has no variants yet. Run catalog sync again.");
+        return;
+      }
+
+      await apiSend("/api/v1/collection/quick-add", "POST", {
+        cardId,
+        variantId: variant.id,
+        condition: "NEAR_MINT",
+        quantity: 1
+      });
+
+      setMessage(`Added ${detail.name}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not add this card.");
     }
-
-    await apiSend("/api/v1/collection/quick-add", "POST", {
-      cardId,
-      variantId: variant.id,
-      condition: "NEAR_MINT",
-      quantity: 1
-    });
-
-    setMessage(`Added ${detail.name}.`);
   }
 
   return (

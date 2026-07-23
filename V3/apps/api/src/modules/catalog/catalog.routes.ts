@@ -1,23 +1,26 @@
 /**
  * File: catalog.routes.ts
  * Purpose:
- *   Defines HTTP routes for sets, cards, variants, and search.
+ *   Defines HTTP routes for browsing sets, cards, and variants.
  *
  * Why this file exists:
- *   Web, mobile, and desktop clients need one reliable API for catalog data.
+ *   Web, mobile, and desktop clients need one reliable API for bounded
+ *   catalog browsing. Card search lives in the sibling `search` module.
  */
 
 import type { FastifyInstance } from "fastify";
-import type { AppEnv } from "../../config/env.js";
 import { validateInput } from "../../utils/validate.js";
-import { cardIdParamsSchema, searchCardsQuerySchema, setIdParamsSchema } from "./catalog.schemas.js";
-import { getCardDetail, getCardsForSet, getSet, getSets, searchCatalogCards } from "./catalog.service.js";
+import { cardIdParamsSchema, paginationQuerySchema, setIdParamsSchema } from "./catalog.schemas.js";
+import { getCardDetail, getCardsForSet, getSet, getSets } from "./catalog.service.js";
 
 /**
- * Registers catalog routes.
+ * Registers catalog browsing routes.
  */
-export async function registerCatalogRoutes(app: FastifyInstance, env: AppEnv): Promise<void> {
-  app.get("/api/v1/sets", async () => ({ data: await getSets(app.prisma) }));
+export async function registerCatalogRoutes(app: FastifyInstance): Promise<void> {
+  app.get("/api/v1/sets", async (request) => {
+    const query = validateInput(paginationQuerySchema, request.query);
+    return { data: await getSets(app.prisma, query) };
+  });
 
   app.get("/api/v1/sets/:setId", async (request) => {
     const params = validateInput(setIdParamsSchema, request.params);
@@ -26,19 +29,8 @@ export async function registerCatalogRoutes(app: FastifyInstance, env: AppEnv): 
 
   app.get("/api/v1/sets/:setId/cards", async (request) => {
     const params = validateInput(setIdParamsSchema, request.params);
-    return { data: await getCardsForSet(app.prisma, params.setId) };
-  });
-
-  app.get("/api/v1/search/cards", {
-    config: {
-      rateLimit: {
-        max: env.RATE_LIMIT_SEARCH_MAX,
-        timeWindow: env.RATE_LIMIT_SEARCH_WINDOW
-      }
-    }
-  }, async (request) => {
-    const query = validateInput(searchCardsQuerySchema, request.query);
-    return { data: await searchCatalogCards(app.prisma, query) };
+    const query = validateInput(paginationQuerySchema, request.query);
+    return { data: await getCardsForSet(app.prisma, params.setId, query) };
   });
 
   app.get("/api/v1/cards/:cardId", async (request) => {
