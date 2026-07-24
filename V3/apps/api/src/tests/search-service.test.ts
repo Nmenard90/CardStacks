@@ -14,7 +14,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { searchCatalogCards } from "../modules/search/search.service.js";
 
-function fakePrisma(cards: Record<string, unknown>[]) {
+function fakePrisma(cards: Record<string, unknown>[], total = cards.length) {
   const findManyArgs: any[] = [];
 
   const prisma = {
@@ -23,7 +23,7 @@ function fakePrisma(cards: Record<string, unknown>[]) {
         findManyArgs.push(args);
         return cards;
       }),
-      count: vi.fn(async () => cards.length)
+      count: vi.fn(async () => total)
     }
   } as unknown as PrismaClient;
 
@@ -89,5 +89,35 @@ describe("searchCatalogCards", () => {
     const result = await searchCatalogCards(prisma, { q: "pikachu", page: 3, limit: 10 });
 
     expect(result.pageInfo).toEqual({ page: 3, limit: 10, total: 1, totalPages: 1 });
+  });
+
+  it("paginates ambiguous results using the requested page/limit and reports the true total, not a capped candidate count", async () => {
+    const { prisma, findManyArgs } = fakePrisma(
+      [
+        { id: "sv1-80", setId: "sv1" },
+        { id: "swsh1-80", setId: "swsh1" }
+      ],
+      812
+    );
+
+    const result = await searchCatalogCards(prisma, { number: "80", page: 2, limit: 10 });
+
+    expect(result.ambiguous).toBe(true);
+    expect(result.pageInfo).toEqual({ page: 2, limit: 10, total: 812, totalPages: 82 });
+
+    const probeCall = findManyArgs[0];
+    expect(probeCall).toMatchObject({ distinct: ["setId"], take: 2 });
+
+    const pagedCall = findManyArgs.find((args) => args !== probeCall && args.skip !== undefined);
+    expect(pagedCall).toMatchObject({ skip: 10, take: 10 });
+  });
+
+  it("does not run the expensive paginated ambiguity query when the bounded probe finds only one set", async () => {
+    const { prisma, findManyArgs } = fakePrisma([{ id: "sv1-80", setId: "sv1" }]);
+
+    const result = await searchCatalogCards(prisma, { number: "80", page: 1, limit: 25 });
+
+    expect(result.ambiguous).toBe(false);
+    expect(findManyArgs[0]).toMatchObject({ distinct: ["setId"], take: 2 });
   });
 });

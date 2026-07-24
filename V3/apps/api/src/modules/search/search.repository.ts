@@ -25,7 +25,7 @@
  */
 
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { normalizeCardName, parseCollectorNumberInt } from "@tcg/shared";
+import { normalizeCardName, parseCollectorNumberInt, type SearchCandidate } from "@tcg/shared";
 
 export interface CardSearchInput {
   q?: string;
@@ -35,15 +35,6 @@ export interface CardSearchInput {
   page: number;
   limit: number;
 }
-
-/**
- * Caps how many rows a bare collector-number ambiguity check can read.
- *
- * A number-only search can span at most one card per set, so this is bounded
- * by total set count rather than total card count — generous even for a
- * catalog with several thousand sets.
- */
-const AMBIGUITY_CANDIDATE_LIMIT = 500;
 
 /**
  * Searches cards by name prefix, set, and/or collector number, returning a
@@ -74,17 +65,46 @@ export async function searchCards(prisma: PrismaClient, input: CardSearchInput) 
 }
 
 /**
- * Fetches every match for a bare collector-number search, bounded by
- * {@link AMBIGUITY_CANDIDATE_LIMIT}, so ambiguity can be decided from the
- * complete match set instead of a single results page.
+ * Reports whether a bare collector-number search's matches span more than
+ * one set, reading only enough rows to prove or disprove that — never the
+ * full match list.
+ *
+ * `distinct: ["setId"]` collapses each set to one row, so a `take` of 2 is
+ * sufficient: either fewer than two distinct sets exist (not ambiguous), or
+ * at least two do (ambiguous), regardless of how many sets actually match.
  */
-export async function findAmbiguityCandidates(prisma: PrismaClient, input: CardSearchInput) {
+export async function probeAmbiguousSets(prisma: PrismaClient, input: CardSearchInput): Promise<SearchCandidate[]> {
   return prisma.card.findMany({
     where: buildSearchWhere(input),
-    orderBy: [{ setId: "asc" }, { name: "asc" }],
-    take: AMBIGUITY_CANDIDATE_LIMIT,
-    select: cardSearchSelect()
+    distinct: ["setId"],
+    orderBy: [{ setId: "asc" }],
+    take: 2,
+    select: { id: true, setId: true }
   });
+}
+
+/**
+ * Fetches a bounded, paginated page of matches for an ambiguous
+ * collector-number search, ordered by set then name so same-set matches
+ * stay grouped, plus the true (uncapped) total match count for pagination
+ * metadata.
+ */
+export async function findAmbiguityCandidates(prisma: PrismaClient, input: CardSearchInput) {
+  const where = buildSearchWhere(input);
+  const skip = (input.page - 1) * input.limit;
+
+  const [items, total] = await Promise.all([
+    prisma.card.findMany({
+      where,
+      orderBy: [{ setId: "asc" }, { name: "asc" }],
+      skip,
+      take: input.limit,
+      select: cardSearchSelect()
+    }),
+    prisma.card.count({ where })
+  ]);
+
+  return { items, total };
 }
 
 /**

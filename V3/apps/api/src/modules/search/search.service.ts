@@ -12,28 +12,31 @@
 
 import type { PrismaClient } from "@prisma/client";
 import { buildPageInfo, isAmbiguousNumberSearch, isNumberOnlySearch } from "@tcg/shared";
-import { findAmbiguityCandidates, searchCards, type CardSearchInput } from "./search.repository.js";
+import { findAmbiguityCandidates, probeAmbiguousSets, searchCards, type CardSearchInput } from "./search.repository.js";
 
 /**
  * Searches cards using validated input and returns a bounded page plus
  * whether the match set is an ambiguous cross-set collector-number result.
  *
- * A bare collector-number search is checked against its *complete* match
- * set (bounded, see `findAmbiguityCandidates`) rather than one results page
- * — a page boundary must never hide a second set's matches or make an
- * ambiguous card unreachable. When that full set turns out to span more
- * than one set, every candidate is returned unpaginated so the user can
- * choose between them; otherwise the request falls through to the normal
- * paginated search.
+ * A bare collector-number search is checked against a bounded probe (see
+ * `probeAmbiguousSets`) rather than one results page — a page boundary must
+ * never hide a second set's matches or make an ambiguous card unreachable,
+ * but proving ambiguity only requires knowing whether at least two distinct
+ * sets match, not loading every match. When ambiguous, the full candidate
+ * set is still returned as a normal bounded, paginated page (grouped by set)
+ * with an accurate total — never an unbounded dump capped at an arbitrary
+ * row limit.
  */
 export async function searchCatalogCards(prisma: PrismaClient, input: CardSearchInput) {
   if (isNumberOnlySearch(input)) {
-    const candidates = await findAmbiguityCandidates(prisma, input);
+    const probe = await probeAmbiguousSets(prisma, input);
 
-    if (isAmbiguousNumberSearch(input, candidates)) {
+    if (isAmbiguousNumberSearch(input, probe)) {
+      const { items, total } = await findAmbiguityCandidates(prisma, input);
+
       return {
-        items: candidates,
-        pageInfo: buildPageInfo(1, Math.max(candidates.length, 1), candidates.length),
+        items,
+        pageInfo: buildPageInfo(input.page, input.limit, total),
         ambiguous: true
       };
     }

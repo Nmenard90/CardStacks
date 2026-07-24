@@ -18,6 +18,7 @@ import {
   SEARCH_NAME_MAX_LENGTH,
   SEARCH_NUMBER_MAX_LENGTH,
   SEARCH_SET_ID_MAX_LENGTH,
+  SEARCH_SET_NAME_MAX_LENGTH,
   type PageInfo
 } from "@tcg/shared";
 import { Card } from "../../components/ui/Card.js";
@@ -47,12 +48,13 @@ interface CatalogSearchProps {
 export function CatalogSearch({ onSelectCard }: CatalogSearchProps) {
   const [name, setName] = useState("");
   const [setId, setSetId] = useState("");
+  const [setNameFilter, setSetNameFilter] = useState("");
   const [number, setNumber] = useState("");
   const [page, setPage] = useState(1);
   const [state, setState] = useState<SearchState>({ status: "idle" });
 
   function runSearch(requestedPage: number) {
-    const filters = { q: name.trim(), setId: setId.trim(), number: number.trim() };
+    const filters = { q: name.trim(), setId: setId.trim(), setName: setNameFilter.trim(), number: number.trim() };
 
     if (!hasMeaningfulSearchFilter(filters)) {
       setState({
@@ -95,6 +97,13 @@ export function CatalogSearch({ onSelectCard }: CatalogSearchProps) {
           value={setId}
           maxLength={SEARCH_SET_ID_MAX_LENGTH}
           onChange={(event) => setSetId(event.target.value)}
+        />
+        <input
+          aria-label="Set name"
+          placeholder="Set name (e.g. Scarlet & Violet)"
+          value={setNameFilter}
+          maxLength={SEARCH_SET_NAME_MAX_LENGTH}
+          onChange={(event) => setSetNameFilter(event.target.value)}
         />
         <input
           aria-label="Collector number"
