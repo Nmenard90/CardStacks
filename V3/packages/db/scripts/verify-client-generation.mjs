@@ -18,11 +18,18 @@ if (!packageManagerEntryPoint) {
   throw new Error("Run this regression check through pnpm so it can invoke the normal lint command.");
 }
 
-const hadGeneratedDeclaration = existsSync(generatedDeclaration);
-
 if (existsSync(backupDeclaration)) {
-  throw new Error(`Refusing to overwrite an existing regression-check backup: ${backupDeclaration}`);
+  // A prior run was interrupted (e.g. an aborted merge) before it could restore this
+  // backup. Self-heal instead of refusing: recover the real declaration if it's missing,
+  // or drop the stale backup if the declaration is already back in place.
+  if (existsSync(generatedDeclaration)) {
+    rmSync(backupDeclaration);
+  } else {
+    renameSync(backupDeclaration, generatedDeclaration);
+  }
 }
+
+const hadGeneratedDeclaration = existsSync(generatedDeclaration);
 
 if (hadGeneratedDeclaration) {
   renameSync(generatedDeclaration, backupDeclaration);
