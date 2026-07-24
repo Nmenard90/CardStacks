@@ -10,11 +10,13 @@
 
 export const SEARCH_NAME_MAX_LENGTH = 120;
 export const SEARCH_SET_ID_MAX_LENGTH = 80;
+export const SEARCH_SET_NAME_MAX_LENGTH = 120;
 export const SEARCH_NUMBER_MAX_LENGTH = 40;
 
 export interface CardSearchFilters {
   q?: string;
   setId?: string;
+  setName?: string;
   number?: string;
 }
 
@@ -27,5 +29,5 @@ export interface CardSearchFilters {
  * explicit action handled by the catalog endpoints instead.
  */
 export function hasMeaningfulSearchFilter(filters: CardSearchFilters): boolean {
-  return Boolean(filters.q?.trim() || filters.setId?.trim() || filters.number?.trim());
+  return Boolean(filters.q?.trim() || filters.setId?.trim() || filters.setName?.trim() || filters.number?.trim());
 }

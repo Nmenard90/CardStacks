@@ -10,12 +10,19 @@
  */
 
 import { z } from "zod";
-import { SEARCH_NAME_MAX_LENGTH, SEARCH_NUMBER_MAX_LENGTH, SEARCH_SET_ID_MAX_LENGTH, hasMeaningfulSearchFilter } from "@tcg/shared";
+import {
+  SEARCH_NAME_MAX_LENGTH,
+  SEARCH_NUMBER_MAX_LENGTH,
+  SEARCH_SET_ID_MAX_LENGTH,
+  SEARCH_SET_NAME_MAX_LENGTH,
+  hasMeaningfulSearchFilter
+} from "@tcg/shared";
 
 export const searchCardsQuerySchema = z
   .object({
     q: z.string().trim().max(SEARCH_NAME_MAX_LENGTH).optional(),
     setId: z.string().trim().max(SEARCH_SET_ID_MAX_LENGTH).optional(),
+    setName: z.string().trim().max(SEARCH_SET_NAME_MAX_LENGTH).optional(),
     number: z.string().trim().max(SEARCH_NUMBER_MAX_LENGTH).optional(),
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(50).default(25)

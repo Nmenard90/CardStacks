@@ -22,15 +22,35 @@ export interface SearchCandidateGroup<T extends SearchCandidate> {
   candidates: T[];
 }
 
+export interface NumberSearchFilters {
+  q?: string;
+  setId?: string;
+  setName?: string;
+  number?: string;
+}
+
+/**
+ * Reports whether a search is a bare collector-number lookup (no name, set
+ * id, or set name filter narrowing it to a single set already).
+ *
+ * Callers use this to decide whether ambiguity must be resolved against the
+ * *complete* set of matches rather than just one results page — a number
+ * search can span many sets, and a page boundary must never hide that.
+ */
+export function isNumberOnlySearch(filters: NumberSearchFilters): boolean {
+  return Boolean(filters.number?.trim()) && !filters.setId?.trim() && !filters.setName?.trim() && !filters.q?.trim();
+}
+
 /**
  * A number-only search (no name, no set filter) is ambiguous when its
  * results reference more than one set.
+ *
+ * `results` must be the complete match set for the filter, not one page of
+ * it — a page boundary can otherwise hide a second set's matches and report
+ * a false negative.
  */
-export function isAmbiguousNumberSearch(
-  filters: { q?: string; setId?: string; number?: string },
-  results: SearchCandidate[]
-): boolean {
-  if (!filters.number?.trim() || filters.setId?.trim() || filters.q?.trim()) {
+export function isAmbiguousNumberSearch(filters: NumberSearchFilters, results: SearchCandidate[]): boolean {
+  if (!isNumberOnlySearch(filters)) {
     return false;
   }
 

@@ -16,7 +16,12 @@
  *   search — that requires a trigram/full-text index, which is a database
  *   migration out of scope for this task. Until that migration lands, name
  *   search is intentionally prefix-only rather than pretending an
- *   unindexed substring scan is production-safe at catalog scale.
+ *   unindexed substring scan is production-safe at catalog scale. CAT-303
+ *   is the tracked, approval-required follow-up for that migration.
+ *
+ *   The set-name filter is different: it filters the small `sets` dimension
+ *   table (bounded by total set count, not card count), so a `contains`
+ *   scan there stays cheap without a trigram index.
  */
 
 import type { Prisma, PrismaClient } from "@prisma/client";
@@ -25,10 +30,20 @@ import { normalizeCardName, parseCollectorNumberInt } from "@tcg/shared";
 export interface CardSearchInput {
   q?: string;
   setId?: string;
+  setName?: string;
   number?: string;
   page: number;
   limit: number;
 }
+
+/**
+ * Caps how many rows a bare collector-number ambiguity check can read.
+ *
+ * A number-only search can span at most one card per set, so this is bounded
+ * by total set count rather than total card count — generous even for a
+ * catalog with several thousand sets.
+ */
+const AMBIGUITY_CANDIDATE_LIMIT = 500;
 
 /**
  * Searches cards by name prefix, set, and/or collector number, returning a
@@ -36,8 +51,9 @@ export interface CardSearchInput {
  *
  * Performance:
  *   Every filter that is applied uses an indexed column (`normalizedName`
- *   prefix, `setId`, `number`/`numberInt`). This never loads the full
- *   catalog into Node memory to filter it.
+ *   prefix, `setId`, `number`/`numberInt`) or the small `sets` table
+ *   (`setName`). This never loads the full catalog into Node memory to
+ *   filter it.
  */
 export async function searchCards(prisma: PrismaClient, input: CardSearchInput) {
   const where = buildSearchWhere(input);
@@ -58,6 +74,20 @@ export async function searchCards(prisma: PrismaClient, input: CardSearchInput) 
 }
 
 /**
+ * Fetches every match for a bare collector-number search, bounded by
+ * {@link AMBIGUITY_CANDIDATE_LIMIT}, so ambiguity can be decided from the
+ * complete match set instead of a single results page.
+ */
+export async function findAmbiguityCandidates(prisma: PrismaClient, input: CardSearchInput) {
+  return prisma.card.findMany({
+    where: buildSearchWhere(input),
+    orderBy: [{ setId: "asc" }, { name: "asc" }],
+    take: AMBIGUITY_CANDIDATE_LIMIT,
+    select: cardSearchSelect()
+  });
+}
+
+/**
  * Builds the Prisma `where` clause for a card search request.
  *
  * Number matching:
@@ -74,6 +104,10 @@ function buildSearchWhere(input: CardSearchInput): Prisma.CardWhereInput {
 
   if (input.setId) {
     conditions.push({ setId: input.setId });
+  }
+
+  if (input.setName) {
+    conditions.push({ set: { name: { contains: input.setName, mode: "insensitive" } } });
   }
 
   if (input.number) {

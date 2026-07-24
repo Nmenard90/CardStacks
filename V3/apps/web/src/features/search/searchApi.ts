@@ -31,6 +31,7 @@ export interface SearchCardsResult {
 export interface SearchCardsParams {
   q?: string;
   setId?: string;
+  setName?: string;
   number?: string;
   page: number;
   limit: number;
@@ -48,6 +49,7 @@ export async function searchCards(params: SearchCardsParams): Promise<SearchCard
   const query = new URLSearchParams({ page: String(params.page), limit: String(params.limit) });
   if (params.q) query.set("q", params.q);
   if (params.setId) query.set("setId", params.setId);
+  if (params.setName) query.set("setName", params.setName);
   if (params.number) query.set("number", params.number);
 
   return apiGet<SearchCardsResult>(`/api/v1/search/cards?${query}`);
