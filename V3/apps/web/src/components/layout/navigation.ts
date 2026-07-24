@@ -6,6 +6,8 @@ export interface NavigationItem {
 
 export const NAVIGATION: NavigationItem[] = [
   { label: "Search / Catalog", path: "/", auth: "public" },
+  { label: "Browse Sets", path: "/catalog", auth: "public" },
+  { label: "Search", path: "/search", auth: "public" },
   { label: "Collection", path: "/collection", auth: "signed-in" },
   { label: "Bulk Add", path: "/bulk-add", auth: "signed-in" },
   { label: "Binders", path: "/binders", auth: "signed-in" },

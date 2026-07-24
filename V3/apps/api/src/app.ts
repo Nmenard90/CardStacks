@@ -24,6 +24,7 @@ import { registerHealthRoutes } from "./modules/health/health.routes.js";
 import { registerImportRoutes } from "./modules/imports/import.routes.js";
 import { registerMasterSetRoutes } from "./modules/masterSets/master-sets.routes.js";
 import { registerPriceRoutes } from "./modules/prices/prices.routes.js";
+import { registerSearchRoutes } from "./modules/search/search.routes.js";
 import { registerUserRoutes } from "./modules/users/users.routes.js";
 
 /**
@@ -40,7 +41,8 @@ export async function buildApp(env: AppEnv): Promise<FastifyInstance> {
 
   await registerHealthRoutes(app);
   await registerUserRoutes(app);
-  await registerCatalogRoutes(app, env);
+  await registerCatalogRoutes(app);
+  await registerSearchRoutes(app, env);
   await registerCollectionRoutes(app);
   await registerMasterSetRoutes(app);
   await registerBinderRoutes(app);

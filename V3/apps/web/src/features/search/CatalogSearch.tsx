@@ -1,18 +1,17 @@
 /**
- * File: SearchPanel.tsx
+ * File: CatalogSearch.tsx
  * Purpose:
- *   Lets signed-in users search cards by name, set, and/or collector number,
- *   and add a card to their collection straight from the results.
+ *   Lets a user search the catalog by name, set, and/or collector number,
+ *   and resolves ambiguous cross-set collector-number results.
  *
  * Why this file exists:
- *   The landing page combines the multi-field catalog search (FR-CAT-003/004,
- *   same contract as CatalogSearch/searchApi) with the quick-add workflow, so
- *   collectors do not need to leave "/" to find and add a card. It must not
- *   collapse every field into a single name query: set ids, set names, and
- *   collector numbers are distinct filters on `/api/v1/search/cards`.
+ *   FR-CAT-003/004 require at least one meaningful filter; FR-CAT-005/007
+ *   require cross-set collector-number ambiguity to be shown, not guessed
+ *   at. The search API is the single source of truth for what counts as
+ *   ambiguous (see `search.service.ts`); this view only renders that result.
  */
 
-import { useState, type FormEvent } from "react";
+import { useState, type CSSProperties, type FormEvent } from "react";
 import {
   groupCandidatesBySet,
   hasMeaningfulSearchFilter,
@@ -22,17 +21,19 @@ import {
   SEARCH_SET_NAME_MAX_LENGTH,
   type PageInfo
 } from "@tcg/shared";
-import { apiGet, apiSend } from "../../lib/api.js";
 import { Card } from "../../components/ui/Card.js";
 import { StatePanel } from "../../components/ui/StatePanel.js";
 import { PageControls } from "../catalog/SetBrowser.js";
 import { searchCards, type SearchResultCard } from "./searchApi.js";
 
-const RESULTS_PER_PAGE = 20;
+const RESULTS_PER_PAGE = 25;
 
-interface CardDetail extends SearchResultCard {
-  variants: Array<{ id: string; displayName: string }>;
-}
+const unstyledButton: CSSProperties = {
+  all: "unset",
+  display: "block",
+  cursor: "pointer",
+  width: "100%"
+};
 
 type SearchState =
   | { status: "idle" }
@@ -41,16 +42,17 @@ type SearchState =
   | { status: "error"; message: string }
   | { status: "loaded"; items: SearchResultCard[]; pageInfo: PageInfo; ambiguous: boolean };
 
-/**
- * Renders card search and quick-add controls.
- */
-export function SearchPanel() {
+interface CatalogSearchProps {
+  onSelectCard: (cardId: string) => void;
+}
+
+export function CatalogSearch({ onSelectCard }: CatalogSearchProps) {
   const [name, setName] = useState("");
   const [setId, setSetId] = useState("");
   const [setNameFilter, setSetNameFilter] = useState("");
   const [number, setNumber] = useState("");
+  const [page, setPage] = useState(1);
   const [state, setState] = useState<SearchState>({ status: "idle" });
-  const [quickAddMessage, setQuickAddMessage] = useState<string | null>(null);
 
   function runSearch(requestedPage: number) {
     const filters = { q: name.trim(), setId: setId.trim(), setName: setNameFilter.trim(), number: number.trim() };
@@ -58,11 +60,12 @@ export function SearchPanel() {
     if (!hasMeaningfulSearchFilter(filters)) {
       setState({
         status: "invalid",
-        message: "Enter a card name, set id, set name, or collector number to search."
+        message: "Provide a name, set, or collector number to search. Use Browse Sets to list every card without a filter."
       });
       return;
     }
 
+    setPage(requestedPage);
     setState({ status: "loading" });
 
     searchCards({ ...filters, page: requestedPage, limit: RESULTS_PER_PAGE })
@@ -76,39 +79,11 @@ export function SearchPanel() {
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    setQuickAddMessage(null);
     runSearch(1);
-  }
-
-  /**
-   * Adds the first available variant of a card as a near-mint copy.
-   */
-  async function quickAdd(cardId: string) {
-    try {
-      const detail = await apiGet<CardDetail>(`/api/v1/cards/${cardId}`);
-      const variant = detail.variants[0];
-
-      if (!variant) {
-        setQuickAddMessage("This card has no variants yet. Run catalog sync again.");
-        return;
-      }
-
-      await apiSend("/api/v1/collection/quick-add", "POST", {
-        cardId,
-        variantId: variant.id,
-        condition: "NEAR_MINT",
-        quantity: 1
-      });
-
-      setQuickAddMessage(`Added ${detail.name}.`);
-    } catch (error) {
-      setQuickAddMessage(error instanceof Error ? error.message : "Could not add this card.");
-    }
   }
 
   return (
     <section className="panel">
-      <h2>Search Cards</h2>
       <form className="row" onSubmit={handleSubmit}>
         <input
           aria-label="Card name"
@@ -140,19 +115,19 @@ export function SearchPanel() {
         />
         <button type="submit">Search</button>
       </form>
-      {quickAddMessage ? <p role="status">{quickAddMessage}</p> : null}
-      {state.status === "idle" ? null : <SearchResults state={state} onQuickAdd={quickAdd} onPageChange={runSearch} />}
+
+      {state.status === "idle" ? null : <SearchResults state={state} onSelectCard={onSelectCard} onPageChange={runSearch} />}
     </section>
   );
 }
 
 interface SearchResultsProps {
   state: Exclude<SearchState, { status: "idle" }>;
-  onQuickAdd: (cardId: string) => void;
+  onSelectCard: (cardId: string) => void;
   onPageChange: (page: number) => void;
 }
 
-function SearchResults({ state, onQuickAdd, onPageChange }: SearchResultsProps) {
+function SearchResults({ state, onSelectCard, onPageChange }: SearchResultsProps) {
   if (state.status === "invalid") {
     return <StatePanel kind="empty" title="Add a search filter" message={state.message} />;
   }
@@ -181,7 +156,7 @@ function SearchResults({ state, onQuickAdd, onPageChange }: SearchResultsProps) 
         {groups.map((group) => (
           <div key={group.setId}>
             <h3>{group.candidates[0]?.set.name ?? group.setId}</h3>
-            <ResultGrid items={group.candidates} onQuickAdd={onQuickAdd} />
+            <ResultGrid items={group.candidates} onSelectCard={onSelectCard} />
           </div>
         ))}
         <PageControls pageInfo={state.pageInfo} onPageChange={onPageChange} />
@@ -191,21 +166,24 @@ function SearchResults({ state, onQuickAdd, onPageChange }: SearchResultsProps) 
 
   return (
     <>
-      <ResultGrid items={state.items} onQuickAdd={onQuickAdd} />
+      <ResultGrid items={state.items} onSelectCard={onSelectCard} />
       <PageControls pageInfo={state.pageInfo} onPageChange={onPageChange} />
     </>
   );
 }
 
-function ResultGrid({ items, onQuickAdd }: { items: SearchResultCard[]; onQuickAdd: (cardId: string) => void }) {
+function ResultGrid({ items, onSelectCard }: { items: SearchResultCard[]; onSelectCard: (cardId: string) => void }) {
   return (
     <div className="grid">
       {items.map((card) => (
-        <Card key={card.id} title={card.name} subtitle={`${card.set.name} #${card.number}`} imageUrl={card.imageSmall} imageAlt={card.name}>
-          <button type="button" onClick={() => onQuickAdd(card.id)}>
-            Quick Add
-          </button>
-        </Card>
+        <button key={card.id} type="button" style={unstyledButton} onClick={() => onSelectCard(card.id)}>
+          <Card
+            title={card.name}
+            subtitle={`${card.set.name} #${card.number}`}
+            imageUrl={card.imageSmall}
+            imageAlt={card.name}
+          />
+        </button>
       ))}
     </div>
   );

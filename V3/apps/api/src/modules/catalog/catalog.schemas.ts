@@ -4,16 +4,13 @@
  *   Validates catalog route inputs.
  *
  * Why this file exists:
- *   Search inputs can become expensive or unsafe if they are not capped and
- *   cleaned before reaching the database.
+ *   Listing endpoints can become expensive or unsafe if page/limit values are
+ *   not capped and cleaned before reaching the database.
  */
 
 import { z } from "zod";
 
-export const searchCardsQuerySchema = z.object({
-  q: z.string().trim().max(120).optional(),
-  setId: z.string().trim().max(40).optional(),
-  number: z.string().trim().max(40).optional(),
+export const paginationQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(25)
 });

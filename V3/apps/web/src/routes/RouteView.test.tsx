@@ -97,6 +97,17 @@ describe("route-level states", () => {
     expect(view.textContent).toContain("Your collection is empty");
   });
 
+  it.each([
+    ["a malformed card id escape", "/cards/%"],
+    ["a malformed set id escape", "/catalog/%"]
+  ])("renders not-found instead of throwing for %s", async (_label, path) => {
+    const { App } = await import("../App.js");
+    const view = await render(<App session={makeSession()} initialPath={path} isAdmin={false} />);
+
+    expect(view.textContent).toContain("Page not found");
+    expect(mockedApiGet).not.toHaveBeenCalled();
+  });
+
   it("renders real collection items returned by the API", async () => {
     const { App } = await import("../App.js");
     mockedApiGet.mockResolvedValueOnce([

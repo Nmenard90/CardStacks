@@ -1,54 +1,41 @@
 /**
  * File: catalog.repository.ts
  * Purpose:
- *   Contains database queries for Pokémon sets, cards, and variants.
+ *   Contains database queries for browsing Pokémon sets, cards, and variants.
  *
  * Why this file exists:
  *   Keeping database access out of routes makes the API easier to test,
- *   optimize, and reuse from workers.
+ *   optimize, and reuse from workers. Card *search* (name/set/number
+ *   filtering) lives in the sibling `search` module; this module only
+ *   handles bounded browsing and single-record detail lookups.
  */
 
 import type { PrismaClient } from "@prisma/client";
 
-export interface CardSearchInput {
-  q?: string;
-  setId?: string;
-  number?: string;
+export interface PageRequest {
   page: number;
   limit: number;
 }
 
 /**
- * Normalizes names for predictable case-insensitive search.
+ * Lists Pokémon sets in release order, bounded by page/limit.
+ *
+ * Performance:
+ *   The catalog holds a bounded number of sets (roughly 150), so a full
+ *   count alongside a paginated page is inexpensive.
  */
-export function normalizeCardName(name: string): string {
-  return name.trim().toLowerCase().replace(/\s+/g, " ");
-}
+export async function listSets(prisma: PrismaClient, { page, limit }: PageRequest) {
+  const [items, total] = await Promise.all([
+    prisma.set.findMany({
+      orderBy: [{ releaseDate: "desc" }, { name: "asc" }],
+      skip: (page - 1) * limit,
+      take: limit,
+      select: setSelect()
+    }),
+    prisma.set.count()
+  ]);
 
-/**
- * Converts a collector number to an integer only when it is purely numeric.
- */
-export function parseCardNumberInt(number: string): number | null {
-  return /^\d+$/.test(number) ? Number.parseInt(number, 10) : null;
-}
-
-/**
- * Lists Pokémon sets in release order.
- */
-export async function listSets(prisma: PrismaClient) {
-  return prisma.set.findMany({
-    orderBy: [{ releaseDate: "desc" }, { name: "asc" }],
-    select: {
-      id: true,
-      name: true,
-      series: true,
-      printedTotal: true,
-      total: true,
-      releaseDate: true,
-      symbolUrl: true,
-      logoUrl: true
-    }
-  });
+  return { items, total };
 }
 
 /**
@@ -57,85 +44,76 @@ export async function listSets(prisma: PrismaClient) {
 export async function findSetById(prisma: PrismaClient, setId: string) {
   return prisma.set.findUnique({
     where: { id: setId },
-    select: {
-      id: true,
-      name: true,
-      series: true,
-      printedTotal: true,
-      total: true,
-      releaseDate: true,
-      symbolUrl: true,
-      logoUrl: true
-    }
+    select: setSelect()
   });
 }
 
 /**
- * Lists cards for a set with stable collector-number ordering.
+ * Lists cards for a set with stable collector-number ordering, bounded by
+ * page/limit.
  *
  * Performance:
- *   This query is scoped by indexed `setId` and paginated by the caller.
+ *   This query is scoped by the indexed `setId` column and paginated by the
+ *   caller, so it never loads an entire set's cards into memory at once.
  */
-export async function listCardsBySet(prisma: PrismaClient, setId: string) {
-  return prisma.card.findMany({
-    where: { setId },
-    orderBy: [{ numberInt: "asc" }, { number: "asc" }, { name: "asc" }],
-    select: cardListSelect()
-  });
+export async function listCardsBySet(prisma: PrismaClient, setId: string, { page, limit }: PageRequest) {
+  const where = { setId };
+
+  const [items, total] = await Promise.all([
+    prisma.card.findMany({
+      where,
+      orderBy: [{ numberInt: "asc" }, { number: "asc" }, { name: "asc" }],
+      skip: (page - 1) * limit,
+      take: limit,
+      select: cardListSelect()
+    }),
+    prisma.card.count({ where })
+  ]);
+
+  return { items, total };
 }
 
 /**
- * Searches cards by name, set, and/or collector number.
+ * Finds one card with its set and variants for the card detail view.
  *
- * Performance:
- *   Uses indexed fields and pagination. It never loads the full catalog into
- *   Node memory to filter it.
- */
-export async function searchCards(prisma: PrismaClient, input: CardSearchInput) {
-  const numberInt = input.number ? parseCardNumberInt(input.number) : null;
-  const skip = (input.page - 1) * input.limit;
-
-  return prisma.card.findMany({
-    where: {
-      AND: [
-        input.q ? { normalizedName: { contains: normalizeCardName(input.q) } } : {},
-        input.setId ? { setId: input.setId } : {},
-        input.number
-          ? {
-              OR: [
-                { number: input.number },
-                numberInt === null ? {} : { numberInt }
-              ]
-            }
-          : {}
-      ]
-    },
-    orderBy: [{ name: "asc" }, { setId: "asc" }, { numberInt: "asc" }, { number: "asc" }],
-    skip,
-    take: input.limit,
-    select: cardListSelect()
-  });
-}
-
-/**
- * Finds one card with variants.
+ * Security:
+ *   Uses explicit `select` on every level so provider raw JSON and internal
+ *   source identifiers never reach a public response (FR-CAT-010).
  */
 export async function findCardDetail(prisma: PrismaClient, cardId: string) {
   return prisma.card.findUnique({
     where: { id: cardId },
-    include: {
-      set: {
-        select: { id: true, name: true, series: true }
-      },
+    select: {
+      ...cardListSelect(),
+      artist: true,
+      supertype: true,
+      subtypes: true,
       variants: {
-        orderBy: { displayName: "asc" }
+        orderBy: { displayName: "asc" },
+        select: variantSelect()
       }
     }
   });
 }
 
 /**
- * Provides the card fields returned by list/search routes.
+ * Provides the public set fields returned by catalog routes.
+ */
+function setSelect() {
+  return {
+    id: true,
+    name: true,
+    series: true,
+    printedTotal: true,
+    total: true,
+    releaseDate: true,
+    symbolUrl: true,
+    logoUrl: true
+  } as const;
+}
+
+/**
+ * Provides the public card fields returned by list/search/detail routes.
  */
 function cardListSelect() {
   return {
@@ -147,5 +125,23 @@ function cardListSelect() {
     imageSmall: true,
     imageLarge: true,
     set: { select: { id: true, name: true, series: true } }
-  };
+  } as const;
+}
+
+/**
+ * Provides the public variant fields returned by card detail/variant routes.
+ *
+ * `sourceProductId`/`sourceSkuId` are internal provider identifiers and are
+ * intentionally excluded from the public contract.
+ */
+function variantSelect() {
+  return {
+    id: true,
+    variantKey: true,
+    displayName: true,
+    finish: true,
+    edition: true,
+    language: true,
+    isMasterSetVariant: true
+  } as const;
 }
