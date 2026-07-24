@@ -2,6 +2,22 @@
 
 A backlog item is `DONE` only when all applicable conditions below are satisfied.
 
+## Task Size (binding on the planner)
+
+- One task = one feature. Target under 10 changed files.
+- If a description joins separate capabilities with "and", SPLIT IT.
+  "Set browsing, search, card detail, and images" is four tasks, not one.
+- Every task must list `contextPaths` naming only the files an agent needs to
+  read. Never list whole app directories.
+- `locks` must name only the areas the task actually edits. A frontend task
+  does not lock `apps/api`, `apps/worker`, or `packages/db`.
+- A task an agent cannot finish in a single session is too large. Prefer a
+  sequence of small merged tasks over one large one.
+- Tasks emitted in the same planning pass MUST have disjoint file scopes. Two
+  agents must never be able to edit the same file. If the next work cannot be
+  split disjointly, emit ONE task.
+- Never emit a task whose prerequisite has not merged.
+
 ## Environment Boundaries (binding on the planner and on every agent)
 
 Agents run in a sandbox. These are hard limits, not preferences. A task whose
@@ -13,8 +29,8 @@ Agents CAN:
 - read and edit files inside their assigned worktree
 - run `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`
 - run `node`, `tsc`, `vitest`, `vite build` directly
-- add a devDependency when a required test capability is genuinely missing
-  (for example a DOM environment for interaction tests), and say so in the report
+- add a devDependency when a required test capability is genuinely missing,
+  and say so in the report
 
 Agents CANNOT:
 
@@ -43,22 +59,14 @@ Therefore:
 - Foreman's own tooling lives in a separate repository. Never create tooling tasks
   inside this repository.
 
-## Task Scope (binding on the planner)
-
-- One task is one independently mergeable unit.
-- Tasks emitted in the same planning pass MUST have disjoint file scopes. Two
-  agents must never be able to edit the same file. If the next piece of work
-  cannot be split disjointly, emit ONE task instead of several.
-- Every task states its exact change scope (paths it may touch) and its
-  exclusions.
-- Never emit a task whose prerequisite has not merged.
-
 ## Scope and Behavior
 
 - Acceptance criteria are met.
 - No unrelated scope was silently added.
 - Placeholder behavior is not presented as complete.
-- Failure, empty, loading, and boundary behavior are intentional.
+- Existing working features are never replaced with "not available yet" panels.
+- Failure, empty, loading, and boundary behavior are intentional and reachable
+  from real application routing, not only from test-only preview exports.
 
 ## Code Quality
 
@@ -67,13 +75,14 @@ Therefore:
 - Inputs and external responses are validated.
 - Errors are explicit and use the project error contract.
 - Performance and memory behavior are appropriate for expected scale.
-- Security/authorization is enforced server-side.
+- Security/authorization is enforced server-side, never from client-held claims.
 
 ## Tests
 
 - Tests were added or updated for the changed behavior.
 - Relevant success and failure paths are covered.
 - Tests would fail without the implementation/fix.
+- Tests exercise the real component, not a preview or stand-in.
 - No misleading `passWithNoTests` result is used as proof.
 - Tests are never weakened, skipped, deleted, or threshold-lowered to make
   verification pass. Fix the root cause instead.
