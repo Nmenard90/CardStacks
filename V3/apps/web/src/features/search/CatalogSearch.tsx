@@ -23,6 +23,7 @@ import {
 } from "@tcg/shared";
 import { Card } from "../../components/ui/Card.js";
 import { StatePanel } from "../../components/ui/StatePanel.js";
+import { PageControls } from "../catalog/SetBrowser.js";
 import { searchCards, type SearchResultCard } from "./searchApi.js";
 
 const RESULTS_PER_PAGE = 25;
@@ -158,6 +159,7 @@ function SearchResults({ state, onSelectCard, onPageChange }: SearchResultsProps
             <ResultGrid items={group.candidates} onSelectCard={onSelectCard} />
           </div>
         ))}
+        <PageControls pageInfo={state.pageInfo} onPageChange={onPageChange} />
       </div>
     );
   }
@@ -165,21 +167,7 @@ function SearchResults({ state, onSelectCard, onPageChange }: SearchResultsProps
   return (
     <>
       <ResultGrid items={state.items} onSelectCard={onSelectCard} />
-      <div className="row" aria-label="Pagination">
-        <button type="button" disabled={state.pageInfo.page <= 1} onClick={() => onPageChange(state.pageInfo.page - 1)}>
-          Previous
-        </button>
-        <span>
-          Page {state.pageInfo.page} of {Math.max(state.pageInfo.totalPages, 1)} ({state.pageInfo.total} total)
-        </span>
-        <button
-          type="button"
-          disabled={state.pageInfo.page >= state.pageInfo.totalPages}
-          onClick={() => onPageChange(state.pageInfo.page + 1)}
-        >
-          Next
-        </button>
-      </div>
+      <PageControls pageInfo={state.pageInfo} onPageChange={onPageChange} />
     </>
   );
 }

@@ -27,6 +27,19 @@ export function normalizePath(path: string) {
   return `/${path.split("?")[0].split("#")[0].split("/").filter(Boolean).join("/")}`;
 }
 
+/**
+ * Decodes a path segment, returning `null` for malformed percent-escapes
+ * (e.g. `/cards/%`) instead of letting `decodeURIComponent` throw during
+ * render.
+ */
+function safeDecodeSegment(segment: string): string | null {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
+}
+
 const unavailableCopy: Record<string, string> = {
   "/bulk-add": "Bulk Add",
   "/binders": "Binders",
@@ -46,21 +59,23 @@ export function RouteView({ path, session, isAdmin, onNavigate }: RouteViewProps
 
   const setDetailMatch = SET_DETAIL_PATH.exec(path);
   if (setDetailMatch) {
+    const setId = safeDecodeSegment(setDetailMatch[1]);
+    if (setId === null) {
+      return <InvalidPathPanel onNavigate={onNavigate} />;
+    }
     return (
-      <SetDetailPage
-        setId={decodeURIComponent(setDetailMatch[1])}
-        onSelectCard={(cardId) => onNavigate(`/cards/${encodeURIComponent(cardId)}`)}
-      />
+      <SetDetailPage setId={setId} onSelectCard={(cardId) => onNavigate(`/cards/${encodeURIComponent(cardId)}`)} />
     );
   }
 
   const cardDetailMatch = CARD_DETAIL_PATH.exec(path);
   if (cardDetailMatch) {
+    const cardId = safeDecodeSegment(cardDetailMatch[1]);
+    if (cardId === null) {
+      return <InvalidPathPanel onNavigate={onNavigate} />;
+    }
     return (
-      <CardDetailPage
-        cardId={decodeURIComponent(cardDetailMatch[1])}
-        onSelectSet={(setId) => onNavigate(`/catalog/${encodeURIComponent(setId)}`)}
-      />
+      <CardDetailPage cardId={cardId} onSelectSet={(setId) => onNavigate(`/catalog/${encodeURIComponent(setId)}`)} />
     );
   }
 
@@ -161,6 +176,18 @@ export function RouteView({ path, session, isAdmin, onNavigate }: RouteViewProps
         message="This workflow is planned for V3, but it has not been implemented. No changes can be made from this screen."
       />
     </>
+  );
+}
+
+/** Not-found panel for a URL segment that could not be decoded (e.g. a malformed `%` escape). */
+function InvalidPathPanel({ onNavigate }: { onNavigate: (path: string) => void }) {
+  return (
+    <StatePanel
+      kind="not-found"
+      title="Page not found"
+      message="That link is not valid."
+      action={{ label: "Back to catalog", onClick: () => onNavigate("/") }}
+    />
   );
 }
 
