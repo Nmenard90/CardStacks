@@ -9,8 +9,23 @@
 
 import type { FastifyInstance } from "fastify";
 import { validateInput } from "../../utils/validate.js";
-import { collectionItemIdParamsSchema, quickAddSchema, updateCollectionItemSchema } from "./collection.schemas.js";
-import { getCollection, getCollectionSummary, quickAddToCollection, removeCollectionItem, updateCollectionItem } from "./collection.service.js";
+import {
+  bulkAddSchema,
+  collectionItemIdParamsSchema,
+  ownedCollectionQuerySchema,
+  quantityDeltaSchema,
+  quickAddSchema,
+  updateCollectionItemSchema
+} from "./collection.schemas.js";
+import {
+  adjustCollectionQuantity,
+  bulkAddToCollection,
+  getCollectionSummary,
+  getOwnedCollection,
+  quickAddToCollection,
+  removeCollectionItem,
+  updateCollectionItem
+} from "./collection.service.js";
 
 /**
  * Registers collection routes.
@@ -18,7 +33,8 @@ import { getCollection, getCollectionSummary, quickAddToCollection, removeCollec
 export async function registerCollectionRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/v1/collection", async (request) => {
     await app.requireAuth(request);
-    return { data: await getCollection(app.prisma, request.currentUser!.id) };
+    const query = validateInput(ownedCollectionQuerySchema, request.query);
+    return { data: await getOwnedCollection(app.prisma, request.currentUser!.id, query) };
   });
 
   app.get("/api/v1/collection/summary", async (request) => {
@@ -32,11 +48,24 @@ export async function registerCollectionRoutes(app: FastifyInstance): Promise<vo
     return { data: await quickAddToCollection(app.prisma, { ...input, userId: request.currentUser!.id }) };
   });
 
+  app.post("/api/v1/collection/bulk-add", async (request) => {
+    await app.requireAuth(request);
+    const input = validateInput(bulkAddSchema, request.body);
+    return { data: await bulkAddToCollection(app.prisma, request.currentUser!.id, input.rows) };
+  });
+
   app.patch("/api/v1/collection/items/:itemId", async (request) => {
     await app.requireAuth(request);
     const params = validateInput(collectionItemIdParamsSchema, request.params);
     const input = validateInput(updateCollectionItemSchema, request.body);
     return { data: await updateCollectionItem(app.prisma, request.currentUser!.id, params.itemId, input) };
+  });
+
+  app.post("/api/v1/collection/items/:itemId/quantity-delta", async (request) => {
+    await app.requireAuth(request);
+    const params = validateInput(collectionItemIdParamsSchema, request.params);
+    const input = validateInput(quantityDeltaSchema, request.body);
+    return { data: await adjustCollectionQuantity(app.prisma, request.currentUser!.id, params.itemId, input.delta) };
   });
 
   app.delete("/api/v1/collection/items/:itemId", async (request) => {

@@ -47,6 +47,13 @@ export function forbiddenError(message: string, details: Record<string, unknown>
 }
 
 /**
+ * Creates a conflict error, e.g. a database unique-constraint violation.
+ */
+export function conflictError(message: string, details: Record<string, unknown> = {}): AppError {
+  return new AppError("CONFLICT", message, 409, details);
+}
+
+/**
  * Creates an auth-required error.
  */
 export function authRequiredError(message = "A valid login token is required."): AppError {

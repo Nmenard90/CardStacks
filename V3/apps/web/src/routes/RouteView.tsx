@@ -1,9 +1,6 @@
-import { useEffect, useState } from "react";
 import type { AppSession } from "../App.js";
-import { Card } from "../components/ui/Card.js";
 import { StatePanel } from "../components/ui/StatePanel.js";
 import { NAVIGATION } from "../components/layout/navigation.js";
-import { apiGet } from "../lib/api.js";
 import { SearchPanel } from "../features/search/SearchPanel.js";
 import { ImportPanel } from "../features/imports/ImportPanel.js";
 import { LoginPanel } from "../features/auth/LoginPanel.js";
@@ -11,6 +8,8 @@ import { SetsPage } from "../pages/catalog/SetsPage.js";
 import { SetDetailPage } from "../pages/catalog/SetDetailPage.js";
 import { CardDetailPage } from "../pages/catalog/CardDetailPage.js";
 import { SearchPage } from "../pages/search/SearchPage.js";
+import { CollectionPage } from "../pages/collection/CollectionPage.js";
+import { BulkAddPage } from "../pages/bulk-add/BulkAddPage.js";
 
 const SET_DETAIL_PATH = /^\/catalog\/([^/]+)$/;
 const CARD_DETAIL_PATH = /^\/cards\/([^/]+)$/;
@@ -41,7 +40,6 @@ function safeDecodeSegment(segment: string): string | null {
 }
 
 const unavailableCopy: Record<string, string> = {
-  "/bulk-add": "Bulk Add",
   "/binders": "Binders",
   "/master-sets": "Master Sets",
   "/trade-tools": "Trade Tools",
@@ -134,16 +132,11 @@ export function RouteView({ path, session, isAdmin, onNavigate }: RouteViewProps
   }
 
   if (path === "/collection") {
-    return (
-      <>
-        <section className="page-heading">
-          <p className="eyebrow">Collection</p>
-          <h1>Your cards</h1>
-          <p>Track the cards and variants you own.</p>
-        </section>
-        <CollectionRoute />
-      </>
-    );
+    return <CollectionPage />;
+  }
+
+  if (path === "/bulk-add") {
+    return <BulkAddPage />;
   }
 
   if (path === "/imports-exports") {
@@ -191,91 +184,3 @@ function InvalidPathPanel({ onNavigate }: { onNavigate: (path: string) => void }
   );
 }
 
-interface CollectionItemSummary {
-  id: string;
-  condition: string;
-  quantity: number;
-  card: { name: string; number: string; imageSmall?: string; set: { name: string } };
-  variant: { displayName: string };
-}
-
-type CollectionState =
-  | { status: "loading" }
-  | { status: "error"; message: string }
-  | { status: "loaded"; items: CollectionItemSummary[] };
-
-/**
- * Loads the signed-in user's collection through the existing generic API
- * client and renders real loading/error/empty/data states. Kept local to the
- * route (rather than mounting the legacy CollectionPanel) so these states are
- * genuinely reachable through normal routing instead of hard-coded page copy.
- */
-function CollectionRoute() {
-  const [state, setState] = useState<CollectionState>({ status: "loading" });
-  const [attempt, setAttempt] = useState(0);
-
-  useEffect(() => {
-    let active = true;
-    setState({ status: "loading" });
-
-    apiGet<CollectionItemSummary[]>("/api/v1/collection")
-      .then((items) => {
-        if (active) setState({ status: "loaded", items });
-      })
-      .catch((error: unknown) => {
-        if (active) {
-          setState({
-            status: "error",
-            message: error instanceof Error ? error.message : "Could not load your collection."
-          });
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [attempt]);
-
-  if (state.status === "loading") {
-    return <StatePanel kind="loading" title="Loading your collection" message="Fetching the cards you own." />;
-  }
-
-  if (state.status === "error") {
-    return (
-      <StatePanel
-        kind="error"
-        title="Could not load your collection"
-        message={state.message}
-        action={{ label: "Try again", onClick: () => setAttempt((value) => value + 1) }}
-      />
-    );
-  }
-
-  if (state.items.length === 0) {
-    return (
-      <StatePanel
-        kind="empty"
-        title="Your collection is empty"
-        message="Use catalog search or Bulk Add to add your first card."
-      />
-    );
-  }
-
-  return (
-    <div className="grid">
-      {state.items.map((item) => (
-        <Card
-          key={item.id}
-          title={item.card.name}
-          subtitle={`${item.card.set.name} #${item.card.number}`}
-          imageUrl={item.card.imageSmall}
-          imageAlt={item.card.name}
-        >
-          <p>
-            {item.variant.displayName} · {item.condition} · Qty {item.quantity}
-          </p>
-        </Card>
-      ))}
-    </div>
-  );
-}
