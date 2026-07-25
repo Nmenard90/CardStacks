@@ -156,16 +156,28 @@ function parseNumberInt(number: string): number | null {
 
 /**
  * Parses PokémonTCG.io date-only fields.
+ *
+ * Returns undefined for missing OR unparseable values so a malformed date on a
+ * single set never crashes the whole sync (the newest sets can arrive in a
+ * format the raw Date constructor rejects).
  */
 function parseDateOnly(value: string | undefined): Date | undefined {
-  return value ? new Date(value.replaceAll("/", "-")) : undefined;
+  if (!value) return undefined;
+  const parsed = new Date(value.replaceAll("/", "-"));
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
 /**
  * Parses PokémonTCG.io date-time fields.
+ *
+ * The API sends timezone-less timestamps like "2026/03/26 15:00:00". Appending
+ * "Z" pins them to UTC so they parse consistently; a NaN guard drops anything
+ * still unparseable instead of handing Prisma an invalid Date.
  */
 function parsePokemonDateTime(value: string | undefined): Date | undefined {
-  return value ? new Date(value.replace(" ", "T").replaceAll("/", "-")) : undefined;
+  if (!value) return undefined;
+  const parsed = new Date(value.replace(" ", "T").replaceAll("/", "-") + "Z");
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
 /**
