@@ -169,6 +169,35 @@ describe("BulkAddPanel", () => {
     expect(view.textContent).toContain("No staged rows yet");
   });
 
+  it("never writes the outgoing user's staged rows under the incoming user's storage key during an account switch", async () => {
+    mockedLookup.mockResolvedValueOnce({ ambiguous: false, matches: [makeCard()], truncated: false });
+    mockedVariants.mockResolvedValueOnce([{ id: "variant-1", displayName: "Holofoil" }]);
+
+    const view = await render(<BulkAddPanel userId="user-1" />);
+    await act(async () => setInput(view, "Collector number", "004"));
+    await act(async () => view.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(view.textContent).toContain("Charizard");
+
+    const setItemSpy = vi.spyOn(window.localStorage.__proto__, "setItem");
+
+    // Same mounted panel, authenticated user changes without a full
+    // unmount/remount. If the reload and persist effects ever run out of
+    // order again, one of these calls will carry user-1's "Charizard" row
+    // under user-2's key before the reload effect corrects it.
+    await act(async () => root?.render(<BulkAddPanel userId="user-2" />));
+
+    const user2Writes = setItemSpy.mock.calls.filter(([key]) => key === "tcg.bulkAdd.stagedRows.v2:user-2");
+    expect(user2Writes.length).toBeGreaterThan(0);
+    for (const [, value] of user2Writes) {
+      expect(value).not.toContain("Charizard");
+    }
+
+    setItemSpy.mockRestore();
+
+    // user-1's own storage must also remain untouched by the switch.
+    expect(window.localStorage.getItem("tcg.bulkAdd.stagedRows.v2:user-1")).toContain("Charizard");
+  });
+
   it("wipes the pre-namespacing shared staging key instead of migrating it to whichever user loads next", async () => {
     window.localStorage.setItem("tcg.bulkAdd.stagedRows.v1", JSON.stringify([{ key: "legacy-1", cardName: "Mewtwo" }]));
 

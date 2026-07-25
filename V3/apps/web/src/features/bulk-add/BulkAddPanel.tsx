@@ -51,15 +51,18 @@ export function BulkAddPanel({ userId }: BulkAddPanelProps) {
 
   // Reloads staged rows scoped to the new user id if the authenticated user
   // changes (e.g. sign out, then a different account signs in) while this
-  // panel stays mounted, so the previous user's rows are never shown.
+  // panel stays mounted, so the previous user's rows are never shown. This
+  // must stay a single effect: splitting the reload and the persist into
+  // separate effects lets the persist effect run first with the *previous*
+  // user's still-current `stagedRows` closure, briefly writing that data
+  // under the new user's storage key before the reload effect corrects it.
   useEffect(() => {
     if (loadedForUserId.current !== userId) {
       loadedForUserId.current = userId;
       setStagedRows(loadStagedRows(userId));
+      return;
     }
-  }, [userId]);
 
-  useEffect(() => {
     persistStagedRows(userId, stagedRows);
   }, [userId, stagedRows]);
 
