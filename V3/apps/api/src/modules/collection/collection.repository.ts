@@ -398,19 +398,27 @@ function buildOwnedCollectionWhere(userId: string, filters: OwnedCollectionFilte
 /**
  * Builds the Prisma `orderBy` clause for the owned-collection list from a
  * validated sort field (see `@tcg/shared` `COLLECTION_SORT_FIELDS`).
+ *
+ * Every clause ends with `id` as a final tie-breaker. Without one, rows that
+ * tie on the requested field (e.g. two items updated in the same
+ * transaction, or sharing a quantity/condition) have no stable relative
+ * order across a paginated `skip`/`take`, which can duplicate or skip rows
+ * between adjacent pages.
  */
 function buildOwnedCollectionOrderBy(sort: OwnedCollectionSort): Prisma.CollectionItemOrderByWithRelationInput[] {
+  const tieBreaker: Prisma.CollectionItemOrderByWithRelationInput = { id: sort.direction };
+
   switch (sort.field) {
     case "name":
-      return [{ card: { name: sort.direction } }];
+      return [{ card: { name: sort.direction } }, tieBreaker];
     case "number":
-      return [{ card: { numberInt: sort.direction } }, { card: { number: sort.direction } }];
+      return [{ card: { numberInt: sort.direction } }, { card: { number: sort.direction } }, tieBreaker];
     case "quantity":
-      return [{ quantity: sort.direction }];
+      return [{ quantity: sort.direction }, tieBreaker];
     case "condition":
-      return [{ condition: sort.direction }];
+      return [{ condition: sort.direction }, tieBreaker];
     case "updatedAt":
     default:
-      return [{ updatedAt: sort.direction }];
+      return [{ updatedAt: sort.direction }, tieBreaker];
   }
 }

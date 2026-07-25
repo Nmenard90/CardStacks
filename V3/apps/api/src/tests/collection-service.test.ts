@@ -162,25 +162,40 @@ describe("getOwnedCollection", () => {
   it("sorts by name", async () => {
     const { prisma, calls } = fakePrisma();
     await getOwnedCollection(prisma, "user-a", { page: 1, limit: 25, sort: "name", direction: "asc" });
-    expect(calls.findMany[0].orderBy).toEqual([{ card: { name: "asc" } }]);
+    expect(calls.findMany[0].orderBy).toEqual([{ card: { name: "asc" } }, { id: "asc" }]);
   });
 
   it("sorts by number using numeric-then-alphanumeric tiebreak columns", async () => {
     const { prisma, calls } = fakePrisma();
     await getOwnedCollection(prisma, "user-a", { page: 1, limit: 25, sort: "number", direction: "asc" });
-    expect(calls.findMany[0].orderBy).toEqual([{ card: { numberInt: "asc" } }, { card: { number: "asc" } }]);
+    expect(calls.findMany[0].orderBy).toEqual([{ card: { numberInt: "asc" } }, { card: { number: "asc" } }, { id: "asc" }]);
   });
 
   it("sorts by quantity", async () => {
     const { prisma, calls } = fakePrisma();
     await getOwnedCollection(prisma, "user-a", { page: 1, limit: 25, sort: "quantity", direction: "desc" });
-    expect(calls.findMany[0].orderBy).toEqual([{ quantity: "desc" }]);
+    expect(calls.findMany[0].orderBy).toEqual([{ quantity: "desc" }, { id: "desc" }]);
   });
 
   it("sorts by condition", async () => {
     const { prisma, calls } = fakePrisma();
     await getOwnedCollection(prisma, "user-a", { page: 1, limit: 25, sort: "condition", direction: "asc" });
-    expect(calls.findMany[0].orderBy).toEqual([{ condition: "asc" }]);
+    expect(calls.findMany[0].orderBy).toEqual([{ condition: "asc" }, { id: "asc" }]);
+  });
+
+  it("sorts by updatedAt with an id tie-breaker so rows updated in the same instant keep a stable order across pages", async () => {
+    const { prisma, calls } = fakePrisma();
+    await getOwnedCollection(prisma, "user-a", { page: 1, limit: 25, sort: "updatedAt", direction: "desc" });
+    expect(calls.findMany[0].orderBy).toEqual([{ updatedAt: "desc" }, { id: "desc" }]);
+  });
+
+  it("appends a final id tie-breaker to every sort field so tied values never duplicate or skip rows across adjacent pages", async () => {
+    const { prisma, calls } = fakePrisma();
+
+    await getOwnedCollection(prisma, "user-a", { page: 1, limit: 25, sort: "quantity", direction: "asc" });
+    const orderBy = calls.findMany[0].orderBy as Array<Record<string, unknown>>;
+
+    expect(orderBy[orderBy.length - 1]).toEqual({ id: "asc" });
   });
 });
 

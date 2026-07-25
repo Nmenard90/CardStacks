@@ -32,17 +32,41 @@ interface CardDetail extends SearchResultCard {
 export interface NumberLookupResult {
   ambiguous: boolean;
   matches: SearchResultCard[];
+  /**
+   * True when the true match count exceeds `MAX_LOOKUP_MATCHES` and the
+   * caller is showing a bounded prefix rather than every match. A number
+   * search can legitimately span most of the catalog's sets (e.g. "1"), so
+   * this must stay bounded rather than fetching an unbounded page count.
+   */
+  truncated: boolean;
 }
+
+const LOOKUP_PAGE_LIMIT = 50;
+const MAX_LOOKUP_PAGES = 10;
+export const MAX_LOOKUP_MATCHES = LOOKUP_PAGE_LIMIT * MAX_LOOKUP_PAGES;
 
 /**
  * Looks up cards by collector number, optionally scoped to a set
  * (FR-BULK-001). When no set is given and the number matches more than one
- * set, the result is ambiguous and every candidate is returned so the
- * caller can group them by set (FR-BULK-002).
+ * set, the result is ambiguous; every candidate up to `MAX_LOOKUP_MATCHES`
+ * is fetched (across pages) so the caller can group them by set without a
+ * silent 50-row cutoff hiding real candidates (FR-BULK-002).
  */
 export async function lookupCardsByNumber(number: string, setId?: string): Promise<NumberLookupResult> {
-  const result = await searchCards({ number, setId, page: 1, limit: 50 });
-  return { ambiguous: result.ambiguous, matches: result.items };
+  const first = await searchCards({ number, setId, page: 1, limit: LOOKUP_PAGE_LIMIT });
+  const matches = [...first.items];
+
+  const totalPages = Math.min(first.pageInfo.totalPages, MAX_LOOKUP_PAGES);
+  for (let page = 2; page <= totalPages; page += 1) {
+    const next = await searchCards({ number, setId, page, limit: LOOKUP_PAGE_LIMIT });
+    matches.push(...next.items);
+  }
+
+  return {
+    ambiguous: first.ambiguous,
+    matches,
+    truncated: first.pageInfo.total > MAX_LOOKUP_MATCHES
+  };
 }
 
 /**

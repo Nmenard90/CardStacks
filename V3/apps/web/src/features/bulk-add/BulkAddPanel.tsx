@@ -16,14 +16,14 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { CARD_CONDITIONS, COLLECTION_QUANTITY_MAX, COLLECTION_QUANTITY_MIN, groupCandidatesBySet, type BulkAddRowInput, type CardCondition } from "@tcg/shared";
 import { StatePanel } from "../../components/ui/StatePanel.js";
-import { lookupCardsByNumber, loadCardVariants, saveStagedRows as saveStagedRowsRequest, type SearchResultCard } from "./bulkAddApi.js";
+import { lookupCardsByNumber, loadCardVariants, saveStagedRows as saveStagedRowsRequest, MAX_LOOKUP_MATCHES, type SearchResultCard } from "./bulkAddApi.js";
 import { loadStagedRows, makeStagedRowKey, persistStagedRows, type StagedRow } from "./stagedRows.js";
 
 type LookupState =
   | { status: "idle" }
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "choosing"; groups: { setId: string; candidates: SearchResultCard[] }[] };
+  | { status: "choosing"; groups: { setId: string; candidates: SearchResultCard[] }[]; truncated: boolean };
 
 type SaveState =
   | { status: "idle" }
@@ -107,7 +107,7 @@ export function BulkAddPanel({ userId }: BulkAddPanelProps) {
     setLookupState({ status: "loading" });
 
     try {
-      const { ambiguous, matches } = await lookupCardsByNumber(trimmedNumber, setId.trim() || undefined);
+      const { ambiguous, matches, truncated } = await lookupCardsByNumber(trimmedNumber, setId.trim() || undefined);
 
       if (matches.length === 0) {
         setLookupState({
@@ -118,7 +118,7 @@ export function BulkAddPanel({ userId }: BulkAddPanelProps) {
       }
 
       if (ambiguous || matches.length > 1) {
-        setLookupState({ status: "choosing", groups: groupCandidatesBySet(matches) });
+        setLookupState({ status: "choosing", groups: groupCandidatesBySet(matches), truncated });
         return;
       }
 
@@ -194,6 +194,9 @@ export function BulkAddPanel({ userId }: BulkAddPanelProps) {
       {lookupState.status === "choosing" ? (
         <div>
           <StatePanel kind="empty" title="Multiple cards share this number" message="Choose the card you meant." />
+          {lookupState.truncated ? (
+            <p role="status">Showing the first {MAX_LOOKUP_MATCHES} matches. Add a set id above to narrow the results.</p>
+          ) : null}
           {lookupState.groups.map((group) => (
             <div key={group.setId}>
               <h3>{group.candidates[0]?.set.name ?? group.setId}</h3>

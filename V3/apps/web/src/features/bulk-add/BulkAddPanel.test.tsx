@@ -7,7 +7,8 @@ import { loadCardVariants, lookupCardsByNumber, saveStagedRows } from "./bulkAdd
 vi.mock("./bulkAddApi.js", () => ({
   lookupCardsByNumber: vi.fn(),
   loadCardVariants: vi.fn(),
-  saveStagedRows: vi.fn()
+  saveStagedRows: vi.fn(),
+  MAX_LOOKUP_MATCHES: 500
 }));
 
 const mockedLookup = vi.mocked(lookupCardsByNumber);
@@ -56,7 +57,7 @@ afterEach(async () => {
 
 describe("BulkAddPanel", () => {
   it("stages a card after an unambiguous number lookup and clears the input for the next entry", async () => {
-    mockedLookup.mockResolvedValueOnce({ ambiguous: false, matches: [makeCard()] });
+    mockedLookup.mockResolvedValueOnce({ ambiguous: false, matches: [makeCard()], truncated: false });
     mockedVariants.mockResolvedValueOnce([{ id: "variant-1", displayName: "Holofoil" }]);
 
     const view = await render(<BulkAddPanel userId="user-1" />);
@@ -72,7 +73,7 @@ describe("BulkAddPanel", () => {
   });
 
   it("passes the set id filter through to a set-scoped lookup", async () => {
-    mockedLookup.mockResolvedValueOnce({ ambiguous: false, matches: [makeCard()] });
+    mockedLookup.mockResolvedValueOnce({ ambiguous: false, matches: [makeCard()], truncated: false });
     mockedVariants.mockResolvedValueOnce([{ id: "variant-1", displayName: "Holofoil" }]);
 
     const view = await render(<BulkAddPanel userId="user-1" />);
@@ -87,7 +88,8 @@ describe("BulkAddPanel", () => {
   it("groups an ambiguous cross-set number lookup and stages the chosen card", async () => {
     mockedLookup.mockResolvedValueOnce({
       ambiguous: true,
-      matches: [makeCard({ id: "sv1-80", number: "080", setId: "sv1", setName: "Set One" }), makeCard({ id: "swsh1-80", number: "080", setId: "swsh1", setName: "Set Two" })]
+      matches: [makeCard({ id: "sv1-80", number: "080", setId: "sv1", setName: "Set One" }), makeCard({ id: "swsh1-80", number: "080", setId: "swsh1", setName: "Set Two" })],
+      truncated: false
     });
     mockedVariants.mockResolvedValueOnce([{ id: "variant-2", displayName: "Reverse Holofoil" }]);
 
@@ -107,8 +109,22 @@ describe("BulkAddPanel", () => {
     expect(view.textContent).toContain("Reverse Holofoil");
   });
 
+  it("tells the user the ambiguous match list was truncated instead of silently hiding candidates", async () => {
+    mockedLookup.mockResolvedValueOnce({
+      ambiguous: true,
+      matches: [makeCard({ id: "sv1-80", number: "080", setId: "sv1", setName: "Set One" }), makeCard({ id: "swsh1-80", number: "080", setId: "swsh1", setName: "Set Two" })],
+      truncated: true
+    });
+
+    const view = await render(<BulkAddPanel userId="user-1" />);
+    await act(async () => setInput(view, "Collector number", "080"));
+    await act(async () => view.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+
+    expect(view.textContent).toContain("Showing the first 500 matches");
+  });
+
   it("reports no card found instead of silently staging nothing", async () => {
-    mockedLookup.mockResolvedValueOnce({ ambiguous: false, matches: [] });
+    mockedLookup.mockResolvedValueOnce({ ambiguous: false, matches: [], truncated: false });
 
     const view = await render(<BulkAddPanel userId="user-1" />);
     await act(async () => setInput(view, "Collector number", "999"));
@@ -119,7 +135,7 @@ describe("BulkAddPanel", () => {
   });
 
   it("persists staged rows to localStorage and reloads them on remount (staged-row recovery)", async () => {
-    mockedLookup.mockResolvedValueOnce({ ambiguous: false, matches: [makeCard()] });
+    mockedLookup.mockResolvedValueOnce({ ambiguous: false, matches: [makeCard()], truncated: false });
     mockedVariants.mockResolvedValueOnce([{ id: "variant-1", displayName: "Holofoil" }]);
 
     const view = await render(<BulkAddPanel userId="user-1" />);
@@ -137,7 +153,7 @@ describe("BulkAddPanel", () => {
   });
 
   it("does not show a different user's staged rows after an account switch on the same device", async () => {
-    mockedLookup.mockResolvedValueOnce({ ambiguous: false, matches: [makeCard()] });
+    mockedLookup.mockResolvedValueOnce({ ambiguous: false, matches: [makeCard()], truncated: false });
     mockedVariants.mockResolvedValueOnce([{ id: "variant-1", displayName: "Holofoil" }]);
 
     const view = await render(<BulkAddPanel userId="user-1" />);
@@ -165,8 +181,8 @@ describe("BulkAddPanel", () => {
 
   it("keeps a failed row staged with its error and drops the successful row after a partial save failure", async () => {
     mockedLookup
-      .mockResolvedValueOnce({ ambiguous: false, matches: [makeCard({ id: "card-1", name: "Charizard" })] })
-      .mockResolvedValueOnce({ ambiguous: false, matches: [makeCard({ id: "card-2", name: "Pikachu", number: "025" })] });
+      .mockResolvedValueOnce({ ambiguous: false, matches: [makeCard({ id: "card-1", name: "Charizard" })], truncated: false })
+      .mockResolvedValueOnce({ ambiguous: false, matches: [makeCard({ id: "card-2", name: "Pikachu", number: "025" })], truncated: false });
     mockedVariants.mockResolvedValue([{ id: "variant-1", displayName: "Holofoil" }]);
     mockedSave.mockResolvedValueOnce({
       results: [
@@ -200,7 +216,7 @@ describe("BulkAddPanel", () => {
   });
 
   it("leaves every staged row untouched when the whole save request fails", async () => {
-    mockedLookup.mockResolvedValueOnce({ ambiguous: false, matches: [makeCard()] });
+    mockedLookup.mockResolvedValueOnce({ ambiguous: false, matches: [makeCard()], truncated: false });
     mockedVariants.mockResolvedValueOnce([{ id: "variant-1", displayName: "Holofoil" }]);
     mockedSave.mockRejectedValueOnce(new Error("Network error"));
 
@@ -216,7 +232,7 @@ describe("BulkAddPanel", () => {
   });
 
   it("removes a staged row without saving", async () => {
-    mockedLookup.mockResolvedValueOnce({ ambiguous: false, matches: [makeCard()] });
+    mockedLookup.mockResolvedValueOnce({ ambiguous: false, matches: [makeCard()], truncated: false });
     mockedVariants.mockResolvedValueOnce([{ id: "variant-1", displayName: "Holofoil" }]);
 
     const view = await render(<BulkAddPanel userId="user-1" />);
