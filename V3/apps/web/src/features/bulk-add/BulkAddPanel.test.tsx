@@ -59,7 +59,7 @@ describe("BulkAddPanel", () => {
     mockedLookup.mockResolvedValueOnce({ ambiguous: false, matches: [makeCard()] });
     mockedVariants.mockResolvedValueOnce([{ id: "variant-1", displayName: "Holofoil" }]);
 
-    const view = await render(<BulkAddPanel />);
+    const view = await render(<BulkAddPanel userId="user-1" />);
     await act(async () => setInput(view, "Collector number", "004"));
     const form = view.querySelector("form")!;
     await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
@@ -75,7 +75,7 @@ describe("BulkAddPanel", () => {
     mockedLookup.mockResolvedValueOnce({ ambiguous: false, matches: [makeCard()] });
     mockedVariants.mockResolvedValueOnce([{ id: "variant-1", displayName: "Holofoil" }]);
 
-    const view = await render(<BulkAddPanel />);
+    const view = await render(<BulkAddPanel userId="user-1" />);
     await act(async () => setInput(view, "Set id", "sv1"));
     await act(async () => setInput(view, "Collector number", "004"));
     const form = view.querySelector("form")!;
@@ -91,7 +91,7 @@ describe("BulkAddPanel", () => {
     });
     mockedVariants.mockResolvedValueOnce([{ id: "variant-2", displayName: "Reverse Holofoil" }]);
 
-    const view = await render(<BulkAddPanel />);
+    const view = await render(<BulkAddPanel userId="user-1" />);
     await act(async () => setInput(view, "Collector number", "080"));
     const form = view.querySelector("form")!;
     await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
@@ -110,7 +110,7 @@ describe("BulkAddPanel", () => {
   it("reports no card found instead of silently staging nothing", async () => {
     mockedLookup.mockResolvedValueOnce({ ambiguous: false, matches: [] });
 
-    const view = await render(<BulkAddPanel />);
+    const view = await render(<BulkAddPanel userId="user-1" />);
     await act(async () => setInput(view, "Collector number", "999"));
     const form = view.querySelector("form")!;
     await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
@@ -122,7 +122,7 @@ describe("BulkAddPanel", () => {
     mockedLookup.mockResolvedValueOnce({ ambiguous: false, matches: [makeCard()] });
     mockedVariants.mockResolvedValueOnce([{ id: "variant-1", displayName: "Holofoil" }]);
 
-    const view = await render(<BulkAddPanel />);
+    const view = await render(<BulkAddPanel userId="user-1" />);
     await act(async () => setInput(view, "Collector number", "004"));
     const form = view.querySelector("form")!;
     await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
@@ -130,10 +130,37 @@ describe("BulkAddPanel", () => {
     expect(view.textContent).toContain("Charizard");
 
     await act(async () => root?.unmount());
-    const remounted = await render(<BulkAddPanel />);
+    const remounted = await render(<BulkAddPanel userId="user-1" />);
 
     expect(remounted.textContent).toContain("Charizard");
     expect(mockedLookup).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not show a different user's staged rows after an account switch on the same device", async () => {
+    mockedLookup.mockResolvedValueOnce({ ambiguous: false, matches: [makeCard()] });
+    mockedVariants.mockResolvedValueOnce([{ id: "variant-1", displayName: "Holofoil" }]);
+
+    const view = await render(<BulkAddPanel userId="user-1" />);
+    await act(async () => setInput(view, "Collector number", "004"));
+    await act(async () => view.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(view.textContent).toContain("Charizard");
+
+    // Same mounted panel, authenticated user changes (sign out, then a
+    // different account signs in) without a full unmount/remount.
+    await act(async () => root?.render(<BulkAddPanel userId="user-2" />));
+
+    expect(view.textContent).not.toContain("Charizard");
+    expect(view.textContent).toContain("No staged rows yet");
+  });
+
+  it("wipes the pre-namespacing shared staging key instead of migrating it to whichever user loads next", async () => {
+    window.localStorage.setItem("tcg.bulkAdd.stagedRows.v1", JSON.stringify([{ key: "legacy-1", cardName: "Mewtwo" }]));
+
+    const view = await render(<BulkAddPanel userId="user-1" />);
+
+    expect(view.textContent).not.toContain("Mewtwo");
+    expect(view.textContent).toContain("No staged rows yet");
+    expect(window.localStorage.getItem("tcg.bulkAdd.stagedRows.v1")).toBeNull();
   });
 
   it("keeps a failed row staged with its error and drops the successful row after a partial save failure", async () => {
@@ -150,7 +177,7 @@ describe("BulkAddPanel", () => {
       failedCount: 1
     });
 
-    const view = await render(<BulkAddPanel />);
+    const view = await render(<BulkAddPanel userId="user-1" />);
 
     await act(async () => setInput(view, "Collector number", "004"));
     await act(async () => view.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
@@ -177,7 +204,7 @@ describe("BulkAddPanel", () => {
     mockedVariants.mockResolvedValueOnce([{ id: "variant-1", displayName: "Holofoil" }]);
     mockedSave.mockRejectedValueOnce(new Error("Network error"));
 
-    const view = await render(<BulkAddPanel />);
+    const view = await render(<BulkAddPanel userId="user-1" />);
     await act(async () => setInput(view, "Collector number", "004"));
     await act(async () => view.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
 
@@ -192,7 +219,7 @@ describe("BulkAddPanel", () => {
     mockedLookup.mockResolvedValueOnce({ ambiguous: false, matches: [makeCard()] });
     mockedVariants.mockResolvedValueOnce([{ id: "variant-1", displayName: "Holofoil" }]);
 
-    const view = await render(<BulkAddPanel />);
+    const view = await render(<BulkAddPanel userId="user-1" />);
     await act(async () => setInput(view, "Collector number", "004"));
     await act(async () => view.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
 

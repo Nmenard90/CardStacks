@@ -8,7 +8,7 @@
  *   one place prevents route handlers from becoming messy.
  */
 
-import type { CardCondition, Prisma, PrismaClient } from "@prisma/client";
+import { Prisma, type CardCondition, type PrismaClient } from "@prisma/client";
 import {
   COLLECTION_QUANTITY_MAX,
   normalizeCardName,
@@ -63,6 +63,36 @@ export async function findVariantForCard(prisma: PrismaClient, cardId: string, v
   return prisma.cardVariant.findFirst({ where: { id: variantId, cardId } });
 }
 
+const MAX_SERIALIZABLE_ATTEMPTS = 5;
+
+/**
+ * Runs a read-then-write transaction under serializable isolation, retrying
+ * a bounded number of times when Postgres reports a write conflict (P2034).
+ *
+ * Why this exists:
+ *   Quantity math (quick-add merges, increment/decrement) reads a bucket's
+ *   current quantity and writes a derived value in the same transaction.
+ *   Read-committed isolation (Postgres's/Prisma's default) allows two such
+ *   transactions to both read the same stale quantity and lose an update.
+ *   Serializable isolation makes Postgres abort one of any two conflicting
+ *   transactions instead; retrying the aborted one re-reads current data and
+ *   completes correctly.
+ */
+async function runSerializableWithRetry<T>(prisma: PrismaClient, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  for (let attempt = 1; attempt <= MAX_SERIALIZABLE_ATTEMPTS; attempt += 1) {
+    try {
+      return await prisma.$transaction(fn, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      const isWriteConflict = error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034";
+      if (!isWriteConflict || attempt === MAX_SERIALIZABLE_ATTEMPTS) {
+        throw error;
+      }
+    }
+  }
+
+  throw new Error("Unreachable: retry loop must return or throw.");
+}
+
 /**
  * Lists a bounded, filtered, sorted page of a user's collection with card
  * and variant summary fields.
@@ -103,6 +133,18 @@ export async function listOwnedCollectionItems(
 }
 
 /**
+ * Result of a quick-add/bulk-add write.
+ *
+ * `quantity_exceeded` covers a merge into an existing bucket that would push
+ * its total past `COLLECTION_QUANTITY_MAX` (e.g. adding 2 to a bucket that
+ * already holds 9,999) so the service can map it to a 400 instead of
+ * silently writing an over-limit quantity.
+ */
+export type QuickAddOutcome =
+  | { status: "ok"; item: Awaited<ReturnType<typeof updateOwnedCollectionItem>> }
+  | { status: "quantity_exceeded"; message: string };
+
+/**
  * Adds inventory or increments an existing matching inventory bucket.
  *
  * Data consistency:
@@ -110,22 +152,38 @@ export async function listOwnedCollectionItems(
  *   and every writer normalizes the storage location through the same
  *   canonical helper (COL-401) so blank/missing storage never splits into a
  *   duplicate bucket.
+ *
+ * Why a serializable transaction:
+ *   The resulting quantity must be validated against `COLLECTION_QUANTITY_MAX`
+ *   before it is written, which means reading the current bucket and writing
+ *   the merged total cannot be a single atomic upsert. Serializable isolation
+ *   (with retry, see `runSerializableWithRetry`) guarantees Postgres aborts
+ *   one side of two concurrent quick-adds to the same bucket instead of
+ *   letting both read the same stale quantity and silently exceed the cap.
  */
-export async function quickAddCollectionItem(prisma: PrismaClient, input: QuickAddInput) {
+export async function quickAddCollectionItem(prisma: PrismaClient, input: QuickAddInput): Promise<QuickAddOutcome> {
   const storageLocation = normalizeStorageLocation(input.storageLocation);
+  const bucketKey = {
+    userId_cardId_variantId_condition_storageLocation: {
+      userId: input.userId,
+      cardId: input.cardId,
+      variantId: input.variantId,
+      condition: input.condition,
+      storageLocation
+    }
+  };
 
-  return prisma.$transaction(async (tx) => {
+  return runSerializableWithRetry(prisma, async (tx) => {
+    const existing = await tx.collectionItem.findUnique({ where: bucketKey });
+    const nextQuantity = (existing?.quantity ?? 0) + input.quantity;
+
+    if (nextQuantity > COLLECTION_QUANTITY_MAX) {
+      return { status: "quantity_exceeded", message: `Quantity cannot exceed ${COLLECTION_QUANTITY_MAX}.` };
+    }
+
     const item = await tx.collectionItem.upsert({
-      where: {
-        userId_cardId_variantId_condition_storageLocation: {
-          userId: input.userId,
-          cardId: input.cardId,
-          variantId: input.variantId,
-          condition: input.condition,
-          storageLocation
-        }
-      },
-      update: { quantity: { increment: input.quantity }, ...(input.notes !== undefined ? { notes: input.notes } : {}) },
+      where: bucketKey,
+      update: { quantity: nextQuantity, ...(input.notes !== undefined ? { notes: input.notes } : {}) },
       create: {
         userId: input.userId,
         cardId: input.cardId,
@@ -155,7 +213,7 @@ export async function quickAddCollectionItem(prisma: PrismaClient, input: QuickA
       });
     }
 
-    return item;
+    return { status: "ok", item };
   });
 }
 
@@ -198,13 +256,17 @@ export type AdjustQuantityOutcome =
  * Applies a bounded increment/decrement to a collection item's quantity in
  * one transaction, deleting the bucket when the result reaches zero.
  *
- * Why a transaction:
- *   Increment/decrement must read-then-write atomically so two concurrent
- *   decrements cannot both pass a boundary check against the same stale
- *   quantity and drive the bucket negative.
+ * Why a serializable transaction:
+ *   Increment/decrement reads the current quantity, then writes a derived
+ *   absolute value. Under the database's default (read committed) isolation,
+ *   two concurrent adjustments can both read the same stale quantity and one
+ *   update silently overwrites the other (a lost update), or both decrements
+ *   can pass a boundary check against the same stale quantity and drive the
+ *   bucket negative. Serializable isolation, plus `runSerializableWithRetry`,
+ *   makes Postgres abort and retry one side of any such conflict instead.
  */
 export async function adjustCollectionItemQuantity(prisma: PrismaClient, userId: string, itemId: string, delta: number): Promise<AdjustQuantityOutcome> {
-  return prisma.$transaction(async (tx) => {
+  return runSerializableWithRetry(prisma, async (tx) => {
     const existing = await tx.collectionItem.findFirst({ where: { id: itemId, userId } });
 
     if (!existing) {

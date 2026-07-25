@@ -48,7 +48,13 @@ export async function getOwnedCollection(prisma: PrismaClient, userId: string, q
  */
 export async function quickAddToCollection(prisma: PrismaClient, input: QuickAddInput) {
   await assertVariantBelongsToCard(prisma, input.cardId, input.variantId);
-  return quickAddCollectionItem(prisma, input);
+  const outcome = await quickAddCollectionItem(prisma, input);
+
+  if (outcome.status === "quantity_exceeded") {
+    throw validationError(outcome.message, { cardId: input.cardId, variantId: input.variantId });
+  }
+
+  return outcome.item;
 }
 
 /**
@@ -137,7 +143,7 @@ export async function bulkAddToCollection(prisma: PrismaClient, userId: string, 
     try {
       await assertVariantBelongsToCard(prisma, row.cardId, row.variantId);
 
-      const item = await quickAddCollectionItem(prisma, {
+      const outcome = await quickAddCollectionItem(prisma, {
         userId,
         cardId: row.cardId,
         variantId: row.variantId,
@@ -147,7 +153,12 @@ export async function bulkAddToCollection(prisma: PrismaClient, userId: string, 
         notes: row.notes
       });
 
-      results.push({ index, ok: true, itemId: item.id });
+      if (outcome.status === "quantity_exceeded") {
+        results.push({ index, ok: false, error: { code: "VALIDATION_ERROR", message: outcome.message } });
+        continue;
+      }
+
+      results.push({ index, ok: true, itemId: outcome.item.id });
     } catch (error) {
       results.push({ index, ok: false, error: bulkRowError(error) });
     }

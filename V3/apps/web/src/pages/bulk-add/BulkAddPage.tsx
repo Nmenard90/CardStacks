@@ -7,7 +7,12 @@
 
 import { BulkAddPanel } from "../../features/bulk-add/BulkAddPanel.js";
 
-export function BulkAddPage() {
+interface BulkAddPageProps {
+  /** Authenticated user's id, used to namespace staged-row storage per user. */
+  userId: string;
+}
+
+export function BulkAddPage({ userId }: BulkAddPageProps) {
   return (
     <>
       <section className="page-heading">
@@ -15,7 +20,7 @@ export function BulkAddPage() {
         <h1>Add many cards quickly</h1>
         <p>Enter collector numbers one after another, review the staged rows, then save the whole batch.</p>
       </section>
-      <BulkAddPanel />
+      <BulkAddPanel userId={userId} />
     </>
   );
 }

@@ -33,6 +33,7 @@ interface FakePrismaOptions {
   collectionItems?: unknown[];
   collectionItemsTotal?: number;
   findFirstResult?: unknown;
+  findUniqueResult?: unknown;
   upsertResult?: unknown;
   updateResult?: unknown;
   updateError?: unknown;
@@ -58,6 +59,10 @@ function fakePrisma(options: FakePrismaOptions = {}) {
     findFirst: vi.fn(async (args: any) => {
       record("findFirst", args);
       return options.findFirstResult ?? null;
+    }),
+    findUnique: vi.fn(async (args: any) => {
+      record("findUnique", args);
+      return options.findUniqueResult ?? null;
     }),
     upsert: vi.fn(async (args: any) => {
       record("upsert", args);
@@ -197,12 +202,30 @@ describe("quickAddToCollection", () => {
     expect(upsertArgs.where.userId_cardId_variantId_condition_storageLocation.storageLocation).toBe("default");
   });
 
-  it("increments (not overwrites) an existing matching bucket (deterministic bucket merging)", async () => {
+  it("merges into a fresh bucket using the submitted quantity", async () => {
     const { prisma, calls } = fakePrisma();
 
     await quickAddToCollection(prisma, { userId: "user-a", cardId: "card-1", variantId: "variant-1", condition: "NEAR_MINT", quantity: 3 });
 
-    expect(calls.upsert[0].update.quantity).toEqual({ increment: 3 });
+    expect(calls.upsert[0].update.quantity).toBe(3);
+  });
+
+  it("increments (not overwrites) an existing matching bucket (deterministic bucket merging)", async () => {
+    const { prisma, calls } = fakePrisma({ findUniqueResult: { quantity: 5 } });
+
+    await quickAddToCollection(prisma, { userId: "user-a", cardId: "card-1", variantId: "variant-1", condition: "NEAR_MINT", quantity: 3 });
+
+    expect(calls.upsert[0].update.quantity).toBe(8);
+  });
+
+  it("rejects merging into a near-limit bucket instead of silently exceeding the quantity ceiling", async () => {
+    const { prisma, calls } = fakePrisma({ findUniqueResult: { quantity: 9999 } });
+
+    await expect(
+      quickAddToCollection(prisma, { userId: "user-a", cardId: "card-1", variantId: "variant-1", condition: "NEAR_MINT", quantity: 2 })
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR", statusCode: 400 });
+
+    expect(calls.upsert).toBeUndefined();
   });
 
   it("records a purchase lot when paid price/purchase date are supplied without corrupting aggregate quantity math", async () => {
@@ -220,7 +243,7 @@ describe("quickAddToCollection", () => {
 
     expect(calls.purchaseLotCreate).toHaveLength(1);
     expect(calls.purchaseLotCreate[0].data).toMatchObject({ quantity: 2, pricePaidEach: 12.5, pricePaidTotal: 25 });
-    expect(calls.upsert[0].update.quantity).toEqual({ increment: 2 });
+    expect(calls.upsert[0].update.quantity).toBe(2);
   });
 
   it("skips the purchase lot write when no paid price or purchase date is supplied", async () => {
@@ -378,6 +401,7 @@ describe("bulkAddToCollection", () => {
     const prisma = {
       cardVariant: { findFirst: vi.fn(async () => variantQueue.shift()) },
       collectionItem: {
+        findUnique: vi.fn(async () => null),
         upsert: vi.fn(async () => {
           const outcome = upsertOutcomes.shift();
           if (outcome instanceof Error) throw outcome;
@@ -401,5 +425,21 @@ describe("bulkAddToCollection", () => {
     expect(result.results[2]).toMatchObject({ index: 2, ok: false, error: { code: "CONFLICT" } });
     expect(result.savedCount).toBe(1);
     expect(result.failedCount).toBe(2);
+  });
+
+  it("reports a per-row ceiling failure without aborting the rest of the batch (merging into a near-limit bucket)", async () => {
+    const { prisma } = fakePrisma({ findUniqueResult: { quantity: 9999 } });
+
+    const rows = [
+      { cardId: "card-1", variantId: "variant-1", condition: "NEAR_MINT" as const, quantity: 2 },
+      { cardId: "card-2", variantId: "variant-2", condition: "NEAR_MINT" as const, quantity: 1 }
+    ];
+
+    const result = await bulkAddToCollection(prisma, "user-a", rows);
+
+    expect(result.results[0]).toMatchObject({ index: 0, ok: false, error: { code: "VALIDATION_ERROR" } });
+    expect(result.results[1]).toMatchObject({ index: 1, ok: true, itemId: "item-1" });
+    expect(result.savedCount).toBe(1);
+    expect(result.failedCount).toBe(1);
   });
 });

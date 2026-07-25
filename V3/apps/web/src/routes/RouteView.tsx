@@ -136,7 +136,9 @@ export function RouteView({ path, session, isAdmin, onNavigate }: RouteViewProps
   }
 
   if (path === "/bulk-add") {
-    return <BulkAddPage />;
+    // route.auth === "signed-in" already returned above when !signedIn, so
+    // session is a real Session here; the null branch is defensive only.
+    return <BulkAddPage userId={session !== null ? session.user.id : ""} />;
   }
 
   if (path === "/imports-exports") {

@@ -31,21 +31,37 @@ type SaveState =
   | { status: "error"; message: string }
   | { status: "done"; savedCount: number; failedCount: number };
 
+interface BulkAddPanelProps {
+  /** Authenticated user's id; staged rows are namespaced by this so switching accounts on the same device never exposes another user's staged data. */
+  userId: string;
+}
+
 /**
  * Renders the set-scoped number entry field, staged-row table, and save
  * controls for bulk add.
  */
-export function BulkAddPanel() {
+export function BulkAddPanel({ userId }: BulkAddPanelProps) {
   const [setId, setSetId] = useState("");
   const [numberInput, setNumberInput] = useState("");
   const [lookupState, setLookupState] = useState<LookupState>({ status: "idle" });
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
-  const [stagedRows, setStagedRows] = useState<StagedRow[]>(() => loadStagedRows());
+  const [stagedRows, setStagedRows] = useState<StagedRow[]>(() => loadStagedRows(userId));
   const numberInputRef = useRef<HTMLInputElement>(null);
+  const loadedForUserId = useRef(userId);
+
+  // Reloads staged rows scoped to the new user id if the authenticated user
+  // changes (e.g. sign out, then a different account signs in) while this
+  // panel stays mounted, so the previous user's rows are never shown.
+  useEffect(() => {
+    if (loadedForUserId.current !== userId) {
+      loadedForUserId.current = userId;
+      setStagedRows(loadStagedRows(userId));
+    }
+  }, [userId]);
 
   useEffect(() => {
-    persistStagedRows(stagedRows);
-  }, [stagedRows]);
+    persistStagedRows(userId, stagedRows);
+  }, [userId, stagedRows]);
 
   async function stageCard(card: SearchResultCard) {
     try {
