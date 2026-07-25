@@ -10,14 +10,15 @@
 
 import type { PrismaClient } from "@prisma/client";
 import type { WorkerEnv } from "../config/env.js";
-import { fetchPokemonTcgCardPage, fetchPokemonTcgSets, type PokemonTcgCard } from "../providers/pokemon-tcg.provider.js";
+import { fetchPokemonTcgCardsForSet, fetchPokemonTcgSets, type PokemonTcgCard } from "../providers/pokemon-tcg.provider.js";
 
 /**
  * Syncs all sets and cards from PokémonTCG.io.
  *
- * Performance:
- *   Cards are processed page by page so the worker does not hold the full
- *   catalog in memory.
+ * Approach:
+ *   Cards are fetched one set at a time (filtered by set id), mirroring the
+ *   proven V2 service. The unfiltered global /cards endpoint returns
+ *   intermittent 500s at scale; per-set queries are small and reliable.
  */
 export async function syncCatalog(prisma: PrismaClient, env: WorkerEnv): Promise<void> {
   const syncRun = await prisma.syncRun.create({ data: { jobType: "catalog_sync", status: "RUNNING", source: "pokemon_tcg" } });
@@ -62,25 +63,14 @@ export async function syncCatalog(prisma: PrismaClient, env: WorkerEnv): Promise
       });
     }
 
-    let page = 1;
     let updatedCards = 0;
 
-    while (true) {
-      const cards = await fetchPokemonTcgCardPage(env, page);
-      if (cards.length === 0) {
-        break;
-      }
-
+    for (const set of sets) {
+      const cards = await fetchPokemonTcgCardsForSet(env, set.id);
       for (const card of cards) {
         await upsertCardWithVariants(prisma, card);
         updatedCards += 1;
       }
-
-      if (cards.length < env.POKEMON_TCG_PAGE_SIZE) {
-        break;
-      }
-
-      page += 1;
     }
 
     await prisma.syncRun.update({ where: { id: syncRun.id }, data: { status: "SUCCESS", finishedAt: new Date(), recordsSeen: sets.length + updatedCards, recordsUpdated: sets.length + updatedCards } });
@@ -158,8 +148,7 @@ function parseNumberInt(number: string): number | null {
  * Parses PokémonTCG.io date-only fields.
  *
  * Returns undefined for missing OR unparseable values so a malformed date on a
- * single set never crashes the whole sync (the newest sets can arrive in a
- * format the raw Date constructor rejects).
+ * single set never crashes the whole sync.
  */
 function parseDateOnly(value: string | undefined): Date | undefined {
   if (!value) return undefined;
@@ -171,8 +160,8 @@ function parseDateOnly(value: string | undefined): Date | undefined {
  * Parses PokémonTCG.io date-time fields.
  *
  * The API sends timezone-less timestamps like "2026/03/26 15:00:00". Appending
- * "Z" pins them to UTC so they parse consistently; a NaN guard drops anything
- * still unparseable instead of handing Prisma an invalid Date.
+ * "Z" pins them to UTC; a NaN guard drops anything still unparseable instead of
+ * handing Prisma an invalid Date.
  */
 function parsePokemonDateTime(value: string | undefined): Date | undefined {
   if (!value) return undefined;

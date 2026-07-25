@@ -53,22 +53,49 @@ export async function fetchPokemonTcgSets(env: WorkerEnv): Promise<PokemonTcgSet
 }
 
 /**
- * Fetches one page of cards from PokémonTCG.io.
+ * Fetches every card in one set, following the same approach as the proven V2
+ * service: query cards filtered by set id, 250 per page, and page through using
+ * the reported totalCount.
  *
- * Performance:
- *   The caller controls paging so the worker never loads the entire catalog
- *   unless it intentionally iterates page by page.
+ * Why per-set instead of one global card loop:
+ *   The unfiltered `/cards` endpoint (especially with an orderBy on a nested
+ *   set field) returns intermittent HTTP 500s at scale. Filtering by
+ *   `q=set.id:<id>` keeps each request small and reliable, and no orderBy is
+ *   sent — cards are ordered locally by collector number when needed.
  */
-export async function fetchPokemonTcgCardPage(env: WorkerEnv, page: number): Promise<PokemonTcgCard[]> {
-  const params = new URLSearchParams({ page: String(page), pageSize: String(env.POKEMON_TCG_PAGE_SIZE), orderBy: "set.releaseDate,number" });
-  const response = await fetch(`${env.POKEMON_TCG_API_URL}/cards?${params}`, { headers: buildHeaders(env) });
-  const payload = await response.json() as { data?: PokemonTcgCard[] };
+export async function fetchPokemonTcgCardsForSet(env: WorkerEnv, setId: string): Promise<PokemonTcgCard[]> {
+  const pageSize = 250;
+  const firstPage = await fetchCardQueryPage(env, setId, 1, pageSize);
 
-  if (!response.ok || !Array.isArray(payload.data)) {
-    throw new Error(`PokémonTCG.io cards request failed with status ${response.status}.`);
+  if (firstPage.totalCount <= pageSize) {
+    return firstPage.data;
   }
 
-  return payload.data;
+  const lastPage = Math.ceil(firstPage.totalCount / pageSize);
+  let all = firstPage.data;
+
+  for (let page = 2; page <= lastPage; page += 1) {
+    const next = await fetchCardQueryPage(env, setId, page, pageSize);
+    all = all.concat(next.data);
+  }
+
+  return all;
+}
+
+/**
+ * Fetches one page of cards for a set and returns the data plus the total count
+ * so the caller can decide whether more pages are needed.
+ */
+async function fetchCardQueryPage(env: WorkerEnv, setId: string, page: number, pageSize: number): Promise<{ data: PokemonTcgCard[]; totalCount: number }> {
+  const params = new URLSearchParams({ q: `set.id:${setId}`, pageSize: String(pageSize), page: String(page) });
+  const response = await fetch(`${env.POKEMON_TCG_API_URL}/cards?${params}`, { headers: buildHeaders(env) });
+  const payload = await response.json() as { data?: PokemonTcgCard[]; totalCount?: number };
+
+  if (!response.ok || !Array.isArray(payload.data)) {
+    throw new Error(`PokémonTCG.io cards request for set ${setId} failed with status ${response.status}.`);
+  }
+
+  return { data: payload.data, totalCount: payload.totalCount ?? payload.data.length };
 }
 
 /**
