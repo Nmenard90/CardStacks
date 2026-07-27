@@ -54,9 +54,15 @@ interface Props {
   onSetPurchase?: (cond: string, price: number) => void
 }
 
-/** Percent above/below what a card is worth now vs. what was paid for it. */
+/**
+ * Percent above/below what a card is worth now vs. what was paid for it.
+ * A $0 purchase price (e.g. pulled from a pack) has no percent return in the
+ * usual sense — it's Infinity, not undefined — so that's reported as such
+ * rather than hidden; only an unknown market price yields no comparison at all.
+ */
 function gainLossPct(paid: number, market: number): number | null {
-  if (paid <= 0 || market <= 0) return null
+  if (market <= 0) return null
+  if (paid <= 0) return market > 0 ? Infinity : null
   return ((market - paid) / paid) * 100
 }
 
@@ -187,7 +193,9 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
                       {diff !== null && (
                         <span className={diff >= 0 ? 'purchase-gain' : 'purchase-loss'}>
                           {diff >= 0 ? '+' : '−'}${Math.abs(diff).toFixed(2)}
-                          {pct !== null && ` (${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%)`}
+                          {pct !== null && (
+                            pct === Infinity ? ' (∞%)' : ` (${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%)`
+                          )}
                         </span>
                       )}
                     </button>
