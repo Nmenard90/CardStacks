@@ -166,7 +166,8 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
                         onKeyDown={e => {
                           if (e.key === 'Enter') {
                             const v = parseFloat(purchaseInput)
-                            if (v > 0) onSetPurchase(k, v)
+                            // >= 0, not > 0: $0 is valid (e.g. a card pulled from a pack).
+                            if (!isNaN(v) && v >= 0) onSetPurchase(k, v)
                             setEditingPurchase(null)
                           } else if (e.key === 'Escape') setEditingPurchase(null)
                         }}
@@ -183,9 +184,10 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
                       <span>paid ${purchase.price.toFixed(2)}</span>
                       <span className="purchase-arrow">→</span>
                       <span className="purchase-now">${market.toFixed(2)}</span>
-                      {diff !== null && pct !== null && (
+                      {diff !== null && (
                         <span className={diff >= 0 ? 'purchase-gain' : 'purchase-loss'}>
-                          {diff >= 0 ? '+' : '−'}${Math.abs(diff).toFixed(2)} ({pct >= 0 ? '+' : ''}{pct.toFixed(0)}%)
+                          {diff >= 0 ? '+' : '−'}${Math.abs(diff).toFixed(2)}
+                          {pct !== null && ` (${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%)`}
                         </span>
                       )}
                     </button>

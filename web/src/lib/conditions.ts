@@ -101,7 +101,9 @@ export function toCondList(map: CondMap, card: Card | undefined, purchases?: Pur
  */
 export function fromPurchaseList(list: ConditionCount[]): PurchaseMap {
   const m: PurchaseMap = {}
-  for (const c of list) if (c.purchasePrice != null && c.purchasePrice > 0) {
+  // >= 0, not > 0: $0 is a legitimate logged price (e.g. a card pulled from a
+  // pack you already paid for), not the same as "nothing logged yet".
+  for (const c of list) if (c.purchasePrice != null && c.purchasePrice >= 0) {
     m[c.condition] = { price: c.purchasePrice, purchasedAt: c.purchasedAt }
   }
   return m
