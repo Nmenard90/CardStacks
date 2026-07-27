@@ -27,15 +27,20 @@ import java.time.Instant
  *   How many copies of a card a user owns in a specific condition,
  *   and what price was recorded for that condition at time of entry.
  *
- * @param condition  One of: NM, LP, MP, HP, DMG, or "NM 1st Ed" etc.
- * @param quantity   How many copies in this condition. Always >= 1.
- * @param price      The market price at time this entry was recorded.
- *                   Option because price data may not exist for all cards.
+ * @param condition     One of: NM, LP, MP, HP, DMG, or "NM 1st Ed" etc.
+ * @param quantity      How many copies in this condition. Always >= 1.
+ * @param price         The market price at time this entry was recorded.
+ *                      Option because price data may not exist for all cards.
+ * @param purchasePrice What the user says they paid for these copies.
+ *                      Optional and self-reported — never required.
+ * @param purchasedAt   ISO date string for when the purchase was logged.
  */
 final case class ConditionCount(
-  condition: String,
-  quantity:  Int,
-  price:     Option[Double]
+  condition:     String,
+  quantity:      Int,
+  price:         Option[Double],
+  purchasePrice: Option[Double] = None,
+  purchasedAt:   Option[String] = None
 )
 
 object ConditionCount:

@@ -21,7 +21,8 @@
  *
  * USED BY: CollectionPage, BulkAddPage
  */
-import { CONDS, COND_COLORS, baseCond, basePrice, cardValue, condPrice, dominantCondClass, totalQty, type CondMap } from '../lib/conditions'
+import { useState } from 'react'
+import { CONDS, COND_COLORS, baseCond, basePrice, cardValue, condPrice, dominantCondClass, totalQty, type CondMap, type PurchaseMap } from '../lib/conditions'
 import type { Card } from '../types'
 
 /**
@@ -47,9 +48,21 @@ interface Props {
   onPreview: (src: string | null) => void
   /** Optional: when provided, a "To binder" button shows and calls this with the card. */
   onAddToBinder?: (card: Card) => void
+  /** Optional: what the user says they paid, per condition, if the parent tracks it. */
+  purchases?: PurchaseMap
+  /** Optional: when provided, each owned condition gets a "log what you paid" control. */
+  onSetPurchase?: (cond: string, price: number) => void
 }
 
-export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, onAdjCond, onPreview, onAddToBinder }: Props) {
+/** Percent above/below what a card is worth now vs. what was paid for it. */
+function gainLossPct(paid: number, market: number): number | null {
+  if (paid <= 0 || market <= 0) return null
+  return ((market - paid) / paid) * 100
+}
+
+export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, onAdjCond, onPreview, onAddToBinder, purchases, onSetPurchase }: Props) {
+  const [editingPurchase, setEditingPurchase] = useState<string | null>(null)
+  const [purchaseInput, setPurchaseInput] = useState('')
   const qty = totalQty(conds)
   const price = basePrice(card)
   const priceStr = price > 0
@@ -120,15 +133,55 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
         </div>
         {ownedKeys.length > 0 && (
           <div className="cond-breakdown-row">
-            {ownedKeys.map(k => (
-              <span key={k} className="cbd-item">
-                <span className="cbd-dot" style={{ background: COND_COLORS[baseCond(k)] }} />
-                {k}×{conds[k]}
-                {condPrice(card, k) > 0 && (
-                  <span className="cbd-val">${(condPrice(card, k) * conds[k]).toFixed(2)}</span>
-                )}
-              </span>
-            ))}
+            {ownedKeys.map(k => {
+              const purchase = purchases?.[k]
+              const gl = purchase ? gainLossPct(purchase.price, condPrice(card, k)) : null
+              return (
+                <span key={k} className="cbd-item">
+                  <span className="cbd-dot" style={{ background: COND_COLORS[baseCond(k)] }} />
+                  {k}×{conds[k]}
+                  {condPrice(card, k) > 0 && (
+                    <span className="cbd-val">${(condPrice(card, k) * conds[k]).toFixed(2)}</span>
+                  )}
+                  {onSetPurchase && (
+                    editingPurchase === k ? (
+                      <span className="cbd-purchase-edit">
+                        $<input
+                          autoFocus type="number" min={0} step="0.01" value={purchaseInput}
+                          onChange={e => setPurchaseInput(e.target.value)}
+                          onClick={e => e.stopPropagation()}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              const v = parseFloat(purchaseInput)
+                              if (v > 0) onSetPurchase(k, v)
+                              setEditingPurchase(null)
+                            } else if (e.key === 'Escape') setEditingPurchase(null)
+                          }}
+                          onBlur={() => setEditingPurchase(null)}
+                        />
+                      </span>
+                    ) : (
+                      <button
+                        className="cbd-purchase-btn"
+                        title={purchase ? 'Edit what you paid' : 'Log what you paid'}
+                        onClick={() => {
+                          setPurchaseInput(purchase ? String(purchase.price) : '')
+                          setEditingPurchase(k)
+                        }}
+                      >
+                        {purchase
+                          ? <>paid ${purchase.price.toFixed(2)}{gl !== null && (
+                              <span className={gl >= 0 ? 'cbd-gain' : 'cbd-loss'}>
+                                {' '}{gl >= 0 ? '▲' : '▼'}{Math.abs(gl).toFixed(0)}%
+                              </span>
+                            )}</>
+                          : '+ paid'}
+                      </button>
+                    )
+                  )}
+                </span>
+              )
+            })}
             {value > 0 && <span className="cond-total">= ${value.toFixed(2)}</span>}
           </div>
         )}

@@ -62,6 +62,10 @@ export interface ConditionCount {
   condition: string
   quantity: number
   price?: number
+  /** What the user says they paid for this condition's copies, if logged. */
+  purchasePrice?: number
+  /** ISO date string for when the purchase was logged. */
+  purchasedAt?: string
 }
 
 export interface CollectionEntry {

@@ -21,7 +21,7 @@ import { LoginScreen } from '../components/LoginScreen'
 import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
 import { HeaderNav } from '../components/HeaderNav'
-import { basePrice, cardValue, fromCondList, toCondList, totalQty, type CondMap } from '../lib/conditions'
+import { basePrice, cardValue, fromCondList, fromPurchaseList, toCondList, totalQty, type CondMap, type PurchaseMap } from '../lib/conditions'
 import type { Card, OwnedCard } from '../types'
 
 interface Entry { conds: CondMap; selCond: string }
@@ -34,6 +34,7 @@ export function OwnedPage() {
 
   const [cards, setCards] = useState<Card[]>([])
   const [coll, setColl] = useState<Record<string, Entry>>({})
+  const [purchases, setPurchases] = useState<Record<string, PurchaseMap>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortMode>('name')
@@ -47,18 +48,31 @@ export function OwnedPage() {
       .then((owned: OwnedCard[]) => {
         setCards(owned.map(o => o.card))
         const m: Record<string, Entry> = {}
+        const p: Record<string, PurchaseMap> = {}
         for (const o of owned) {
           m[o.cardId] = { conds: fromCondList(o.conditions), selCond: o.selectedCond || 'NM' }
+          p[o.cardId] = fromPurchaseList(o.conditions)
         }
         setColl(m)
+        setPurchases(p)
         setLoading(false)
       })
       .catch(() => { toast('Could not load your collection.'); setLoading(false) })
   }, [userId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const persist = (card: Card, entry: Entry) => {
-    saveEntry(userId, card.id, toCondList(entry.conds, card), entry.selCond)
+    saveEntry(userId, card.id, toCondList(entry.conds, card, purchases[card.id]), entry.selCond)
       .catch(() => toast('Save failed — change not stored.'))
+  }
+
+  const setPurchase = (card: Card, cond: string, price: number) => {
+    setPurchases(prev => {
+      const next = { ...prev, [card.id]: { ...prev[card.id], [cond]: { price, purchasedAt: new Date().toISOString() } } }
+      const entry = coll[card.id] ?? { conds: {}, selCond: 'NM' }
+      saveEntry(userId, card.id, toCondList(entry.conds, card, next[card.id]), entry.selCond)
+        .catch(() => toast('Save failed — purchase price not stored.'))
+      return next
+    })
   }
 
   const mutate = (card: Card, fn: (e: Entry) => Entry) => {
@@ -196,6 +210,8 @@ export function OwnedPage() {
                       onSelectCond={cond => selectCond(c, cond)}
                       onAdjCond={(cond, d) => adjCond(c, cond, d)}
                       onPreview={src => (src ? preview.show(src) : preview.hide())}
+                      purchases={purchases[c.id]}
+                      onSetPurchase={(cond, price) => setPurchase(c, cond, price)}
                     />
                   )
                 })}

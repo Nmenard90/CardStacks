@@ -294,6 +294,18 @@
   }
   .page-tracker .cbd-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
   .page-tracker .cbd-val{color:var(--green);}
+  .page-tracker .cbd-purchase-btn{
+    border:0;background:transparent;color:var(--muted);
+    font-family:'Space Mono',monospace;font-size:10px;cursor:pointer;padding:0;
+  }
+  .page-tracker .cbd-purchase-btn:hover{color:var(--text);}
+  .page-tracker .cbd-gain{color:var(--green);}
+  .page-tracker .cbd-loss{color:var(--red);}
+  .page-tracker .cbd-purchase-edit input{
+    width:52px;font-size:10px;padding:1px 3px;
+    font-family:'Space Mono',monospace;background:var(--surface2);
+    border:1px solid var(--border);border-radius:4px;color:var(--text);
+  }
 
   /* Total value line */
   .page-tracker .cond-total{

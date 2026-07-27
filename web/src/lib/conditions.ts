@@ -68,20 +68,43 @@ export function condPrice(card: Card | undefined, key: string): number {
   return nm > 0 ? +(nm * COND_MULT[cond]).toFixed(2) : 0
 }
 
+/** One condition's self-reported purchase info: what was paid and when. */
+export interface PurchaseInfo { price: number; purchasedAt?: string }
+/** A card's local purchase state: condition key → purchase info. */
+export type PurchaseMap = Record<string, PurchaseInfo>
+
 /**
  * FUNCTION: toCondList
  * PURPOSE: Converts the local {cond → qty} map into the API's
- *          ConditionCount list, attaching the price for each condition.
- * @param map   Local condition map
- * @param card  The card, for price lookup
- * @returns     List ready to POST to /api/collection
+ *          ConditionCount list, attaching the price for each condition and,
+ *          when given, the purchase price/date logged for that condition.
+ * @param map        Local condition map
+ * @param card       The card, for price lookup
+ * @param purchases  Optional purchase info per condition, to round-trip it
+ * @returns          List ready to POST to /api/collection
  */
-export function toCondList(map: CondMap, card: Card | undefined): ConditionCount[] {
+export function toCondList(map: CondMap, card: Card | undefined, purchases?: PurchaseMap): ConditionCount[] {
   return Object.entries(map)
     .filter(([, q]) => q > 0)
     .map(([condition, quantity]) => ({
       condition, quantity, price: condPrice(card, condition) || undefined,
+      purchasePrice: purchases?.[condition]?.price,
+      purchasedAt: purchases?.[condition]?.purchasedAt,
     }))
+}
+
+/**
+ * FUNCTION: fromPurchaseList
+ * PURPOSE: Extracts the purchase-price map back out of a ConditionCount list.
+ * @param list  Conditions from a CollectionEntry/OwnedCard
+ * @returns     Local {cond → purchase info} map for conditions with a logged price
+ */
+export function fromPurchaseList(list: ConditionCount[]): PurchaseMap {
+  const m: PurchaseMap = {}
+  for (const c of list) if (c.purchasePrice != null && c.purchasePrice > 0) {
+    m[c.condition] = { price: c.purchasePrice, purchasedAt: c.purchasedAt }
+  }
+  return m
 }
 
 /**

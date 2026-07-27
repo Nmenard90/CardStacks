@@ -183,6 +183,10 @@ export function ConventionModePage() {
     setNote('')
   }
 
+  const removeReport = (id: string) => {
+    setReports(prev => prev.filter(r => r.id !== id))
+  }
+
   return (
     <div className="page-convention">
       <div className="con-bar">
@@ -310,6 +314,7 @@ export function ConventionModePage() {
                 {r.imageUrl && <img src={r.imageUrl} alt={r.cardName} />}
                 <div><b>{r.cardName}</b><small>{r.condition} · {r.setName}{r.boothNumber ? ` · ${r.boothNumber}` : ''}{r.eventName ? ` · ${r.eventName}` : ''}</small>{r.note && <p>{r.note}</p>}</div>
                 <strong>{money(r.paidPrice)}</strong>
+                <button className="link-btn" title="Remove this entry" onClick={() => removeReport(r.id)}>✕</button>
               </div>
             ))}
           </div>
