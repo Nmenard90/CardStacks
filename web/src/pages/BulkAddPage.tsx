@@ -367,14 +367,19 @@ export function BulkAddPage() {
       }
       if (matches.length === 0) {
         flash(`no card #${n}/${d}`, true)
+        numRef.current?.focus()
       } else if (matches.length === 1) {
         // Unambiguous → add it directly (the fast path).
         addCard(matches[0])
         flash(`✓ #${matches[0].number} ${matches[0].name}`, false)
         setNum(''); setDen('')
+        numRef.current?.focus()
       } else {
         // Several sets share this number + total. Don't guess — hand the matches
-        // to the dropdown so the user picks the right set by name.
+        // to the dropdown so the user picks the right set by name. Focus must
+        // stay on the search box: refocusing the number box here would blur
+        // the search input and its onBlur handler would immediately clear the
+        // query/results we just set, wiping out the dropdown before it's seen.
         setNum(''); setDen('')
         setQuery(`${n}/${d}`)
         searchRef.current?.focus()
@@ -382,9 +387,9 @@ export function BulkAddPage() {
       }
     } catch {
       flash('lookup failed — check the backend', true)
+      numRef.current?.focus()
     } finally {
       setNumBusy(false)
-      numRef.current?.focus()
     }
   }
 
