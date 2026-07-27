@@ -354,9 +354,16 @@ object CardRepository:
         WHERE to_tsvector('english', c.name) @@ plainto_tsquery('english', $query)
            OR c.name ILIKE $likeQuery
            OR LOWER(c.number) = LOWER($query)
+           -- Printed collector numbers carry leading zeros ("025/198") but the
+           -- catalog stores numbers as pokemontcg.io returns them, unpadded
+           -- ("25"). Compare with leading zeros stripped so a search for the
+           -- number exactly as printed on the card still finds it.
+           OR regexp_replace(c.number, '^0+(?=[0-9])', '') = regexp_replace($query, '^0+(?=[0-9])', '')
            OR c.number ILIKE $likeQuery
            OR (position('/' in $query) > 0
-               AND LOWER(c.number) = LOWER(split_part($query, '/', 1))
+               AND (LOWER(c.number) = LOWER(split_part($query, '/', 1))
+                    OR regexp_replace(c.number, '^0+(?=[0-9])', '')
+                       = regexp_replace(split_part($query, '/', 1), '^0+(?=[0-9])', ''))
                AND (s.printed_total::text = split_part($query, '/', 2)
                     OR s.total::text = split_part($query, '/', 2)))
         ORDER BY (LOWER(c.number) = LOWER($query)) DESC,

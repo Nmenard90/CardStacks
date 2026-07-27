@@ -64,7 +64,13 @@ export function SetSelector({ sets, selectedId, onSelect }: Props) {
           : selected?.images.symbol
             ? <img className="set-sym" src={selected.images.symbol} alt="" />
             : <div className="set-sym-placeholder" />}
-        <span>{selectedId === ALL_SETS ? 'All Sets' : selected ? selected.name : 'Loading…'}</span>
+        <span>
+          {selectedId === ALL_SETS
+            ? 'All Sets'
+            : selected
+              ? selected.name
+              : sets.length === 0 ? 'Loading…' : 'Choose a set'}
+        </span>
         <span className="chevron">▼</span>
       </div>
       <div className={'set-dropdown' + (open ? ' open' : '')}>

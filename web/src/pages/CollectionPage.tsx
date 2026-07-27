@@ -36,7 +36,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getCards, getSets, searchCards } from '../api/cards'
-import { bulkSave, getCollection, getStats, saveEntry } from '../api/collection'
+import { bulkSave, getCollection, getOwnedCards, getStats, saveEntry } from '../api/collection'
 import { BinderPickerModal } from '../components/BinderPickerModal'
 import { CardTile } from '../components/CardTile'
 import { usePreview } from '../components/CardPreview'
@@ -196,19 +196,27 @@ export function CollectionPage() {
     })
 
   // CSV export / import / clear set
-  const exportCSV = () => {
+  // Exports the WHOLE collection, not just the currently-browsed set, so it
+  // fetches full card data (name/number/rarity/prices) for every owned card
+  // via /owned rather than relying on `cards`, which only holds the active set.
+  const exportCSV = async () => {
+    let owned
+    try {
+      owned = await getOwnedCards(userId)
+    } catch {
+      toast('Export failed — could not load your collection.')
+      return
+    }
     const rows: (string | number)[][] = [[
       'Card ID', 'Name', 'Set', 'Number', 'Rarity',
       'Condition', 'Quantity', 'Market Price', 'Total Value',
     ]]
-    for (const [id, e] of Object.entries(coll)) {
-      const card = cardById.get(id)
-      for (const [cond, qn] of Object.entries(e.conds)) {
+    for (const o of owned) {
+      for (const [cond, qn] of Object.entries(fromCondList(o.conditions))) {
         if (qn <= 0) continue
-        const p = condPrice(card, cond)
+        const p = condPrice(o.card, cond)
         rows.push([
-          id, card?.name ?? '', card?.setId ?? id.split('-')[0],
-          card?.number ?? '', card?.rarity ?? '',
+          o.cardId, o.card.name, o.card.setId, o.card.number, o.card.rarity ?? '',
           cond, qn, p.toFixed(2), (p * qn).toFixed(2),
         ])
       }
