@@ -303,15 +303,16 @@
   .page-tracker .purchase-line-btn{
     border:0;background:transparent;color:var(--muted);
     font-family:'Space Mono',monospace;font-size:10px;cursor:pointer;
-    padding:1px 0;text-align:left;display:flex;align-items:center;gap:5px;width:100%;
+    padding:1px 0;text-align:left;display:block;width:100%;max-width:100%;
+    white-space:normal;overflow-wrap:break-word;line-height:1.6;
   }
   .page-tracker .purchase-line-btn:hover{color:var(--text);}
   .page-tracker .purchase-line-btn.add{color:var(--accent);}
-  .page-tracker .purchase-cond-label{font-weight:700;min-width:22px;flex-shrink:0;}
-  .page-tracker .purchase-arrow{color:var(--muted);}
+  .page-tracker .purchase-cond-label{font-weight:700;margin-right:4px;}
+  .page-tracker .purchase-arrow{color:var(--muted);margin:0 2px;}
   .page-tracker .purchase-now{color:var(--text);}
-  .page-tracker .purchase-gain{color:var(--green);margin-left:auto;}
-  .page-tracker .purchase-loss{color:var(--red);margin-left:auto;}
+  .page-tracker .purchase-gain{color:var(--green);margin-left:4px;display:inline-block;}
+  .page-tracker .purchase-loss{color:var(--red);margin-left:4px;display:inline-block;}
   .page-tracker .purchase-edit-row{
     font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;
     display:flex;align-items:center;gap:4px;
