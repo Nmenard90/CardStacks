@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { getSets, searchCards } from '../api/cards'
 import { useUser } from '../context/UserContext'
 import { HeaderNav } from '../components/HeaderNav'
+import { usePreview } from '../components/CardPreview'
 import { CONDS, condPrice, type Cond } from '../lib/conditions'
 import type { Card, ConventionPriceReport, PaymentType, VendorNote } from '../types'
 
@@ -64,6 +65,7 @@ function fakeRiskChecklist(card: Card | null, askingPrice: number, claimedCondit
 
 export function ConventionModePage() {
   const { user } = useUser()
+  const preview = usePreview()
 
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<Card[]>([])
@@ -223,7 +225,13 @@ export function ConventionModePage() {
               <div className="search-results" style={{ maxHeight: 360, overflowY: 'auto' }}>
                 {results.map(card => (
                   <button key={card.id} className="result-row" onClick={() => selectCard(card)}>
-                    {card.images?.small && <img src={card.images.small} alt={card.name} />}
+                    {card.images?.small && (
+                      <img
+                        src={card.images.small} alt={card.name}
+                        onMouseEnter={() => preview.show(card.images.large || card.images.small)}
+                        onMouseLeave={() => preview.hide()}
+                      />
+                    )}
                     <span><b>{card.name}</b><small>#{card.number} · {setName.get(card.setId) ?? card.setId}</small></span>
                     <strong>{money(condPrice(card, 'NM'))}</strong>
                   </button>
@@ -233,7 +241,13 @@ export function ConventionModePage() {
 
             {selectedCard && (
               <div className="selected-card">
-                {selectedCard.images?.small && <img src={selectedCard.images.small} alt={selectedCard.name} />}
+                {selectedCard.images?.small && (
+                  <img
+                    src={selectedCard.images.small} alt={selectedCard.name}
+                    onMouseEnter={() => preview.show(selectedCard.images.large || selectedCard.images.small)}
+                    onMouseLeave={() => preview.hide()}
+                  />
+                )}
                 <div>
                   <h3>{selectedCard.name}</h3>
                   <p>#{selectedCard.number} · {selectedSetName}{selectedCard.rarity ? ` · ${selectedCard.rarity}` : ''}</p>
@@ -311,7 +325,13 @@ export function ConventionModePage() {
             {reports.length === 0 && <p className="empty-state">No deals logged yet.</p>}
             {reports.slice(0, 10).map(r => (
               <div className="history-row" key={r.id}>
-                {r.imageUrl && <img src={r.imageUrl} alt={r.cardName} />}
+                {r.imageUrl && (
+                  <img
+                    src={r.imageUrl} alt={r.cardName}
+                    onMouseEnter={() => preview.show(r.imageUrl!)}
+                    onMouseLeave={() => preview.hide()}
+                  />
+                )}
                 <div><b>{r.cardName}</b><small>{r.condition} · {r.setName}{r.boothNumber ? ` · ${r.boothNumber}` : ''}{r.eventName ? ` · ${r.eventName}` : ''}</small>{r.note && <p>{r.note}</p>}</div>
                 <strong>{money(r.paidPrice)}</strong>
                 <button className="link-btn" title="Remove this entry" onClick={() => removeReport(r.id)}>✕</button>
@@ -320,6 +340,7 @@ export function ConventionModePage() {
           </div>
         </section>
       </main>
+      {preview.overlay}
     </div>
   )
 }

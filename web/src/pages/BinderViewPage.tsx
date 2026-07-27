@@ -30,6 +30,7 @@ import { getCards, getSets } from '../api/cards'
 import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
 import { HeaderNav } from '../components/HeaderNav'
+import { usePreview } from '../components/CardPreview'
 import { basePrice } from '../lib/conditions'
 import type { Binder, Card, PocketSize } from '../types'
 
@@ -71,6 +72,7 @@ export function BinderViewPage() {
   const toast = useToast()
   const navigate = useNavigate()
   const { binderId = '' } = useParams()
+  const preview = usePreview()
 
   // ── Binder state ────────────────────────────────────────────────────────
   const [binder, setBinder] = useState<Binder | null>(null)
@@ -230,7 +232,13 @@ export function BinderViewPage() {
             const card = slots[idx]
             return (
               <div key={idx} className={'slv' + (card ? '' : ' mt')} onClick={() => openPicker(idx)}>
-                {card && <img src={card.imageUrl} alt={card.cardName} loading="lazy" />}
+                {card && (
+                  <img
+                    src={card.imageUrl} alt={card.cardName} loading="lazy"
+                    onMouseEnter={() => preview.show(card.imageUrl)}
+                    onMouseLeave={() => preview.hide()}
+                  />
+                )}
               </div>
             )
           })}
@@ -352,8 +360,8 @@ export function BinderViewPage() {
                   <div
                     key={c.id} className="pcd"
                     onClick={() => place(c)}
-                    onMouseEnter={() => setHoverCard(c)}
-                    onMouseLeave={() => setHoverCard(null)}
+                    onMouseEnter={() => { setHoverCard(c); preview.show(c.images?.large || c.images?.small) }}
+                    onMouseLeave={() => { setHoverCard(null); preview.hide() }}
                   >
                     {c.images?.small && <img src={c.images.small} alt={c.name} loading="lazy" />}
                   </div>
@@ -380,6 +388,7 @@ export function BinderViewPage() {
           </div>
         </div>
       </div>
+      {preview.overlay}
     </div>
   )
 }

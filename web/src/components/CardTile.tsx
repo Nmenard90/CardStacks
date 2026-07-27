@@ -133,56 +133,74 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
         </div>
         {ownedKeys.length > 0 && (
           <div className="cond-breakdown-row">
+            {ownedKeys.map(k => (
+              <span key={k} className="cbd-item">
+                <span className="cbd-dot" style={{ background: COND_COLORS[baseCond(k)] }} />
+                {k}×{conds[k]}
+                {condPrice(card, k) > 0 && (
+                  <span className="cbd-val">${(condPrice(card, k) * conds[k]).toFixed(2)}</span>
+                )}
+              </span>
+            ))}
+            {value > 0 && <span className="cond-total">= ${value.toFixed(2)}</span>}
+          </div>
+        )}
+        {/* Purchase price: its own row below the value breakdown, one line per
+            owned condition, so "what you paid" is never squeezed into the same
+            line as the market-price numbers. */}
+        {onSetPurchase && ownedKeys.length > 0 && (
+          <div className="purchase-section">
             {ownedKeys.map(k => {
               const purchase = purchases?.[k]
-              const gl = purchase ? gainLossPct(purchase.price, condPrice(card, k)) : null
+              const market = condPrice(card, k)
+              const pct = purchase ? gainLossPct(purchase.price, market) : null
+              const diff = purchase && market > 0 ? market - purchase.price : null
               return (
-                <span key={k} className="cbd-item">
-                  <span className="cbd-dot" style={{ background: COND_COLORS[baseCond(k)] }} />
-                  {k}×{conds[k]}
-                  {condPrice(card, k) > 0 && (
-                    <span className="cbd-val">${(condPrice(card, k) * conds[k]).toFixed(2)}</span>
-                  )}
-                  {onSetPurchase && (
-                    editingPurchase === k ? (
-                      <span className="cbd-purchase-edit">
-                        $<input
-                          autoFocus type="number" min={0} step="0.01" value={purchaseInput}
-                          onChange={e => setPurchaseInput(e.target.value)}
-                          onClick={e => e.stopPropagation()}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter') {
-                              const v = parseFloat(purchaseInput)
-                              if (v > 0) onSetPurchase(k, v)
-                              setEditingPurchase(null)
-                            } else if (e.key === 'Escape') setEditingPurchase(null)
-                          }}
-                          onBlur={() => setEditingPurchase(null)}
-                        />
-                      </span>
-                    ) : (
-                      <button
-                        className="cbd-purchase-btn"
-                        title={purchase ? 'Edit what you paid' : 'Log what you paid'}
-                        onClick={() => {
-                          setPurchaseInput(purchase ? String(purchase.price) : '')
-                          setEditingPurchase(k)
+                <div key={k} className="purchase-line">
+                  {editingPurchase === k ? (
+                    <span className="purchase-edit-row">
+                      <span className="purchase-cond-label">{k}</span> paid $
+                      <input
+                        autoFocus type="number" min={0} step="0.01" value={purchaseInput}
+                        onChange={e => setPurchaseInput(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            const v = parseFloat(purchaseInput)
+                            if (v > 0) onSetPurchase(k, v)
+                            setEditingPurchase(null)
+                          } else if (e.key === 'Escape') setEditingPurchase(null)
                         }}
-                      >
-                        {purchase
-                          ? <>paid ${purchase.price.toFixed(2)}{gl !== null && (
-                              <span className={gl >= 0 ? 'cbd-gain' : 'cbd-loss'}>
-                                {' '}{gl >= 0 ? '▲' : '▼'}{Math.abs(gl).toFixed(0)}%
-                              </span>
-                            )}</>
-                          : '+ paid'}
-                      </button>
-                    )
+                        onBlur={() => setEditingPurchase(null)}
+                      />
+                    </span>
+                  ) : purchase ? (
+                    <button
+                      className="purchase-line-btn"
+                      title="Edit what you paid"
+                      onClick={() => { setPurchaseInput(String(purchase.price)); setEditingPurchase(k) }}
+                    >
+                      <span className="purchase-cond-label">{k}</span>
+                      <span>paid ${purchase.price.toFixed(2)}</span>
+                      <span className="purchase-arrow">→</span>
+                      <span className="purchase-now">${market.toFixed(2)}</span>
+                      {diff !== null && pct !== null && (
+                        <span className={diff >= 0 ? 'purchase-gain' : 'purchase-loss'}>
+                          {diff >= 0 ? '+' : '−'}${Math.abs(diff).toFixed(2)} ({pct >= 0 ? '+' : ''}{pct.toFixed(0)}%)
+                        </span>
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      className="purchase-line-btn add"
+                      title="Log what you paid"
+                      onClick={() => { setPurchaseInput(''); setEditingPurchase(k) }}
+                    >
+                      <span className="purchase-cond-label">{k}</span> + log what you paid
+                    </button>
                   )}
-                </span>
+                </div>
               )
             })}
-            {value > 0 && <span className="cond-total">= ${value.toFixed(2)}</span>}
           </div>
         )}
       </div>

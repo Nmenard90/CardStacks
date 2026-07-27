@@ -546,7 +546,11 @@ export function BulkAddPage() {
                       onClick={() => { addCard(card); setQuery(''); setResults([]) }}
                     >
                       {card.images?.small
-                        ? <img src={card.images.small} alt={card.name} loading="lazy" />
+                        ? <img
+                            src={card.images.small} alt={card.name} loading="lazy"
+                            onMouseEnter={() => preview.show(card.images.large || card.images.small)}
+                            onMouseLeave={() => preview.hide()}
+                          />
                         : <span style={{ width: 38 }} />}
                       <span className="bi">
                         <b>{card.name}{have > 0 && <span className="bhave">×{have} in session</span>}</b>

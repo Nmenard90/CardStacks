@@ -294,14 +294,29 @@
   }
   .page-tracker .cbd-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
   .page-tracker .cbd-val{color:var(--green);}
-  .page-tracker .cbd-purchase-btn{
-    border:0;background:transparent;color:var(--muted);
-    font-family:'Space Mono',monospace;font-size:10px;cursor:pointer;padding:0;
+
+  /* Purchase price: its own row below the value breakdown, one line per condition */
+  .page-tracker .purchase-section{
+    border-top:1px solid var(--border);padding-top:5px;margin-top:4px;
+    display:flex;flex-direction:column;gap:3px;
   }
-  .page-tracker .cbd-purchase-btn:hover{color:var(--text);}
-  .page-tracker .cbd-gain{color:var(--green);}
-  .page-tracker .cbd-loss{color:var(--red);}
-  .page-tracker .cbd-purchase-edit input{
+  .page-tracker .purchase-line-btn{
+    border:0;background:transparent;color:var(--muted);
+    font-family:'Space Mono',monospace;font-size:10px;cursor:pointer;
+    padding:1px 0;text-align:left;display:flex;align-items:center;gap:5px;width:100%;
+  }
+  .page-tracker .purchase-line-btn:hover{color:var(--text);}
+  .page-tracker .purchase-line-btn.add{color:var(--accent);}
+  .page-tracker .purchase-cond-label{font-weight:700;min-width:22px;flex-shrink:0;}
+  .page-tracker .purchase-arrow{color:var(--muted);}
+  .page-tracker .purchase-now{color:var(--text);}
+  .page-tracker .purchase-gain{color:var(--green);margin-left:auto;}
+  .page-tracker .purchase-loss{color:var(--red);margin-left:auto;}
+  .page-tracker .purchase-edit-row{
+    font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;
+    display:flex;align-items:center;gap:4px;
+  }
+  .page-tracker .purchase-edit-row input{
     width:52px;font-size:10px;padding:1px 3px;
     font-family:'Space Mono',monospace;background:var(--surface2);
     border:1px solid var(--border);border-radius:4px;color:var(--text);
@@ -394,16 +409,18 @@
   .page-tracker .ctpill.artist{background:var(--surface2);color:var(--muted);border:1px solid var(--border);}
   .page-tracker .ctpill.type{background:rgba(255,203,5,0.12);color:var(--accent);border:1px solid rgba(255,203,5,0.2);}
 
-  .page-tracker .card-preview-overlay{
-    position:fixed;inset:0;z-index:300;pointer-events:none;
+  /* Unscoped (not `.page-tracker`-prefixed) so the hover-zoom preview works
+     on every page that uses usePreview(), not just the main tracker. */
+  .card-preview-overlay{
+    position:fixed;inset:0;z-index:1000;pointer-events:none;
     display:flex;align-items:center;justify-content:center;
   }
-  .page-tracker .card-preview-img{
+  .card-preview-img{
     max-width:min(360px,90vw);max-height:90vh;
     border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,0.8);
     pointer-events:none;opacity:0;transition:opacity 0.15s;
   }
-  .page-tracker .card-preview-img.visible{opacity:1;}
+  .card-preview-img.visible{opacity:1;}
 
   .page-tracker .first-ed-label{
     display:flex;align-items:center;gap:6px;font-size:13px;
