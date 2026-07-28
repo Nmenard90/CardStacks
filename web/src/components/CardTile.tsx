@@ -133,12 +133,15 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
                 </p>
               )}
               {historyState === 'idle' && history !== null && history.length > 0 && (() => {
-                const vals = history.map(h => h.nm ?? 0)
+                // Show only the most recent snapshots — a full unbounded history
+                // (accumulating every ~6h forever) is more than useful in a small popover.
+                const recent = history.slice(-5)
+                const vals = recent.map(h => h.nm ?? 0)
                 const max = Math.max(...vals, 0.01)
                 return (
                   <>
                     <div className="history-chart">
-                      {history.map((h, i) => (
+                      {recent.map((h, i) => (
                         <div
                           key={i} className="history-bar"
                           style={{ height: `${Math.max(4, ((h.nm ?? 0) / max) * 100)}%` }}
@@ -147,13 +150,13 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
                       ))}
                     </div>
                     <p className="history-range">
-                      {new Date(history[0].recordedAt).toLocaleDateString()}
+                      {new Date(recent[0].recordedAt).toLocaleDateString()}
                       {' → '}
-                      {new Date(history[history.length - 1].recordedAt).toLocaleDateString()}
+                      {new Date(recent[recent.length - 1].recordedAt).toLocaleDateString()}
                       {' · NM '}
-                      {history[0].nm != null ? '$' + history[0].nm.toFixed(2) : '—'}
+                      {recent[0].nm != null ? '$' + recent[0].nm.toFixed(2) : '—'}
                       {' → '}
-                      {history[history.length - 1].nm != null ? '$' + history[history.length - 1].nm!.toFixed(2) : '—'}
+                      {recent[recent.length - 1].nm != null ? '$' + recent[recent.length - 1].nm!.toFixed(2) : '—'}
                     </p>
                   </>
                 )
