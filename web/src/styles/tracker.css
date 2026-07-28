@@ -363,6 +363,27 @@
   }
 
   .page-tracker .thumb{width:64px;height:89px;object-fit:contain;border-radius:4px;background:var(--surface2);flex-shrink:0;transition:transform 0.15s;cursor:zoom-in;}
+
+  /* Holo shine: a rainbow sheen that sweeps across the thumbnail on hover,
+     only for cards whose printed rarity is an actual foil/holo treatment. */
+  .page-tracker .thumb-wrap{position:relative;width:64px;height:89px;border-radius:4px;flex-shrink:0;overflow:hidden;}
+  .page-tracker .thumb-wrap .thumb{width:100%;height:100%;}
+  .page-tracker .thumb-wrap.holo::after{
+    content:'';position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(115deg,
+      transparent 20%,
+      rgba(255,0,150,.35) 36%,
+      rgba(0,225,255,.35) 44%,
+      rgba(255,255,0,.35) 52%,
+      rgba(0,255,140,.3) 60%,
+      transparent 75%);
+    background-size:250% 250%;
+    background-position:200% 200%;
+    mix-blend-mode:color-dodge;
+    opacity:0;
+    transition:opacity .25s ease,background-position .7s ease;
+  }
+  .page-tracker .thumb-wrap.holo:hover::after{opacity:1;background-position:0% 0%;}
   .page-tracker .thumb-placeholder{width:64px;height:89px;background:var(--surface2);border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:18px;}
   .page-tracker .cinfo{flex:1;min-width:0;}
   .page-tracker .cname{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:1px;}

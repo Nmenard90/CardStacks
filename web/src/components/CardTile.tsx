@@ -24,6 +24,7 @@
 import { useState } from 'react'
 import { getPriceHistory } from '../api/cards'
 import { CONDS, COND_COLORS, baseCond, basePrice, cardValue, condPrice, dominantCondClass, totalQty, type CondMap, type PurchaseMap } from '../lib/conditions'
+import { isHolo } from '../lib/rarity'
 import type { Card, PriceHistoryPoint } from '../types'
 
 /**
@@ -103,11 +104,13 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
     <div className={`pcard${qty > 0 ? ' owned' : ''} ${dominantCondClass(conds)}`}>
       <div className="pcard-top">
         {card.images?.small ? (
-          <img
-            className="thumb" src={card.images.small} alt={card.name} loading="lazy"
-            onMouseEnter={() => onPreview(card.images.large || card.images.small)}
-            onMouseLeave={() => onPreview(null)}
-          />
+          <div className={'thumb-wrap' + (isHolo(card.rarity) ? ' holo' : '')}>
+            <img
+              className="thumb" src={card.images.small} alt={card.name} loading="lazy"
+              onMouseEnter={() => onPreview(card.images.large || card.images.small)}
+              onMouseLeave={() => onPreview(null)}
+            />
+          </div>
         ) : (
           <div className="thumb-placeholder">🃏</div>
         )}
