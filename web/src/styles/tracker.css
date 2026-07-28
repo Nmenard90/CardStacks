@@ -242,10 +242,11 @@
   .page-tracker .pcard{
     position:relative;
     background:var(--surface);border:2px solid var(--border);border-radius:var(--radius);
-    padding:8px;display:flex;flex-direction:column;gap:6px;transition:border-color .2s,background .2s;
+    padding:8px;display:flex;flex-direction:column;gap:6px;
+    transition:border-color .2s,background .2s,transform .15s,box-shadow .15s;
   }
   .page-tracker .pcard-top{display:flex;align-items:flex-start;gap:8px;}
-  .page-tracker .pcard:hover{background:var(--surface2);}
+  .page-tracker .pcard:hover{background:var(--surface2);transform:translateY(-2px);box-shadow:var(--shadow);}
   .page-tracker .pcard.owned{background:#16192a;}
 
   /* Condition color borders */
@@ -364,26 +365,36 @@
 
   .page-tracker .thumb{width:64px;height:89px;object-fit:contain;border-radius:4px;background:var(--surface2);flex-shrink:0;transition:transform 0.15s;cursor:zoom-in;}
 
-  /* Holo shine: a rainbow sheen that sweeps across the thumbnail on hover,
-     only for cards whose printed rarity is an actual foil/holo treatment. */
+  /* Holo shine: a rainbow sheen, only for cards whose printed rarity is an
+     actual foil/holo treatment. Idles as a slow, subtle shimmer so foil cards
+     read as special at a glance in a big grid (not just on hover), and picks
+     up speed/intensity on hover as a reward for looking closer. Animates
+     `transform` (compositor-only, cheap) rather than `background-position`
+     (forces a repaint every frame) since dozens of these can be animating
+     at once in a full set grid. */
   .page-tracker .thumb-wrap{position:relative;width:64px;height:89px;border-radius:4px;flex-shrink:0;overflow:hidden;}
   .page-tracker .thumb-wrap .thumb{width:100%;height:100%;}
   .page-tracker .thumb-wrap.holo::after{
-    content:'';position:absolute;inset:0;pointer-events:none;
+    content:'';position:absolute;top:-50%;left:-50%;width:200%;height:200%;
+    pointer-events:none;
     background:linear-gradient(115deg,
       transparent 20%,
-      rgba(255,0,150,.35) 36%,
-      rgba(0,225,255,.35) 44%,
-      rgba(255,255,0,.35) 52%,
-      rgba(0,255,140,.3) 60%,
+      rgba(255,0,150,.4) 36%,
+      rgba(0,225,255,.4) 44%,
+      rgba(255,255,0,.4) 52%,
+      rgba(0,255,140,.35) 60%,
       transparent 75%);
-    background-size:250% 250%;
-    background-position:200% 200%;
     mix-blend-mode:color-dodge;
-    opacity:0;
-    transition:opacity .25s ease,background-position .7s ease;
+    opacity:.55;
+    transform:translate(-15%,-15%);
+    animation:holo-shimmer 5s ease-in-out infinite;
+    will-change:transform;
   }
-  .page-tracker .thumb-wrap.holo:hover::after{opacity:1;background-position:0% 0%;}
+  @keyframes holo-shimmer{
+    0%,100%{transform:translate(-15%,-15%);}
+    50%{transform:translate(15%,15%);}
+  }
+  .page-tracker .thumb-wrap.holo:hover::after{opacity:1;animation-duration:1.4s;}
   .page-tracker .thumb-placeholder{width:64px;height:89px;background:var(--surface2);border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:18px;}
   .page-tracker .cinfo{flex:1;min-width:0;}
   .page-tracker .cname{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:1px;}
