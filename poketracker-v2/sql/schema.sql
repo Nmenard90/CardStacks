@@ -328,3 +328,21 @@ CREATE INDEX IF NOT EXISTS idx_user_reports_reported_user_id ON user_reports(rep
 -- set has some cards with no TCGTracking data (promos, newer sets, etc.).
 -- The Scala code uses this to skip re-fetches that happened < 6 hours ago.
 ALTER TABLE card_sets ADD COLUMN IF NOT EXISTS prices_fetched_at TIMESTAMPTZ;
+
+-- Migration 002 (BUG-017 groundwork): Append-only price history.
+-- card_prices holds only the latest snapshot (one row per card, overwritten
+-- on every fetch). This table keeps every snapshot ever fetched so a
+-- price-over-time chart is possible. Populated going forward only — no
+-- backfill of past prices is possible since they were never recorded.
+CREATE TABLE IF NOT EXISTS card_price_history (
+  id          TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  card_id     TEXT        NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+  price_nm    NUMERIC(10,2),
+  price_lp    NUMERIC(10,2),
+  price_mp    NUMERIC(10,2),
+  price_hp    NUMERIC(10,2),
+  price_dmg   NUMERIC(10,2),
+  recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_card_price_history_card_id ON card_price_history(card_id, recorded_at);

@@ -29,6 +29,16 @@ export interface CardPrices {
   dmg?: number
 }
 
+/** One price snapshot from GET /api/cards/id/:cardId/price-history. */
+export interface PriceHistoryPoint {
+  recordedAt: string
+  nm?: number
+  lp?: number
+  mp?: number
+  hp?: number
+  dmg?: number
+}
+
 export interface Card {
   id: string
   setId: string

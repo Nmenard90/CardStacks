@@ -187,6 +187,16 @@ trait CardService:
   def getCardById(id: String): Task[Option[Card]]
 
   /**
+   * METHOD: getPriceHistory
+   * PURPOSE: Every price snapshot ever recorded for a card, oldest first.
+   *          There is no backfill — history starts accumulating from whenever
+   *          this card's prices first get fetched after this feature shipped.
+   * @param id  Card ID e.g. "sv1-1"
+   * @return    Snapshots ordered oldest to newest (may be empty)
+   */
+  def getPriceHistory(id: String): Task[List[PriceHistoryPoint]]
+
+  /**
    * METHOD: searchCards
    * PURPOSE: Full-text search across all card names.
    *          Used by the trade analyzer search box.
@@ -423,6 +433,9 @@ object CardService:
 
     def getCardById(id: String): Task[Option[Card]] =
       repo.findCardById(id)
+
+    def getPriceHistory(id: String): Task[List[PriceHistoryPoint]] =
+      repo.findPriceHistory(id)
 
     /**
      * METHOD: searchCards

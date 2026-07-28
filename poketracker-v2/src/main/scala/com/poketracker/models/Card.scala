@@ -138,6 +138,31 @@ final case class CardPrices(
 object CardPrices:
   given JsonCodec[CardPrices] = DeriveJsonCodec.gen[CardPrices]
 
+/**
+ * CASE CLASS: PriceHistoryPoint
+ *
+ * PURPOSE:
+ *   One snapshot of a card's per-condition prices at a point in time.
+ *   card_price_history keeps every snapshot ever fetched (card_prices only
+ *   keeps the latest), so plotting these over time gives a price history
+ *   chart even though we have no access to real TCGplayer/eBay sold-price
+ *   history — this is our own price *at the times we happened to check it*.
+ *
+ * @param recordedAt  When this snapshot was fetched
+ * @param nm/lp/mp/hp/dmg  Per-condition prices at that time, same as CardPrices
+ */
+final case class PriceHistoryPoint(
+  recordedAt: java.time.Instant,
+  nm:  Option[Double],
+  lp:  Option[Double],
+  mp:  Option[Double],
+  hp:  Option[Double],
+  dmg: Option[Double]
+)
+
+object PriceHistoryPoint:
+  given JsonCodec[PriceHistoryPoint] = DeriveJsonCodec.gen[PriceHistoryPoint]
+
 
 
 /**

@@ -240,6 +240,7 @@
   .page-tracker .card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:9px;}
   /* Condition system */
   .page-tracker .pcard{
+    position:relative;
     background:var(--surface);border:2px solid var(--border);border-radius:var(--radius);
     padding:8px;display:flex;flex-direction:column;gap:6px;transition:border-color .2s,background .2s;
   }
@@ -321,6 +322,38 @@
     width:52px;font-size:10px;padding:1px 3px;
     font-family:'Space Mono',monospace;background:var(--surface2);
     border:1px solid var(--border);border-radius:4px;color:var(--text);
+  }
+
+  /* Price history popover */
+  .page-tracker .history-toggle{
+    border:0;background:transparent;cursor:pointer;font-size:11px;
+    margin-left:4px;opacity:.55;padding:0;vertical-align:middle;
+  }
+  .page-tracker .history-toggle:hover{opacity:1;}
+  .page-tracker .history-popover{
+    position:absolute;top:100%;left:8px;right:8px;z-index:60;
+    margin-top:4px;background:#11131c;border:1px solid var(--border);
+    border-radius:10px;padding:10px;box-shadow:0 12px 30px rgba(0,0,0,.55);
+  }
+  .page-tracker .history-popover-head{
+    display:flex;justify-content:space-between;align-items:center;
+    font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;
+    text-transform:uppercase;letter-spacing:.05em;
+  }
+  .page-tracker .history-close{border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:12px;}
+  .page-tracker .history-close:hover{color:var(--text);}
+  .page-tracker .history-msg{font-size:11px;color:var(--muted);line-height:1.5;}
+  .page-tracker .history-chart{
+    display:flex;align-items:flex-end;gap:2px;height:50px;
+    background:rgba(255,255,255,.03);border-radius:6px;padding:4px;
+  }
+  .page-tracker .history-bar{
+    flex:1;background:var(--accent);border-radius:2px 2px 0 0;min-height:4px;
+    transition:background .15s;
+  }
+  .page-tracker .history-bar:hover{background:var(--green);}
+  .page-tracker .history-range{
+    font-size:10px;color:var(--muted);margin-top:6px;font-family:'Space Mono',monospace;
   }
 
   /* Total value line */

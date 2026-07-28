@@ -22,8 +22,9 @@
  * USED BY: CollectionPage, BulkAddPage
  */
 import { useState } from 'react'
+import { getPriceHistory } from '../api/cards'
 import { CONDS, COND_COLORS, baseCond, basePrice, cardValue, condPrice, dominantCondClass, totalQty, type CondMap, type PurchaseMap } from '../lib/conditions'
-import type { Card } from '../types'
+import type { Card, PriceHistoryPoint } from '../types'
 
 /**
  * INTERFACE: Props
@@ -69,6 +70,23 @@ function gainLossPct(paid: number, market: number): number | null {
 export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, onAdjCond, onPreview, onAddToBinder, purchases, onSetPurchase }: Props) {
   const [editingPurchase, setEditingPurchase] = useState<string | null>(null)
   const [purchaseInput, setPurchaseInput] = useState('')
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [history, setHistory] = useState<PriceHistoryPoint[] | null>(null)
+  const [historyState, setHistoryState] = useState<'idle' | 'loading' | 'error'>('idle')
+
+  const toggleHistory = () => {
+    setHistoryOpen(open => {
+      const next = !open
+      if (next && history === null && historyState === 'idle') {
+        setHistoryState('loading')
+        getPriceHistory(card.id)
+          .then(pts => { setHistory(pts); setHistoryState('idle') })
+          .catch(() => setHistoryState('error'))
+      }
+      return next
+    })
+  }
+
   const qty = totalQty(conds)
   const price = basePrice(card)
   const priceStr = price > 0
@@ -97,7 +115,51 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
           <div className="cname" title={card.name}>{card.name}</div>
           <div className="cmeta">#{card.number} · {card.rarity || '?'}</div>
           <div className="cmeta" style={{ opacity: 0.6 }}>{card.artist ? '✏ ' + card.artist : ''}</div>
-          <div className={'cprice' + (price === 0 ? ' no-price' : '')}>{priceStr}</div>
+          <div className={'cprice' + (price === 0 ? ' no-price' : '')}>
+            {priceStr}
+            <button className="history-toggle" title="Price history" onClick={toggleHistory}>📈</button>
+          </div>
+          {historyOpen && (
+            <div className="history-popover">
+              <div className="history-popover-head">
+                Price history
+                <button className="history-close" onClick={() => setHistoryOpen(false)}>✕</button>
+              </div>
+              {historyState === 'loading' && <p className="history-msg">Loading…</p>}
+              {historyState === 'error' && <p className="history-msg">Could not load history.</p>}
+              {historyState === 'idle' && history !== null && history.length === 0 && (
+                <p className="history-msg">
+                  No history yet — snapshots start accumulating from the next time this card's price refreshes.
+                </p>
+              )}
+              {historyState === 'idle' && history !== null && history.length > 0 && (() => {
+                const vals = history.map(h => h.nm ?? 0)
+                const max = Math.max(...vals, 0.01)
+                return (
+                  <>
+                    <div className="history-chart">
+                      {history.map((h, i) => (
+                        <div
+                          key={i} className="history-bar"
+                          style={{ height: `${Math.max(4, ((h.nm ?? 0) / max) * 100)}%` }}
+                          title={`${new Date(h.recordedAt).toLocaleDateString()} — ${h.nm != null ? '$' + h.nm.toFixed(2) : 'no price'}`}
+                        />
+                      ))}
+                    </div>
+                    <p className="history-range">
+                      {new Date(history[0].recordedAt).toLocaleDateString()}
+                      {' → '}
+                      {new Date(history[history.length - 1].recordedAt).toLocaleDateString()}
+                      {' · NM '}
+                      {history[0].nm != null ? '$' + history[0].nm.toFixed(2) : '—'}
+                      {' → '}
+                      {history[history.length - 1].nm != null ? '$' + history[history.length - 1].nm!.toFixed(2) : '—'}
+                    </p>
+                  </>
+                )
+              })()}
+            </div>
+          )}
           <div className="qty-row">
             <button className="qbtn" onClick={() => onAdj(-1)}>−</button>
             <input

@@ -129,6 +129,21 @@ object CardRoutes:
     },
 
     /**
+     * ROUTE: GET /api/cards/id/:cardId/price-history
+     * PURPOSE: Returns every price snapshot ever recorded for a card, oldest
+     *          first. There's no backfill — this only has data from whenever
+     *          the card's prices started being fetched after this shipped.
+     * @param cardId  Card ID from the URL path e.g. "sv1-1"
+     * RESPONSE: 200 JSON array of PriceHistoryPoint objects (may be empty)
+     *           500 if database error
+     */
+    Method.GET / "api" / "cards" / "id" / string("cardId") / "price-history" -> handler { (cardId: String, _: Request) =>
+      ZIO.serviceWithZIO[CardService](_.getPriceHistory(cardId))
+        .map(points => Response.json(points.toJson))
+        .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
+    },
+
+    /**
      * ROUTE: GET /api/search?q=query
      * PURPOSE: Searches all cards by name across all cached sets.
      *          Used by the trade analyzer search box.

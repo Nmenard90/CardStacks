@@ -168,13 +168,24 @@ trait CardRepository:
 
   /**
    * METHOD: upsertPrices
-   * PURPOSE: Inserts or updates prices for a card.
+   * PURPOSE: Inserts or updates prices for a card, and also appends a snapshot
+   *          to card_price_history so a price-over-time view is possible later.
    *          Prices change frequently so this is called more often than upsertCard.
    * @param cardId  Which card's prices to update
    * @param prices  The new price data
    * @return        Unit
    */
   def upsertPrices(cardId: String, prices: CardPrices): Task[Unit]
+
+  /**
+   * METHOD: findPriceHistory
+   * PURPOSE: Every price snapshot ever recorded for a card, oldest first.
+   *          Populated going forward from whenever upsertPrices starts being
+   *          called for that card — there is no historical backfill.
+   * @param cardId  The card to fetch history for
+   * @return        Snapshots ordered oldest to newest
+   */
+  def findPriceHistory(cardId: String): Task[List[PriceHistoryPoint]]
 
   /**
    * METHOD: isPricesFetchStale
@@ -431,7 +442,7 @@ object CardRepository:
         .update.run.void.transact(xa)
 
     def upsertPrices(cardId: String, prices: CardPrices): Task[Unit] =
-      sql"""
+      val upsertLatest = sql"""
         INSERT INTO card_prices (card_id, price_nm, price_lp, price_mp,
                                   price_hp, price_dmg, fetched_at)
         VALUES ($cardId, ${prices.nm}, ${prices.lp}, ${prices.mp},
@@ -443,8 +454,25 @@ object CardRepository:
           price_hp   = EXCLUDED.price_hp,
           price_dmg  = EXCLUDED.price_dmg,
           fetched_at = NOW()
+      """.update.run
+      // Append-only: every fetch gets its own row so price-over-time is possible.
+      val appendSnapshot = sql"""
+        INSERT INTO card_price_history (card_id, price_nm, price_lp, price_mp, price_hp, price_dmg)
+        VALUES ($cardId, ${prices.nm}, ${prices.lp}, ${prices.mp}, ${prices.hp}, ${prices.dmg})
+      """.update.run
+      (upsertLatest *> appendSnapshot).void.transact(xa)
+
+    def findPriceHistory(cardId: String): Task[List[PriceHistoryPoint]] =
+      sql"""
+        SELECT recorded_at, price_nm, price_lp, price_mp, price_hp, price_dmg
+        FROM card_price_history
+        WHERE card_id = $cardId
+        ORDER BY recorded_at ASC
       """
-        .update.run.void.transact(xa)
+        .query[(Instant, Option[Double], Option[Double], Option[Double], Option[Double], Option[Double])]
+        .to[List]
+        .map(_.map { case (t, nm, lp, mp, hp, dmg) => PriceHistoryPoint(t, nm, lp, mp, hp, dmg) })
+        .transact(xa)
 
     def isPricesFetchStale(setId: String): Task[Boolean] =
       // prices_fetched_at IS NULL means never attempted; < 6 hours ago means recent enough.
