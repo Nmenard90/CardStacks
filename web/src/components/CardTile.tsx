@@ -132,7 +132,16 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
                   No history yet — snapshots start accumulating from the next time this card's price refreshes.
                 </p>
               )}
-              {historyState === 'idle' && history !== null && history.length > 0 && (() => {
+              {/* A single point can't show a trend — a "chart" with one bar is
+                  just a solid rectangle. Show the one snapshot as text instead. */}
+              {historyState === 'idle' && history !== null && history.length === 1 && (
+                <p className="history-msg">
+                  Only one snapshot so far — {new Date(history[0].recordedAt).toLocaleDateString()}
+                  {' · NM '}{history[0].nm != null ? '$' + history[0].nm.toFixed(2) : '—'}.
+                  Check back after this card's price refreshes again to see a trend.
+                </p>
+              )}
+              {historyState === 'idle' && history !== null && history.length > 1 && (() => {
                 // Show only the most recent snapshots — a full unbounded history
                 // (accumulating every ~6h forever) is more than useful in a small popover.
                 const recent = history.slice(-5)
