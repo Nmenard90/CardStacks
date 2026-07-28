@@ -1,8 +1,6 @@
+/* Colors come from the shared :root tokens in index.css, not redeclared here. */
 .page-convention{
-  --surface:#171923;--surface2:#222636;--border:rgba(255,255,255,.09);
-  --text:rgba(255,255,255,.92);--muted:rgba(255,255,255,.52);
-  --accent:#ffcb05;--accent2:#6366f1;--green:#22c55e;--red:#ef4444;--yellow:#eab308;
-  min-height:100vh;background:radial-gradient(circle at top left,rgba(99,102,241,.18),transparent 38%),#0f1117;color:var(--text);font-family:'Inter',sans-serif;
+  min-height:100vh;background:radial-gradient(circle at top left,rgba(99,102,241,.18),transparent 38%),var(--bg);color:var(--text);
 }
 .page-convention *{box-sizing:border-box}
 .page-convention .con-bar{position:sticky;top:0;z-index:50;height:54px;display:flex;align-items:center;gap:12px;padding:0 24px;background:rgba(15,17,23,.92);border-bottom:1px solid var(--border);backdrop-filter:blur(14px)}

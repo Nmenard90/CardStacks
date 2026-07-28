@@ -1,19 +1,10 @@
-.page-analyzer{
-  --surface:#1a1827;
-  --surface2:#221f33;
-  --border:rgba(255,255,255,0.08);
-  --text:rgba(255,255,255,0.9);
-  --muted:rgba(255,255,255,0.4);
-  --green:#22c55e;
-  --red:#ef4444;
-  --yellow:#eab308;
-  --accent:#6366f1;
-  --radius:10px;
-}
-/* Ported verbatim from old analyzer.html — scoped under .page-analyzer */
+/* Ported verbatim from old analyzer.html — scoped under .page-analyzer.
+   Colors/spacing come from the shared :root tokens in index.css — this page
+   used to redeclare its own (including a completely different accent color),
+   which is why it looked like a different app from the rest. */
 
 *,.page-analyzer *::before,.page-analyzer *::after{box-sizing:border-box;margin:0;padding:0}
-.page-analyzer,.page-analyzer{width:100%;min-height:100%;background:#0f0e1a;font-family:'Inter',sans-serif;color:#fff}
+.page-analyzer,.page-analyzer{width:100%;min-height:100%;background:var(--bg);color:var(--text)}
 
 
 

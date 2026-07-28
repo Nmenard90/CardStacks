@@ -6,14 +6,21 @@
 @import './styles/analyzer.css';
 @import './styles/convention.css';
 
+/* Single design-token source for the whole app. Every page used to define
+ * its own slightly-different copy of these (different background shades,
+ * a completely different accent color on the Analyzer page, etc.) — that's
+ * why the app felt like several different products stitched together.
+ * Pages should reference these vars, not redeclare their own. */
 :root {
-  --bg:#0f0f11; --surface:#18181c; --surface2:#222228; --border:#2e2e38;
-  --accent:#ffcb05; --accent2:#3b5bdb; --text:#f0f0f2; --muted:#888896;
-  --green:#51cf66; --red:#ff6b6b; --radius:10px;
+  --bg:#0d0e12; --surface:#17181f; --surface2:#1f212b; --border:rgba(255,255,255,.08);
+  --accent:#ffcb05; --accent2:#6366f1; --text:rgba(255,255,255,.92); --muted:rgba(255,255,255,.5);
+  --green:#22c55e; --red:#ef4444; --yellow:#eab308;
+  --radius:12px; --radius-sm:8px;
+  --shadow:0 8px 30px rgba(0,0,0,.35);
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body,#root{min-height:100vh;}
-body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);}
 
 /* Toast lives outside any page wrapper — defined once, old tracker styling */
 .toast{

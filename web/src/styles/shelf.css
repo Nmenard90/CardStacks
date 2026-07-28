@@ -1,7 +1,7 @@
 /* Ported verbatim from old shelf.html — scoped under .page-shelf */
 
 *,.page-shelf *::before,.page-shelf *::after{box-sizing:border-box;margin:0;padding:0}
-.page-shelf,.page-shelf{width:100%;min-height:100%;background:#13111e;font-family:'Inter',sans-serif;color:#fff}
+.page-shelf,.page-shelf{width:100%;min-height:100%;background:var(--bg);color:var(--text)}
 
 .page-shelf #bar{
   position:sticky;top:0;z-index:100;height:54px;
@@ -18,7 +18,7 @@
 .page-shelf .sp{flex:1}
 .page-shelf .new-btn{
   font-size:13px;font-weight:700;padding:8px 18px;border-radius:10px;
-  background:#6366f1;border:none;color:#fff;cursor:pointer;
+  background:var(--accent2);border:none;color:#fff;cursor:pointer;
   transition:all .15s;display:flex;align-items:center;gap:6px;
   box-shadow:0 4px 16px rgba(99,102,241,0.35);
 }
@@ -64,7 +64,7 @@
   display:flex;flex-direction:column;align-items:center;justify-content:space-evenly;
 }
 .page-shelf .bcover-ring{width:10px;height:10px;border-radius:50%;
-  background:conic-gradient(from 0deg,#1e1b4b,#6366f1,#c7d2fe,#6366f1,#1e1b4b);
+  background:conic-gradient(from 0deg,#1e1b4b,var(--accent2),#c7d2fe,var(--accent2),#1e1b4b);
   box-shadow:0 0 6px rgba(99,102,241,0.6)}
 
 .page-shelf .bcover-default-icon{font-size:48px;position:relative;z-index:1;
@@ -94,7 +94,7 @@
 .page-shelf .del-confirm .del-btns{display:flex;gap:8px}
 .page-shelf .del-confirm button{font-size:12px;font-weight:600;padding:7px 16px;border-radius:8px;
   cursor:pointer;border:none;transition:all .15s}
-.page-shelf .del-yes{background:#ef4444;color:#fff}
+.page-shelf .del-yes{background:var(--red);color:#fff}
 .page-shelf .del-yes:hover{background:#dc2626}
 .page-shelf .del-no{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.6)}
 .page-shelf .del-no:hover{background:rgba(255,255,255,0.12);color:#fff}
@@ -117,7 +117,7 @@
 .page-shelf .mx{width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,0.06);
   border:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.4);font-size:14px;
   cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
-.page-shelf .mx:hover{background:#ef4444;border-color:#ef4444;color:#fff}
+.page-shelf .mx:hover{background:var(--red);border-color:var(--red);color:#fff}
 .page-shelf .mbody{padding:20px 22px}
 .page-shelf .mfield{margin-bottom:18px}
 .page-shelf .mfield label{display:block;font-size:12px;font-weight:600;letter-spacing:.06em;
@@ -125,7 +125,7 @@
 .page-shelf .mfield input[type=text]{width:100%;padding:10px 14px;
   background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);
   border-radius:10px;color:#fff;font-family:'Inter',sans-serif;font-size:14px;outline:none}
-.page-shelf .mfield input[type=text]:focus{border-color:#6366f1}
+.page-shelf .mfield input[type=text]:focus{border-color:var(--accent2)}
 .page-shelf .mfield input[type=text]::placeholder{color:rgba(255,255,255,0.2)}
 
 /* Cover upload area */
@@ -134,7 +134,7 @@
   padding:0;overflow:hidden;cursor:pointer;transition:border-color .15s;
   height:140px;position:relative;display:flex;align-items:center;justify-content:center;
 }
-.page-shelf .cover-upload:hover{border-color:#6366f1}
+.page-shelf .cover-upload:hover{border-color:var(--accent2)}
 .page-shelf .cover-upload-placeholder{text-align:center;pointer-events:none}
 .page-shelf .cover-upload-placeholder .uicon{font-size:28px;margin-bottom:8px;color:rgba(255,255,255,0.2)}
 .page-shelf .cover-upload-placeholder p{font-size:12px;color:rgba(255,255,255,0.3)}
@@ -147,12 +147,12 @@
   background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.4);font-size:12px;
   font-weight:600;cursor:pointer;text-align:center;transition:all .15s}
 .page-shelf .sz-opt:hover{background:rgba(255,255,255,0.08);color:#fff}
-.page-shelf .sz-opt.on{background:#6366f1;border-color:#6366f1;color:#fff}
+.page-shelf .sz-opt.on{background:var(--accent2);border-color:var(--accent2);color:#fff}
 
 .page-shelf .mfoot{padding:0 22px 20px;display:flex;gap:10px;justify-content:flex-end}
 .page-shelf .mfoot button{font-size:13px;font-weight:600;padding:9px 20px;border-radius:10px;
   cursor:pointer;border:none;transition:all .15s}
 .page-shelf .m-cancel{background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.5)}
 .page-shelf .m-cancel:hover{background:rgba(255,255,255,0.1);color:#fff}
-.page-shelf .m-create{background:#6366f1;color:#fff;box-shadow:0 4px 14px rgba(99,102,241,0.35)}
+.page-shelf .m-create{background:var(--accent2);color:#fff;box-shadow:0 4px 14px rgba(99,102,241,0.35)}
 .page-shelf .m-create:hover{background:#4f46e5;transform:translateY(-1px)}
