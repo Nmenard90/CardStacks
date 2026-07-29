@@ -5,41 +5,44 @@
 
 .page-shelf #bar{
   position:sticky;top:0;z-index:100;height:54px;
-  background:rgba(15,13,22,0.95);border-bottom:1px solid rgba(255,255,255,0.07);
+  background:rgba(21,21,31,.9);border-bottom:var(--ink-w) solid var(--border);
   display:flex;align-items:center;gap:14px;padding:0 24px;
   backdrop-filter:blur(16px);
 }
-.page-shelf .back{font-size:12px;font-weight:600;color:rgba(255,255,255,0.4);text-decoration:none;
-  padding:5px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);transition:all .15s}
-.page-shelf .back:hover{color:#fff;background:rgba(255,255,255,0.08)}
-.page-shelf .bar-title{font-size:16px;font-weight:700;letter-spacing:-0.01em}
-.page-shelf .bar-user{font-size:12px;color:rgba(255,255,255,0.35);padding:4px 10px;
-  border-radius:99px;background:rgba(255,255,255,0.06)}
+.page-shelf .back{font-size:14px;font-weight:600;color:var(--muted);text-decoration:none;
+  padding:5px 12px;border-radius:8px;border:var(--ink-w) solid var(--border);transition:all .15s}
+.page-shelf .back:hover{color:var(--text);background:var(--surface2)}
+.page-shelf .bar-title{font-size:18px;font-weight:700;letter-spacing:-0.01em}
+.page-shelf .bar-user{font-size:14px;color:var(--muted);padding:4px 10px;
+  border-radius:99px;background:var(--surface2)}
 .page-shelf .sp{flex:1}
 .page-shelf .new-btn{
-  font-size:13px;font-weight:700;padding:8px 18px;border-radius:10px;
+  font-size:15px;font-weight:700;padding:8px 18px;border-radius:10px;
   background:var(--accent2);border:none;color:#fff;cursor:pointer;
   transition:all .15s;display:flex;align-items:center;gap:6px;
-  box-shadow:0 4px 16px rgba(99,102,241,0.35);
+  box-shadow:0 4px 16px rgba(59,130,246,0.3);
 }
-.page-shelf .new-btn:hover{background:#4f46e5;transform:translateY(-1px);box-shadow:0 6px 20px rgba(99,102,241,0.45)}
+.page-shelf .new-btn:hover{background:#2563eb;transform:translateY(-1px);box-shadow:0 6px 20px rgba(59,130,246,0.4)}
 
 .page-shelf #main{padding:40px 24px 80px;max-width:1100px;margin:0 auto}
 
-.page-shelf .shelf-label{font-size:11px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;
-  color:rgba(255,255,255,0.3);margin-bottom:24px}
+.page-shelf .shelf-label{font-size:13px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;
+  color:var(--muted);margin-bottom:24px}
 
 .page-shelf .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:20px}
 
-/* Binder card */
+/* Binder card — a light card frame around the dark cover-thumbnail below.
+   The cover thumbnail is a miniature of the physical binder object and
+   intentionally stays dark/purple regardless of app theme. */
 .page-shelf .bcard{
   border-radius:12px;overflow:hidden;cursor:pointer;
-  border:1px solid rgba(255,255,255,0.07);
+  border:var(--ink-w) solid var(--border);
   transition:transform .2s,box-shadow .2s;
-  background:#1c1a2a;position:relative;
+  background:var(--surface);position:relative;
   display:flex;flex-direction:column;
+  box-shadow:var(--shadow);
 }
-.page-shelf .bcard:hover{transform:translateY(-4px);box-shadow:0 20px 50px rgba(0,0,0,0.5),0 0 0 1px rgba(99,102,241,0.4)}
+.page-shelf .bcard:hover{transform:translate(-3px,-3px);box-shadow:7px 7px 0 rgba(0,0,0,.6),0 0 0 var(--ink-w) var(--accent2)}
 
 /* Cover area */
 .page-shelf .bcover{
@@ -74,85 +77,86 @@
 /* Info area */
 .page-shelf .binfo{padding:14px 14px 14px 20px;display:flex;align-items:center;gap:8px}
 .page-shelf .binfo-text{flex:1;min-width:0}
-.page-shelf .bname{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.page-shelf .bmeta{font-size:11px;color:rgba(255,255,255,0.35);margin-top:2px}
-.page-shelf .bmore{width:28px;height:28px;border-radius:8px;background:rgba(255,255,255,0.06);
-  border:1px solid rgba(255,255,255,0.08);color:rgba(255,255,255,0.4);
-  font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+.page-shelf .bname{font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+.page-shelf .bmeta{font-size:13px;color:var(--muted);margin-top:2px}
+.page-shelf .bmore{width:36px;height:36px;border-radius:10px;background:var(--surface2);
+  border:var(--ink-w) solid var(--border);color:var(--muted);
+  font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;
   transition:all .15s;flex-shrink:0}
-.page-shelf .bmore:hover{background:rgba(255,255,255,0.12);color:#fff}
+.page-shelf .bmore:hover{background:var(--surface3);color:var(--text)}
 
 /* Delete confirm */
 .page-shelf .del-confirm{
-  position:absolute;inset:0;background:rgba(20,18,30,0.96);
+  position:absolute;inset:0;background:rgba(21,21,31,0.97);
   display:none;align-items:center;justify-content:center;flex-direction:column;gap:12px;
   border-radius:12px;z-index:10;padding:20px;text-align:center;
 }
 .page-shelf .del-confirm.show{display:flex}
-.page-shelf .del-confirm p{font-size:13px;color:rgba(255,255,255,0.6);line-height:1.5}
-.page-shelf .del-confirm strong{color:#fff}
+.page-shelf .del-confirm p{font-size:15px;color:var(--muted);line-height:1.5}
+.page-shelf .del-confirm strong{color:var(--text)}
 .page-shelf .del-confirm .del-btns{display:flex;gap:8px}
-.page-shelf .del-confirm button{font-size:12px;font-weight:600;padding:7px 16px;border-radius:8px;
+.page-shelf .del-confirm button{font-size:14px;font-weight:600;padding:7px 16px;border-radius:8px;
   cursor:pointer;border:none;transition:all .15s}
 .page-shelf .del-yes{background:var(--red);color:#fff}
 .page-shelf .del-yes:hover{background:#dc2626}
-.page-shelf .del-no{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.6)}
-.page-shelf .del-no:hover{background:rgba(255,255,255,0.12);color:#fff}
+.page-shelf .del-no{background:var(--surface2);color:var(--muted)}
+.page-shelf .del-no:hover{background:var(--surface3);color:var(--text)}
 
 /* Empty state */
-.page-shelf .empty{text-align:center;padding:80px 20px;color:rgba(255,255,255,0.25)}
+.page-shelf .empty{text-align:center;padding:80px 20px;color:var(--muted)}
 .page-shelf .empty-icon{font-size:56px;margin-bottom:16px}
-.page-shelf .empty h3{font-size:18px;font-weight:600;color:rgba(255,255,255,0.5);margin-bottom:8px}
-.page-shelf .empty p{font-size:14px;line-height:1.6;max-width:300px;margin:0 auto}
+.page-shelf .empty h3{font-size:18px;font-weight:600;color:var(--text);margin-bottom:8px}
+.page-shelf .empty p{font-size:16px;line-height:1.6;max-width:300px;margin:0 auto}
 
 /* ── CREATE MODAL ── */
-.page-shelf #modal{position:fixed;inset:0;z-index:500;background:rgba(0,0,0,0.75);
+.page-shelf #modal{position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.5);
   display:none;align-items:center;justify-content:center;backdrop-filter:blur(10px)}
 .page-shelf #modal.open{display:flex}
-.page-shelf #mbox{background:#1c1a2a;border:1px solid rgba(255,255,255,0.1);border-radius:18px;
-  width:min(440px,95vw);overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,0.7)}
-.page-shelf .mhead{padding:20px 22px 16px;border-bottom:1px solid rgba(255,255,255,0.07);
+.page-shelf #mbox{background:var(--surface);border:var(--ink-w) solid var(--border);border-radius:18px;
+  width:min(440px,95vw);overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.25)}
+.page-shelf .mhead{padding:20px 22px 16px;border-bottom:var(--ink-w) solid var(--border);
   display:flex;align-items:center;gap:10px}
-.page-shelf .mhead h3{font-size:15px;font-weight:700;flex:1}
-.page-shelf .mx{width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,0.06);
-  border:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.4);font-size:14px;
+.page-shelf .mhead h3{font-size:17px;font-weight:700;flex:1}
+.page-shelf .mx{width:36px;height:36px;border-radius:50%;background:var(--surface2);
+  border:var(--ink-w) solid var(--border);color:var(--muted);font-size:17px;
   cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
 .page-shelf .mx:hover{background:var(--red);border-color:var(--red);color:#fff}
 .page-shelf .mbody{padding:20px 22px}
 .page-shelf .mfield{margin-bottom:18px}
-.page-shelf .mfield label{display:block;font-size:12px;font-weight:600;letter-spacing:.06em;
-  text-transform:uppercase;color:rgba(255,255,255,0.4);margin-bottom:8px}
+.page-shelf .mfield label{display:block;font-size:14px;font-weight:600;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--muted);margin-bottom:8px}
 .page-shelf .mfield input[type=text]{width:100%;padding:10px 14px;
-  background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);
-  border-radius:10px;color:#fff;font-family:'Inter',sans-serif;font-size:14px;outline:none}
+  background:var(--surface2);border:var(--ink-w) solid var(--border);
+  border-radius:10px;color:var(--text);font-family:'Nunito',sans-serif;font-size:16px;outline:none}
 .page-shelf .mfield input[type=text]:focus{border-color:var(--accent2)}
-.page-shelf .mfield input[type=text]::placeholder{color:rgba(255,255,255,0.2)}
+.page-shelf .mfield input[type=text]::placeholder{color:var(--muted)}
 
 /* Cover upload area */
 .page-shelf .cover-upload{
-  border:2px dashed rgba(255,255,255,0.15);border-radius:12px;
+  border:2px dashed var(--border);border-radius:12px;
   padding:0;overflow:hidden;cursor:pointer;transition:border-color .15s;
   height:140px;position:relative;display:flex;align-items:center;justify-content:center;
+  background:var(--surface2);
 }
 .page-shelf .cover-upload:hover{border-color:var(--accent2)}
 .page-shelf .cover-upload-placeholder{text-align:center;pointer-events:none}
-.page-shelf .cover-upload-placeholder .uicon{font-size:28px;margin-bottom:8px;color:rgba(255,255,255,0.2)}
-.page-shelf .cover-upload-placeholder p{font-size:12px;color:rgba(255,255,255,0.3)}
-.page-shelf .cover-upload-placeholder span{font-size:11px;color:rgba(255,255,255,0.18)}
+.page-shelf .cover-upload-placeholder .uicon{font-size:28px;margin-bottom:8px;color:var(--muted)}
+.page-shelf .cover-upload-placeholder p{font-size:14px;color:var(--muted)}
+.page-shelf .cover-upload-placeholder span{font-size:13px;color:var(--muted)}
 .page-shelf .cover-upload img{width:100%;height:100%;object-fit:cover;position:absolute;inset:0;border-radius:10px}
 .page-shelf #coverInput{display:none}
 
 .page-shelf .sz-row{display:flex;gap:8px}
-.page-shelf .sz-opt{flex:1;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);
-  background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.4);font-size:12px;
+.page-shelf .sz-opt{flex:1;padding:8px;border-radius:8px;border:var(--ink-w) solid var(--border);
+  background:var(--surface2);color:var(--muted);font-size:14px;
   font-weight:600;cursor:pointer;text-align:center;transition:all .15s}
-.page-shelf .sz-opt:hover{background:rgba(255,255,255,0.08);color:#fff}
+.page-shelf .sz-opt:hover{background:var(--surface3);color:var(--text)}
 .page-shelf .sz-opt.on{background:var(--accent2);border-color:var(--accent2);color:#fff}
 
 .page-shelf .mfoot{padding:0 22px 20px;display:flex;gap:10px;justify-content:flex-end}
-.page-shelf .mfoot button{font-size:13px;font-weight:600;padding:9px 20px;border-radius:10px;
+.page-shelf .mfoot button{font-size:15px;font-weight:600;padding:9px 20px;border-radius:10px;
   cursor:pointer;border:none;transition:all .15s}
-.page-shelf .m-cancel{background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.5)}
-.page-shelf .m-cancel:hover{background:rgba(255,255,255,0.1);color:#fff}
-.page-shelf .m-create{background:var(--accent2);color:#fff;box-shadow:0 4px 14px rgba(99,102,241,0.35)}
-.page-shelf .m-create:hover{background:#4f46e5;transform:translateY(-1px)}
+.page-shelf .m-cancel{background:var(--surface2);color:var(--muted)}
+.page-shelf .m-cancel:hover{background:var(--surface3);color:var(--text)}
+.page-shelf .m-create{background:var(--accent2);color:#fff;box-shadow:0 4px 14px rgba(59,130,246,0.3)}
+.page-shelf .m-create:hover{background:#2563eb;transform:translateY(-1px)}

@@ -22,6 +22,7 @@ import { createBinder, deleteBinder, listBinders, updateBinder } from '../api/bi
 import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
 import { HeaderNav } from '../components/HeaderNav'
+import { Mascot } from '../components/Mascot'
 import type { Binder, PocketSize } from '../types'
 
 /** Display number for each backend pocket size. */
@@ -131,7 +132,7 @@ export function BinderShelfPage() {
         <div className="grid">
           {loaded && binders.length === 0 && (
             <div className="empty">
-              <div className="empty-icon">📚</div>
+              <Mascot size={84} mood="idle" />
               <h3>No binders yet</h3>
               <p>Click "+ New Binder" to create your first one</p>
             </div>

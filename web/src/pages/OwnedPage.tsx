@@ -18,6 +18,7 @@ import { getOwnedCards, saveEntry } from '../api/collection'
 import { CardTile } from '../components/CardTile'
 import { usePreview } from '../components/CardPreview'
 import { LoginScreen } from '../components/LoginScreen'
+import { Mascot } from '../components/Mascot'
 import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
 import { HeaderNav } from '../components/HeaderNav'
@@ -193,7 +194,9 @@ export function OwnedPage() {
           <div id="main">
             {loading && <div className="loading">Loading your collection…</div>}
             {!loading && cards.length === 0 && (
-              <div className="empty">You don't own any cards yet. Use <Link to="/bulk">Bulk Add</Link> to get started.</div>
+              <div className="empty">
+                <Mascot size={80} mood="sleepy" caption={<>You don't own any cards yet. Use <Link to="/bulk">Bulk Add</Link> to get started.</>} />
+              </div>
             )}
             {!loading && cards.length > 0 && displayed.length === 0 && (
               <div className="empty">No cards match "{search}".</div>

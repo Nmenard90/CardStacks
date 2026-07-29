@@ -1,5 +1,9 @@
-/* Global styles — design tokens ported verbatim from the old live app. */
-@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&family=Inter:wght@400;500;600;700;800&display=swap');
+/* Global styles — warm comic/cartoon theme: a deep plum-navy background
+ * (not flat black — reads as playful dusk, not a hacker-dashboard), panels
+ * with soft ink outlines and hard offset "sticker" shadows instead of blur,
+ * bright flat comic-book colors. Energetic and toy-like for kids, still
+ * legible and uncluttered for adults. */
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Baloo+2:wght@500;600;700;800&family=Bangers&family=Nunito:wght@400;500;600;700;800&display=swap');
 @import './styles/tracker.css';
 @import './styles/shelf.css';
 @import './styles/binder.css';
@@ -12,21 +16,78 @@
  * why the app felt like several different products stitched together.
  * Pages should reference these vars, not redeclare their own. */
 :root {
-  --bg:#0d0e12; --surface:#17181f; --surface2:#1f212b; --border:rgba(255,255,255,.08);
-  --accent:#ffcb05; --accent2:#6366f1; --text:rgba(255,255,255,.92); --muted:rgba(255,255,255,.5);
-  --green:#22c55e; --red:#ef4444; --yellow:#eab308;
-  --radius:12px; --radius-sm:8px;
-  --shadow:0 8px 30px rgba(0,0,0,.35);
+  --bg:#221b3a; --surface:#2e2650; --surface2:#3a3164; --surface3:#463c78; --border:#120e24;
+  /* --accent is bright yellow — reads fine as text on this dark background,
+   * unlike the light-theme experiment. --accent-ink stays as an alias so
+   * existing rules that reference it don't need touching. */
+  --accent:#ffcb05; --accent-ink:#ffd93d; --accent2:#5b8dff; --text:#f6f4ff; --muted:#b6aed6;
+  --green:#3ddc73; --red:#ff5d68; --yellow:#f5a623;
+  --radius:20px; --radius-sm:14px;
+  /* Hard offset shadow (no blur) is the "sticker lifting off the page" look
+   * that sells the comic-panel feel — soft blurred shadows read as moody,
+   * not playful. */
+  --shadow:4px 4px 0 rgba(0,0,0,.35);
+  --ink-w:2.5px;
+  /* Base readable size for body copy — most of the app used to sit at
+   * 10-13px, uncomfortably small for kids and anyone on a phone. */
+  --fs-base:16px;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body,#root{min-height:100vh;}
-body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);}
+body{font-family:'Nunito',sans-serif;font-size:var(--fs-base);background:var(--bg);color:var(--text);}
 
 /* Toast lives outside any page wrapper — defined once, old tracker styling */
 .toast{
   position:fixed;bottom:24px;right:24px;background:var(--surface2);
-  border:1px solid var(--border);border-radius:var(--radius);padding:10px 16px;
-  font-size:13px;color:var(--text);opacity:0;transform:translateY(8px);
+  border:var(--ink-w) solid var(--border);border-radius:var(--radius);padding:10px 16px;
+  font-size:15px;color:var(--text);opacity:0;transform:translateY(8px);
   transition:opacity .2s,transform .2s;pointer-events:none;z-index:999;
+  box-shadow:var(--shadow);
 }
 .toast.show{opacity:1;transform:translateY(0);}
+
+/* Mascot — a recurring Poké Ball buddy, unscoped so it looks the same in
+ * every page's empty states and the login screen. */
+.mascot-block{display:flex;flex-direction:column;align-items:center;gap:12px;}
+.mascot{display:inline-block;transform-origin:50% 85%;}
+.mascot-idle{animation:mascot-bounce 2.4s ease-in-out infinite;}
+.mascot-sleepy{animation:mascot-breathe 3s ease-in-out infinite;}
+.mascot-eye{animation:mascot-blink 4.2s ease-in-out infinite;transform-origin:center;}
+.mascot-zzz{font-family:'Baloo 2',sans-serif;font-size:17px;font-weight:700;fill:var(--muted);animation:mascot-zzz-float 3s ease-in-out infinite;}
+.mascot-caption{font-size:15px;color:var(--muted);text-align:center;max-width:280px;line-height:1.5;}
+@keyframes mascot-bounce{0%,100%{transform:translateY(0) rotate(-4deg)}50%{transform:translateY(-10px) rotate(4deg)}}
+@keyframes mascot-breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+@keyframes mascot-blink{0%,92%,100%{transform:scaleY(1)}96%{transform:scaleY(.1)}}
+@keyframes mascot-zzz-float{0%{opacity:0;transform:translateY(0)}30%{opacity:1}100%{opacity:0;transform:translateY(-14px)}}
+@media (prefers-reduced-motion: reduce){
+  .mascot-idle,.mascot-sleepy,.mascot-eye,.mascot-zzz{animation:none;}
+}
+
+/* Torn-paper header edge — every top bar gets a jagged sawtooth strip
+ * hanging below it instead of just a flat line, the single biggest
+ * "this isn't just recolored" signal since it shows up on every page.
+ * Pure CSS (two offset triangle gradients tiled across), no image assets.
+ * No explicit `position` needed here — these headers are already
+ * sticky/fixed, which already establishes a positioning context for the
+ * absolutely-positioned ::after; setting position:relative here would tie
+ * on specificity with the header's own rule and, being declared later in
+ * the cascade, silently clobber the sticky/fixed behavior. */
+.page-tracker header::after,
+.page-shelf #bar::after,
+.page-binder #bar::after,
+.page-analyzer #bar::after,
+.page-convention .con-bar::after{
+  content:'';position:absolute;left:0;right:0;bottom:-9px;height:9px;z-index:2;
+  background:
+    linear-gradient(-45deg,var(--border) 6px,transparent 0) 0 0,
+    linear-gradient(45deg,var(--border) 6px,transparent 0) 0 0;
+  background-size:14px 9px;background-repeat:repeat-x;pointer-events:none;
+}
+
+/* Star-burst badge shape — used for a handful of high-visibility callouts
+ * instead of a plain rounded pill, e.g. verdict icons and risk badges. */
+.burst{
+  clip-path:polygon(50% 0%,61% 15%,78% 6%,80% 25%,98% 30%,88% 46%,100% 60%,
+    82% 65%,85% 84%,66% 80%,58% 98%,46% 82%,27% 92%,26% 73%,6% 72%,
+    16% 55%,2% 42%,20% 34%,18% 15%,36% 20%);
+}

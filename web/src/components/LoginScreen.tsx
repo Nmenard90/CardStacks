@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react'
 import { findUser, listUsers, registerUser } from '../api/users'
 import { useUser } from '../context/UserContext'
 import { useToast } from './Toast'
+import { Mascot } from './Mascot'
 import type { User } from '../types'
 
 export function LoginScreen() {
@@ -60,6 +61,7 @@ export function LoginScreen() {
   return (
     <div id="loginScreen">
       <div className="login-box">
+        <Mascot size={84} mood="idle" />
         <h1>POKÉDEX TRACKER</h1>
         <p>Enter your name to load your collection</p>
         <input

@@ -524,7 +524,7 @@ export function BulkAddPage() {
           <span className="sort-label">Name:</span>
           <div className="bulk-search-wrap">
             <input
-              ref={searchRef} className="bulk-search" value={query}
+              ref={searchRef} className="bulk-search" type="text" value={query}
               placeholder="Search by name — e.g. Charizard"
               onChange={e => setQuery(e.target.value)}
               onBlur={() => window.setTimeout(() => { setResults([]); setQuery('') }, 150)}

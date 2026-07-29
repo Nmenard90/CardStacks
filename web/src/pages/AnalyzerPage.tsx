@@ -242,7 +242,7 @@ export function AnalyzerPage() {
       <div id="page">
         {/* Verdict */}
         <div id="verdict" className={verdictClass}>
-          <div className="verdict-icon">{verdictIcon}</div>
+          <div className="verdict-icon burst">{verdictIcon}</div>
           <div className="verdict-text">
             <h2>{verdictTitle}</h2>
             <p>{verdictDesc}</p>

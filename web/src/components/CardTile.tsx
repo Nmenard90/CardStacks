@@ -71,6 +71,7 @@ function gainLossPct(paid: number, market: number): number | null {
 export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, onAdjCond, onPreview, onAddToBinder, purchases, onSetPurchase }: Props) {
   const [editingPurchase, setEditingPurchase] = useState<string | null>(null)
   const [purchaseInput, setPurchaseInput] = useState('')
+  const [detailsOpen, setDetailsOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [history, setHistory] = useState<PriceHistoryPoint[] | null>(null)
   const [historyState, setHistoryState] = useState<'idle' | 'loading' | 'error'>('idle')
@@ -110,6 +111,7 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
               onMouseEnter={() => onPreview(card.images.large || card.images.small)}
               onMouseLeave={() => onPreview(null)}
             />
+            {price > 0 && <span className="price-ribbon">${price.toFixed(2)}</span>}
           </div>
         ) : (
           <div className="thumb-placeholder">🃏</div>
@@ -215,6 +217,11 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
           })}
         </div>
         {ownedKeys.length > 0 && (
+          <button className="details-toggle" onClick={() => setDetailsOpen(o => !o)}>
+            {detailsOpen ? 'Hide details ▴' : `Details${value > 0 ? ` · $${value.toFixed(2)}` : ''} ▾`}
+          </button>
+        )}
+        {detailsOpen && ownedKeys.length > 0 && (
           <div className="cond-breakdown-row">
             {ownedKeys.map(k => (
               <span key={k} className="cbd-item">
@@ -231,7 +238,7 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
         {/* Purchase price: its own row below the value breakdown, one line per
             owned condition, so "what you paid" is never squeezed into the same
             line as the market-price numbers. */}
-        {onSetPurchase && ownedKeys.length > 0 && (
+        {detailsOpen && onSetPurchase && ownedKeys.length > 0 && (
           <div className="purchase-section">
             {ownedKeys.map(k => {
               const purchase = purchases?.[k]
