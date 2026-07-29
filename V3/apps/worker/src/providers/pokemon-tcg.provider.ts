@@ -37,31 +37,20 @@ export interface PokemonTcgCard {
 
 /**
  * Fetches all sets from PokémonTCG.io.
- *
- * Error handling:
- *   Throws when the API does not return the documented `data` array.
  */
 export async function fetchPokemonTcgSets(env: WorkerEnv): Promise<PokemonTcgSet[]> {
-  const response = await fetch(`${env.POKEMON_TCG_API_URL}/sets`, { headers: buildHeaders(env) });
-  const payload = await response.json() as { data?: PokemonTcgSet[] };
+  const payload = await getJson<{ data?: PokemonTcgSet[] }>(env, `${env.POKEMON_TCG_API_URL}/sets`);
 
-  if (!response.ok || !Array.isArray(payload.data)) {
-    throw new Error(`PokémonTCG.io sets request failed with status ${response.status}.`);
+  if (!Array.isArray(payload.data)) {
+    throw new Error("PokémonTCG.io sets response did not contain a data array.");
   }
 
   return payload.data;
 }
 
 /**
- * Fetches every card in one set, following the same approach as the proven V2
- * service: query cards filtered by set id, 250 per page, and page through using
- * the reported totalCount.
- *
- * Why per-set instead of one global card loop:
- *   The unfiltered `/cards` endpoint (especially with an orderBy on a nested
- *   set field) returns intermittent HTTP 500s at scale. Filtering by
- *   `q=set.id:<id>` keeps each request small and reliable, and no orderBy is
- *   sent — cards are ordered locally by collector number when needed.
+ * Fetches every card in one set, filtered by set id, 250 per page, paging
+ * through with the reported totalCount.
  */
 export async function fetchPokemonTcgCardsForSet(env: WorkerEnv, setId: string): Promise<PokemonTcgCard[]> {
   const pageSize = 250;
@@ -83,30 +72,79 @@ export async function fetchPokemonTcgCardsForSet(env: WorkerEnv, setId: string):
 }
 
 /**
- * Fetches one page of cards for a set and returns the data plus the total count
- * so the caller can decide whether more pages are needed.
+ * Fetches one page of cards for a set and returns the data plus the total count.
  */
 async function fetchCardQueryPage(env: WorkerEnv, setId: string, page: number, pageSize: number): Promise<{ data: PokemonTcgCard[]; totalCount: number }> {
   const params = new URLSearchParams({ q: `set.id:${setId}`, pageSize: String(pageSize), page: String(page) });
-  const response = await fetch(`${env.POKEMON_TCG_API_URL}/cards?${params}`, { headers: buildHeaders(env) });
-  const payload = await response.json() as { data?: PokemonTcgCard[]; totalCount?: number };
+  const payload = await getJson<{ data?: PokemonTcgCard[]; totalCount?: number }>(env, `${env.POKEMON_TCG_API_URL}/cards?${params}`);
 
-  if (!response.ok || !Array.isArray(payload.data)) {
-    throw new Error(`PokémonTCG.io cards request for set ${setId} failed with status ${response.status}.`);
+  if (!Array.isArray(payload.data)) {
+    throw new Error(`PokémonTCG.io cards response for set ${setId} did not contain a data array.`);
   }
 
   return { data: payload.data, totalCount: payload.totalCount ?? payload.data.length };
 }
 
 /**
- * Builds API headers while keeping the API key optional.
+ * GET a URL and parse JSON, with retry/backoff for the API's frequent transient
+ * failures (HTTP 500s, timeouts, and empty response bodies).
+ *
+ * Why this exists:
+ *   pokemontcg.io intermittently returns a 500 or an empty body on an otherwise
+ *   valid request. A single sync makes many sequential calls, so without retry
+ *   one blip kills the whole run. Retrying each request a few times makes a
+ *   full sync reliable. Note: no `accept` header is sent — the API returns 500
+ *   when `accept: application/json` is present.
+ */
+async function getJson<T>(env: WorkerEnv, url: string): Promise<T> {
+  const maxAttempts = 5;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(url, { headers: buildHeaders(env) });
+      const body = await response.text();
+
+      if (!response.ok) {
+        throw new Error(`Request to ${url} failed with status ${response.status}.`);
+      }
+      if (body.trim() === "") {
+        throw new Error(`Request to ${url} returned an empty body.`);
+      }
+
+      return JSON.parse(body) as T;
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxAttempts) {
+        // Exponential backoff: 1s, 2s, 4s, 8s.
+        await sleep(1000 * 2 ** (attempt - 1));
+      }
+    }
+  }
+
+  throw new Error(`PokémonTCG.io request failed after ${maxAttempts} attempts: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+}
+
+/**
+ * Builds API headers.
+ *
+ * IMPORTANT: Do NOT send an `accept` header. The pokemontcg.io server returns
+ * HTTP 500 when `accept: application/json` is present. A plain request (only the
+ * optional API key) is what the API documents and what works.
  */
 function buildHeaders(env: WorkerEnv): Record<string, string> {
-  const headers: Record<string, string> = { accept: "application/json" };
+  const headers: Record<string, string> = {};
 
   if (env.POKEMON_TCG_API_KEY) {
     headers["X-Api-Key"] = env.POKEMON_TCG_API_KEY;
   }
 
   return headers;
+}
+
+/**
+ * Resolves after the given number of milliseconds.
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
