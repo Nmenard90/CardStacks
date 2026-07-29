@@ -2,15 +2,15 @@
 
 ## Active Codebase
 
-The active product is `V3/`.
+The active product is `web/` (V2 React frontend). `V3/` was a rewrite effort that has been abandoned — treat it as historical/dead, not a target for new work.
 
 The following directories are historical reference only:
 
 - `files/` — original Node/HTML prototype
-- `web/` — V2 React frontend
+- `V3/` — abandoned rewrite effort
 - `poketracker-v2/` — V2 Scala/ZIO backend
 
-Do not modify historical directories unless the user explicitly requests a historical fix. Historical code may be read only to recover product intent, workflows, interface behavior, and edge cases. All new production implementation belongs in `V3/`.
+Do not modify historical directories unless the user explicitly requests a historical fix. Historical code may be read only to recover product intent, workflows, interface behavior, and edge cases. All new production implementation belongs in `web/`.
 
 ## Foreman-Controlled Development
 
@@ -28,7 +28,7 @@ This repository is developed through the local TCG Foreman.
 
 - Never expose, print, commit, or copy secret values from `.env` files.
 - Do not run destructive database commands without explicit user approval.
-- Do not delete V1/V2 until intended behavior has been documented and migrated.
+- Do not delete `V3/` or other historical directories without explicit user approval.
 - Ignore generated directories such as `node_modules`, `dist`, `.turbo`, `target`, and `.git` during source analysis.
 - Do not claim a task is complete unless its acceptance criteria and verification commands actually pass.
 - Avoid editing shared coordination documents during normal parallel tasks. Put task-specific notes in `V3/docs/agent-reports/<task-id>.md` instead.
