@@ -13,8 +13,9 @@
  *   Link/useLocation — client-side navigation + detecting the active route
  *   useUser          — to clear the session for the "Switch user" button
  *
- * USED BY: CollectionPage, BulkAddPage
- * DEPENDS ON: routes defined in App.tsx; the .nav-link styles in tracker.css
+ * USED BY: every page (CollectionPage, OwnedPage, BulkAddPage,
+ *   BinderShelfPage, BinderViewPage, AnalyzerPage, ConventionModePage)
+ * DEPENDS ON: routes defined in App.tsx; .nav-link/.bottom-nav styles in index.css
  */
 import { Link, useLocation } from 'react-router-dom'
 import { useUser } from '../context/UserContext'
@@ -38,9 +39,13 @@ const ITEMS: NavItem[] = [
 
 /**
  * COMPONENT: HeaderNav
- * PURPOSE: Render the shared navigation row. Highlights the link whose path
- *          matches the current location so the user always knows where they are.
- * @returns The navigation element for a page header.
+ * PURPOSE: Render the shared navigation — a link row in the header on wide
+ *          screens, and a fixed bottom tab bar on narrow ones (the header
+ *          row used to be the only option, and on a phone it wrapped into
+ *          several rows and ate half the screen). Highlights the link whose
+ *          path matches the current location so the user always knows where
+ *          they are.
+ * @returns The navigation elements for a page header.
  */
 export function HeaderNav() {
   // Current route path — used only to mark the active link.
@@ -49,19 +54,38 @@ export function HeaderNav() {
   const { setUser } = useUser()
 
   return (
-    <div className="app-nav">
-      {ITEMS.map(item => (
-        <Link
-          key={item.to}
-          to={item.to}
-          className={'nav-link' + (pathname === item.to ? ' active' : '')}
-        >
-          {item.label}
-        </Link>
-      ))}
-      <button className="nav-link" style={{ color: 'var(--muted)' }} onClick={() => setUser(null)}>
-        Switch user
-      </button>
-    </div>
+    <>
+      <div className="app-nav">
+        {ITEMS.map(item => (
+          <Link
+            key={item.to}
+            to={item.to}
+            className={'nav-link' + (pathname === item.to ? ' active' : '')}
+          >
+            {item.label}
+          </Link>
+        ))}
+        <button className="nav-link switch-user" style={{ color: 'var(--muted)' }} onClick={() => setUser(null)}>
+          Switch user
+        </button>
+      </div>
+      <nav className="bottom-nav" aria-label="Main navigation">
+        {ITEMS.map(item => {
+          // Labels are "emoji label text" — split so the tab can show a big
+          // icon with a small caption under it instead of one cramped line.
+          const [icon, ...rest] = item.label.split(' ')
+          return (
+            <Link
+              key={item.to}
+              to={item.to}
+              className={'bottom-nav-link' + (pathname === item.to ? ' active' : '')}
+            >
+              <span className="bnl-icon">{icon}</span>
+              <span className="bnl-label">{rest.join(' ')}</span>
+            </Link>
+          )
+        })}
+      </nav>
+    </>
   )
 }

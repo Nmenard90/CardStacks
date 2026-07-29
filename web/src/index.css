@@ -63,6 +63,39 @@ body{font-family:'Nunito',sans-serif;font-size:var(--fs-base);background:var(--b
   .mascot-idle,.mascot-sleepy,.mascot-eye,.mascot-zzz{animation:none;}
 }
 
+/* Bottom tab bar — the phone-friendly stand-in for the header's nav-link
+ * row. On a narrow screen that row wraps across 2-3 lines and eats half
+ * the viewport before you see any actual content; a fixed bottom bar with
+ * icon+label tabs is the pattern people already know from every other app
+ * on their phone. Hidden on wide screens, where the header row is fine. */
+.bottom-nav{
+  display:none;
+  position:fixed;left:0;right:0;bottom:0;z-index:300;
+  background:var(--surface);border-top:var(--ink-w) solid var(--border);
+  padding:6px 2px calc(6px + env(safe-area-inset-bottom));
+  box-shadow:0 -4px 16px rgba(0,0,0,.25);
+}
+.bottom-nav-link{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;
+  padding:6px 2px;text-decoration:none;color:var(--muted);
+  border-radius:12px;font-family:'Nunito',sans-serif;
+}
+.bottom-nav-link .bnl-icon{font-size:20px;line-height:1;}
+.bottom-nav-link .bnl-label{font-size:11px;font-weight:700;white-space:nowrap;}
+.bottom-nav-link.active{color:var(--accent-ink);background:rgba(255,203,5,.12);}
+
+@media (max-width:720px){
+  /* Keep "Switch user" reachable in the header; the page-link row moves to
+     the bottom bar so it doesn't push header content around. */
+  .app-nav .nav-link:not(.switch-user){display:none;}
+  .app-nav{gap:0;margin-left:auto;}
+  .bottom-nav{display:flex;}
+  /* Clear the fixed bottom bar so it doesn't sit on top of the last row
+     of whatever's on screen. */
+  .page-tracker #main{padding-bottom:76px;}
+  .page-binder .bottom-nav{display:none;}
+}
+
 /* Torn-paper header edge — every top bar gets a jagged sawtooth strip
  * hanging below it instead of just a flat line, the single biggest
  * "this isn't just recolored" signal since it shows up on every page.
