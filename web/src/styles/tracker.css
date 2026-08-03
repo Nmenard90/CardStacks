@@ -409,34 +409,41 @@
 
   .page-tracker .thumb{width:92px;height:128px;object-fit:contain;border-radius:6px;background:var(--surface2);flex-shrink:0;transition:transform 0.15s;cursor:zoom-in;}
 
-  /* Holo shine: a rainbow sheen, only for cards whose printed rarity is an
-     actual foil/holo treatment. Idles as a slow, subtle shimmer so foil cards
-     read as special at a glance in a big grid (not just on hover), and picks
-     up speed/intensity on hover as a reward for looking closer. Animates
-     `transform` (compositor-only, cheap) rather than `background-position`
-     (forces a repaint every frame) since dozens of these can be animating
-     at once in a full set grid. */
+  /* Holo shine: only for cards whose printed rarity is an actual foil/holo
+     treatment. Real holo foil isn't a permanent rainbow wash sitting over
+     the art — it's a narrow band of light that glints as it catches the
+     angle, most of the card staying clear the rest of the time. A full-width
+     color-dodge gradient at high opacity fought that: it stayed saturated
+     over the whole card and could wash out the art/text under it. This is a
+     thin (~15%-wide) band instead, so at any instant most of the card is
+     unaffected, and `overlay` (not `color-dodge`) keeps contrast — it tints
+     rather than blowing highlights out to solid color. Idles as a slow pass
+     so foil cards read as special at a glance in a big grid, and picks up
+     speed on hover as a reward for looking closer. Animates `transform`
+     (compositor-only, cheap) rather than `background-position` (forces a
+     repaint every frame) since dozens of these can be animating at once. */
   .page-tracker .thumb-wrap{position:relative;width:92px;height:128px;border-radius:6px;flex-shrink:0;overflow:hidden;}
   .page-tracker .thumb-wrap .thumb{width:100%;height:100%;}
   .page-tracker .thumb-wrap.holo::after{
-    content:'';position:absolute;top:-50%;left:-50%;width:200%;height:200%;
+    content:'';position:absolute;top:-60%;left:-60%;width:220%;height:220%;
     pointer-events:none;
-    background:linear-gradient(115deg,
-      transparent 15%,
-      rgba(255,0,150,.75) 34%,
-      rgba(0,225,255,.75) 44%,
-      rgba(255,255,0,.75) 54%,
-      rgba(0,255,140,.7) 64%,
-      transparent 82%);
-    mix-blend-mode:color-dodge;
-    opacity:.85;
-    transform:translate(-15%,-15%);
-    animation:holo-shimmer 5s ease-in-out infinite;
+    background:linear-gradient(100deg,
+      transparent 40%,
+      rgba(255,255,255,.55) 46%,
+      rgba(255,190,235,.5) 48%,
+      rgba(180,225,255,.5) 50%,
+      rgba(255,250,180,.5) 52%,
+      rgba(255,255,255,.55) 54%,
+      transparent 60%);
+    mix-blend-mode:overlay;
+    opacity:.8;
+    transform:translate(-25%,-25%);
+    animation:holo-shimmer 4.5s ease-in-out infinite;
     will-change:transform;
   }
   @keyframes holo-shimmer{
-    0%,100%{transform:translate(-15%,-15%);}
-    50%{transform:translate(15%,15%);}
+    0%,100%{transform:translate(-25%,-25%);}
+    50%{transform:translate(25%,25%);}
   }
   .page-tracker .thumb-wrap.holo:hover::after{opacity:1;animation-duration:1.4s;}
   /* Comic price-tag sticker draped across the thumbnail corner — a real
@@ -553,18 +560,19 @@
     pointer-events:none;
   }
   .card-preview-wrap.holo::after{
-    content:'';position:absolute;top:-50%;left:-50%;width:200%;height:200%;
+    content:'';position:absolute;top:-60%;left:-60%;width:220%;height:220%;
     pointer-events:none;
-    background:linear-gradient(115deg,
-      transparent 15%,
-      rgba(255,0,150,.75) 34%,
-      rgba(0,225,255,.75) 44%,
-      rgba(255,255,0,.75) 54%,
-      rgba(0,255,140,.7) 64%,
-      transparent 82%);
-    mix-blend-mode:color-dodge;
-    opacity:1;
-    transform:translate(-15%,-15%);
+    background:linear-gradient(100deg,
+      transparent 40%,
+      rgba(255,255,255,.55) 46%,
+      rgba(255,190,235,.5) 48%,
+      rgba(180,225,255,.5) 50%,
+      rgba(255,250,180,.5) 52%,
+      rgba(255,255,255,.55) 54%,
+      transparent 60%);
+    mix-blend-mode:overlay;
+    opacity:.9;
+    transform:translate(-25%,-25%);
     /* Already the "looking closely" state (this only shows once a thumb is
        hovered), so it runs at the thumb's hover speed, not its idle one. */
     animation:holo-shimmer 1.4s ease-in-out infinite;
