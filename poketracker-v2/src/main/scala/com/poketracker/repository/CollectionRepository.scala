@@ -191,7 +191,7 @@ object CollectionRepository:
           p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg
         FROM collection_entries ce
         JOIN cards c ON c.id = ce.card_id
-        LEFT JOIN card_prices p ON p.card_id = ce.card_id AND p.variant = 'Normal'
+        LEFT JOIN card_prices p ON p.card_id = ce.card_id
         WHERE ce.user_id = $userId
         ORDER BY ce.updated_at DESC
       """
