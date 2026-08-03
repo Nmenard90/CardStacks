@@ -152,8 +152,8 @@ export function OwnedPage() {
           <div className="user-badge">👤 <b>{user.username}</b></div>
           <input
             type="text"
+            className="header-search"
             placeholder="Search by name, number, or set…"
-            style={{ width: 260 }}
             value={search}
             onChange={e => setSearch(e.target.value)}
           />

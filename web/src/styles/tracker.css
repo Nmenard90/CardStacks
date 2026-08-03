@@ -59,6 +59,7 @@
     padding:7px 12px;outline:none;transition:border-color .15s;
   }
   .page-tracker select:focus,.page-tracker input[type="text"]:focus{border-color:var(--accent2);}
+  .page-tracker .header-search{width:260px;}
 
   /* Custom set selector with symbols */
   .page-tracker .set-selector{position:relative;min-width:260px;}

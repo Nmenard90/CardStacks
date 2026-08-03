@@ -94,6 +94,25 @@ body{font-family:'Nunito',sans-serif;font-size:var(--fs-base);background:var(--b
      of whatever's on screen. */
   .page-tracker #main{padding-bottom:76px;}
   .page-binder .bottom-nav{display:none;}
+
+  /* The header/stats/toolbar stack were all sized for a desktop-width
+     window. Unshrunk, that stack (logo row + 3-4 padded stat tiles +
+     a sort row) ran past 3/4 of a phone screen before a single card
+     was visible. Compact every piece of it for narrow viewports. */
+  .page-tracker header{padding:.5rem .75rem;gap:.5rem;}
+  .page-tracker .logo{font-size:18px;}
+  .page-tracker .user-badge{font-size:12px;padding:3px 9px;}
+  .page-tracker .header-search{width:100%;order:3;flex:1 1 100%;}
+  .page-tracker .set-selector,.page-tracker .set-selector-btn{min-width:0;width:100%;}
+
+  .page-tracker .stats-bar{grid-template-columns:repeat(3,1fr);}
+  .page-tracker .stat{padding:6px 8px;}
+  .page-tracker .stat-label{font-size:10px;letter-spacing:.02em;margin-bottom:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .page-tracker .stat-value{font-size:15px;}
+
+  .page-tracker .toolbar{padding:6px 10px;gap:5px;}
+  .page-tracker .sort-label{font-size:11px;}
+  .page-tracker .tb-btn{font-size:12px;padding:4px 8px;}
 }
 
 /* Torn-paper header edge — every top bar gets a jagged sawtooth strip
