@@ -139,6 +139,26 @@ object CardPrices:
   given JsonCodec[CardPrices] = DeriveJsonCodec.gen[CardPrices]
 
 /**
+ * CASE CLASS: CardVariant
+ *
+ * PURPOSE:
+ *   One priced print variant of a card — "Normal", "Holofoil",
+ *   "Reverse Holofoil", "Poké Ball Pattern", or "Master Ball Pattern".
+ *   TCGTracking prices these separately (confirmed live: a Common's Normal
+ *   and Reverse Holofoil prints differ, and Poké Ball/Master Ball Pattern are
+ *   entirely separate TCGTracking products from the base card, not just a
+ *   different finish of it) — collapsing them to one number per card was
+ *   losing real, distinct market data.
+ *
+ * @param name    The variant name, exactly as used above.
+ * @param prices  Per-condition prices for this specific variant.
+ */
+final case class CardVariant(name: String, prices: CardPrices)
+
+object CardVariant:
+  given JsonCodec[CardVariant] = DeriveJsonCodec.gen[CardVariant]
+
+/**
  * CASE CLASS: PriceHistoryPoint
  *
  * PURPOSE:
@@ -203,17 +223,27 @@ object PriceHistoryPoint:
  *
  * @param images    URLs to the card's small and large images.
  *
- * @param prices    Per-condition market prices. None if no pricing data exists.
+ * @param prices    Per-condition market prices for the card's default/base
+ *                  variant ("Normal", or "Holofoil" for cards with no
+ *                  non-holo print). None if no pricing data exists.
+ *                  Kept for backward compatibility — new code should prefer
+ *                  `variants`, which this always mirrors as its first entry
+ *                  when non-empty.
+ * @param variants  Every priced print variant found for this card (Normal,
+ *                  Holofoil, Reverse Holofoil, Poké Ball Pattern, Master Ball
+ *                  Pattern — whichever actually have price data). Empty list
+ *                  if variant-level data hasn't been fetched.
  */
 final case class Card(
-  id:     String,
-  setId:  String,
-  name:   String,
-  number: String,
-  rarity: Option[String],
-  artist: Option[String],
-  images: CardImage,
-  prices: Option[CardPrices]
+  id:       String,
+  setId:    String,
+  name:     String,
+  number:   String,
+  rarity:   Option[String],
+  artist:   Option[String],
+  images:   CardImage,
+  prices:   Option[CardPrices],
+  variants: List[CardVariant] = Nil
 )
 
 object Card:

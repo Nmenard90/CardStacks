@@ -171,11 +171,31 @@ trait CardRepository:
    * PURPOSE: Inserts or updates prices for a card, and also appends a snapshot
    *          to card_price_history so a price-over-time view is possible later.
    *          Prices change frequently so this is called more often than upsertCard.
-   * @param cardId  Which card's prices to update
-   * @param prices  The new price data
-   * @return        Unit
+   * @param cardId   Which card's prices to update
+   * @param variant  Which print variant these prices are for: "Normal",
+   *                 "Holofoil", "Reverse Holofoil", "Poké Ball Pattern", or
+   *                 "Master Ball Pattern".
+   * @param prices   The new price data
+   * @return         Unit
    */
-  def upsertPrices(cardId: String, prices: CardPrices): Task[Unit]
+  def upsertPrices(cardId: String, variant: String, prices: CardPrices): Task[Unit]
+
+  /**
+   * METHOD: findVariants
+   * PURPOSE: Every priced print variant on file for a card.
+   * @param cardId  The card to fetch variants for
+   * @return        All variants with price data, in no particular order
+   */
+  def findVariants(cardId: String): Task[List[CardVariant]]
+
+  /**
+   * METHOD: findVariantsForCards
+   * PURPOSE: Same as findVariants but batched for a whole set's worth of
+   *          cards at once, so findCardsBySet doesn't run one query per card.
+   * @param cardIds  The cards to fetch variants for
+   * @return         Map from card ID to its variants
+   */
+  def findVariantsForCards(cardIds: List[String]): Task[Map[String, List[CardVariant]]]
 
   /**
    * METHOD: findPriceHistory
@@ -297,57 +317,66 @@ object CardRepository:
         .transact(xa)
 
     def findCardsBySet(setId: String): Task[List[Card]] =
-      sql"""
-        SELECT c.id, c.set_id, c.name, c.number, c.rarity, c.artist,
-               c.image_small, c.image_large,
-               p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg
-        FROM cards c
-        LEFT JOIN card_prices p ON p.card_id = c.id
-        WHERE c.set_id = $setId
-        ORDER BY
-          -- Sort numerically when possible, alphabetically for non-numeric numbers
-          CASE WHEN c.number ~ '^[0-9]+$$' THEN LPAD(c.number, 10, '0')
-               ELSE c.number
-          END
-      """
-        .query[(String, String, String, String, Option[String], Option[String],
-                String, String,
-                Option[Double], Option[Double], Option[Double], Option[Double], Option[Double])]
-        .to[List]
-        .map(_.map { case (id, setId, name, number, rarity, artist,
-                           imgSmall, imgLarge,
-                           nm, lp, mp, hp, dmg) =>
-          val prices = if nm.orElse(lp).orElse(mp).orElse(hp).orElse(dmg).isDefined
-                       then Some(CardPrices(nm, lp, mp, hp, dmg))
-                       else None
-          Card(id, setId, name, number, rarity, artist,
-               CardImage(imgSmall, imgLarge), prices)
-        })
-        .transact(xa)
+      for
+        base <- sql"""
+          SELECT c.id, c.set_id, c.name, c.number, c.rarity, c.artist,
+                 c.image_small, c.image_large,
+                 p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg
+          FROM cards c
+          -- variant = 'Normal' keeps this JOIN one-row-per-card even though
+          -- card_prices can now hold several rows (one per variant) per card.
+          LEFT JOIN card_prices p ON p.card_id = c.id AND p.variant = 'Normal'
+          WHERE c.set_id = $setId
+          ORDER BY
+            CASE WHEN c.number ~ '^[0-9]+$$' THEN LPAD(c.number, 10, '0')
+                 ELSE c.number
+            END
+        """
+          .query[(String, String, String, String, Option[String], Option[String],
+                  String, String,
+                  Option[Double], Option[Double], Option[Double], Option[Double], Option[Double])]
+          .to[List]
+          .map(_.map { case (id, setId, name, number, rarity, artist,
+                             imgSmall, imgLarge,
+                             nm, lp, mp, hp, dmg) =>
+            val prices = if nm.orElse(lp).orElse(mp).orElse(hp).orElse(dmg).isDefined
+                         then Some(CardPrices(nm, lp, mp, hp, dmg))
+                         else None
+            Card(id, setId, name, number, rarity, artist,
+                 CardImage(imgSmall, imgLarge), prices)
+          })
+          .transact(xa)
+        variantsByCard <- findVariantsForCards(base.map(_.id))
+      yield base.map(c => c.copy(variants = variantsByCard.getOrElse(c.id, Nil)))
 
     def findCardById(id: String): Task[Option[Card]] =
-      sql"""
-        SELECT c.id, c.set_id, c.name, c.number, c.rarity, c.artist,
-               c.image_small, c.image_large,
-               p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg
-        FROM cards c
-        LEFT JOIN card_prices p ON p.card_id = c.id
-        WHERE c.id = $id
-      """
-        .query[(String, String, String, String, Option[String], Option[String],
-                String, String,
-                Option[Double], Option[Double], Option[Double], Option[Double], Option[Double])]
-        .option
-        .map(_.map { case (id, setId, name, number, rarity, artist,
-                           imgSmall, imgLarge,
-                           nm, lp, mp, hp, dmg) =>
-          val prices = if nm.orElse(lp).orElse(mp).orElse(hp).orElse(dmg).isDefined
-                       then Some(CardPrices(nm, lp, mp, hp, dmg))
-                       else None
-          Card(id, setId, name, number, rarity, artist,
-               CardImage(imgSmall, imgLarge), prices)
-        })
-        .transact(xa)
+      for
+        base <- sql"""
+          SELECT c.id, c.set_id, c.name, c.number, c.rarity, c.artist,
+                 c.image_small, c.image_large,
+                 p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg
+          FROM cards c
+          LEFT JOIN card_prices p ON p.card_id = c.id AND p.variant = 'Normal'
+          WHERE c.id = $id
+        """
+          .query[(String, String, String, String, Option[String], Option[String],
+                  String, String,
+                  Option[Double], Option[Double], Option[Double], Option[Double], Option[Double])]
+          .option
+          .map(_.map { case (id, setId, name, number, rarity, artist,
+                             imgSmall, imgLarge,
+                             nm, lp, mp, hp, dmg) =>
+            val prices = if nm.orElse(lp).orElse(mp).orElse(hp).orElse(dmg).isDefined
+                         then Some(CardPrices(nm, lp, mp, hp, dmg))
+                         else None
+            Card(id, setId, name, number, rarity, artist,
+                 CardImage(imgSmall, imgLarge), prices)
+          })
+          .transact(xa)
+        variants <- base match
+          case Some(_) => findVariants(id)
+          case None    => ZIO.succeed(Nil)
+      yield base.map(c => c.copy(variants = variants))
 
     def searchCards(query: String, limit: Int = 200): Task[List[Card]] =
       // to_tsvector/plainto_tsquery is PostgreSQL's full-text search.
@@ -360,7 +389,7 @@ object CardRepository:
                c.image_small, c.image_large,
                p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg
         FROM cards c
-        LEFT JOIN card_prices p ON p.card_id = c.id
+        LEFT JOIN card_prices p ON p.card_id = c.id AND p.variant = 'Normal'
         LEFT JOIN card_sets s ON s.id = c.set_id
         WHERE to_tsvector('english', c.name) @@ plainto_tsquery('english', $query)
            OR c.name ILIKE $likeQuery
@@ -441,13 +470,13 @@ object CardRepository:
       """
         .update.run.void.transact(xa)
 
-    def upsertPrices(cardId: String, prices: CardPrices): Task[Unit] =
+    def upsertPrices(cardId: String, variant: String, prices: CardPrices): Task[Unit] =
       val upsertLatest = sql"""
-        INSERT INTO card_prices (card_id, price_nm, price_lp, price_mp,
+        INSERT INTO card_prices (card_id, variant, price_nm, price_lp, price_mp,
                                   price_hp, price_dmg, fetched_at)
-        VALUES ($cardId, ${prices.nm}, ${prices.lp}, ${prices.mp},
+        VALUES ($cardId, $variant, ${prices.nm}, ${prices.lp}, ${prices.mp},
                 ${prices.hp}, ${prices.dmg}, NOW())
-        ON CONFLICT (card_id) DO UPDATE SET
+        ON CONFLICT (card_id, variant) DO UPDATE SET
           price_nm   = EXCLUDED.price_nm,
           price_lp   = EXCLUDED.price_lp,
           price_mp   = EXCLUDED.price_mp,
@@ -455,12 +484,47 @@ object CardRepository:
           price_dmg  = EXCLUDED.price_dmg,
           fetched_at = NOW()
       """.update.run
-      // Append-only: every fetch gets its own row so price-over-time is possible.
-      val appendSnapshot = sql"""
-        INSERT INTO card_price_history (card_id, price_nm, price_lp, price_mp, price_hp, price_dmg)
-        VALUES ($cardId, ${prices.nm}, ${prices.lp}, ${prices.mp}, ${prices.hp}, ${prices.dmg})
-      """.update.run
+      // Append-only history has no variant column yet — only the "Normal"
+      // variant (the pre-existing default) is tracked over time for now,
+      // so the price-history chart's meaning doesn't change under it.
+      val appendSnapshot =
+        if variant == "Normal" then
+          sql"""
+            INSERT INTO card_price_history (card_id, price_nm, price_lp, price_mp, price_hp, price_dmg)
+            VALUES ($cardId, ${prices.nm}, ${prices.lp}, ${prices.mp}, ${prices.hp}, ${prices.dmg})
+          """.update.run
+        else doobie.free.connection.pure(0)
       (upsertLatest *> appendSnapshot).void.transact(xa)
+
+    def findVariants(cardId: String): Task[List[CardVariant]] =
+      sql"""
+        SELECT variant, price_nm, price_lp, price_mp, price_hp, price_dmg
+        FROM card_prices
+        WHERE card_id = $cardId
+      """
+        .query[(String, Option[Double], Option[Double], Option[Double], Option[Double], Option[Double])]
+        .to[List]
+        .map(_.map { case (variant, nm, lp, mp, hp, dmg) =>
+          CardVariant(variant, CardPrices(nm, lp, mp, hp, dmg))
+        })
+        .transact(xa)
+
+    def findVariantsForCards(cardIds: List[String]): Task[Map[String, List[CardVariant]]] =
+      if cardIds.isEmpty then ZIO.succeed(Map.empty)
+      else
+        // A plain WHERE card_id = ANY($ids) with a Postgres array binding
+        // avoids needing doobie's Fragments.in helper here.
+        sql"""
+          SELECT card_id, variant, price_nm, price_lp, price_mp, price_hp, price_dmg
+          FROM card_prices
+          WHERE card_id = ANY(${cardIds.toArray})
+        """
+        .query[(String, String, Option[Double], Option[Double], Option[Double], Option[Double], Option[Double])]
+        .to[List]
+        .map(_.groupMap(_._1) { case (_, variant, nm, lp, mp, hp, dmg) =>
+          CardVariant(variant, CardPrices(nm, lp, mp, hp, dmg))
+        })
+        .transact(xa)
 
     def findPriceHistory(cardId: String): Task[List[PriceHistoryPoint]] =
       sql"""

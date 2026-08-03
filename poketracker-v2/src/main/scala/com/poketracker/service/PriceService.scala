@@ -326,22 +326,20 @@ object PriceService:
                 s"body (first 300 chars): ${skusJson.take(300)}"
               ))
 
-            pricesByProductId = buildPriceMap(skuResp.products)
-
-            numberToProductId = products.products
-                                  .flatMap(p => p.number.map(n => normalizeCollectorNumber(n) -> p.id))
-                                  .toMap
+            variantsByNumber = buildVariantMap(products.products, skuResp.products)
 
             _ <- ZIO.logInfo(
                    s"TCGTracking: '${set.name}' — ${products.products.size} products, " +
-                   s"${pricesByProductId.size} with prices, ${numberToProductId.size} with numbers"
+                   s"${variantsByNumber.size} numbers with priced variants"
                  )
 
             saved <- ZIO.foreach(cards) { card =>
-                       numberToProductId.get(normalizeCollectorNumber(card.number))
-                         .flatMap(pricesByProductId.get) match
-                         case Some(prices) => repo.upsertPrices(card.id, prices).as(true)
-                         case None         => ZIO.succeed(false)
+                       variantsByNumber.get(normalizeCollectorNumber(card.number)) match
+                         case Some(variants) if variants.nonEmpty =>
+                           ZIO.foreach(variants) { case (variantName, prices) =>
+                             repo.upsertPrices(card.id, variantName, prices)
+                           }.as(true)
+                         case _ => ZIO.succeed(false)
                      }
 
             matched = saved.count(identity)
@@ -361,50 +359,78 @@ object PriceService:
       }
 
     /**
-     * METHOD: buildPriceMap
-     * PURPOSE: Groups SKUs by productId and extracts NM/LP/MP/HP/DMG prices.
-     *          A product can have multiple SKUs (Normal, Holofoil, 1st Edition etc).
-     *          We prefer Holofoil prices for holo cards, Normal for non-holo.
-     *          If both exist, we take the higher (Holofoil) price as it's more common
-     *          for valuable cards.
+     * METHOD: buildVariantMap
+     * PURPOSE: Groups TCGTracking products by collector number and expands
+     *          each into its priced variants — this is the replacement for
+     *          the old collapse-to-one-price buildPriceMap.
      *
-     * HOW TCGTRACKING RETURNS SKUS:
-     *   The /skus endpoint returns a nested object:
-     *     products -> productId -> skuId -> sku
+     * WHY GROUPING BY NUMBER MATTERS NOW:
+     *   Multiple TCGTracking products can share one collector number: the
+     *   base product (whose SKUs cover Normal/Holofoil/Reverse Holofoil as
+     *   separate `var` values) plus, for some cards, entirely separate
+     *   "<Name> (Poké Ball Pattern)" / "(Master Ball Pattern)" products —
+     *   confirmed live against Prismatic Evolutions, where these are
+     *   genuinely different market prices, not the same card twice. The old
+     *   code built `number -> one productId` as a plain Map, which silently
+     *   dropped every product but the last one TCGTracking listed for that
+     *   number — Pattern variants were never even fetched, not just merged
+     *   into a max().
      *
-     *   We only keep English SKUs, then group prices back under the numeric
-     *   product ID so cards can be matched by collector number.
-     *
-     * @param products  Product ID -> SKU ID -> SKU data from TCGTracking
-     * @return          Map from productId to CardPrices
+     * @param products  Product list from the /sets/:id endpoint (id, name, number)
+     * @param skusByProductId  SKU data from the /sets/:id/skus endpoint
+     * @return  Normalized collector number -> that number's priced variants
      */
-    private def buildPriceMap(products: Map[String, Map[String, TcgSku]]): Map[Int, CardPrices] =
+    private def buildVariantMap(
+      products: List[TcgProduct],
+      skusByProductId: Map[String, Map[String, TcgSku]]
+    ): Map[String, List[(String, CardPrices)]] =
       products
-        .flatMap { case (productId, skuMap) =>
-          productId.toIntOption.map(_ -> skuMap.values.filter(_.language == "EN").toList)
+        .groupBy(p => p.number.map(normalizeCollectorNumber).getOrElse(""))
+        .view.filterKeys(_.nonEmpty)
+        .map { case (number, prods) =>
+          val variants = prods.flatMap { p =>
+            val skus = skusByProductId.getOrElse(p.id.toString, Map.empty)
+                         .values.filter(_.language == "EN").toList
+            classifyVariants(p, skus)
+          }.filter { case (_, prices) =>
+            prices.nm.orElse(prices.lp).orElse(prices.mp)
+                  .orElse(prices.hp).orElse(prices.dmg).isDefined
+          }
+          number -> variants
         }
-        .map { case (productId, productSkus) =>
-          // For each condition, take the highest price across all printings
-          // (Holofoil > Normal for cards that have both)
-          def priceFor(cond: String): Option[Double] =
-            productSkus
-              .filter(_.condition == cond)
-              .flatMap(_.market)
-              .maxOption
+        .toMap
 
-          productId -> CardPrices(
-            nm  = priceFor("NM"),
-            lp  = priceFor("LP"),
-            mp  = priceFor("MP"),
-            hp  = priceFor("HP"),
-            dmg = priceFor("DMG")
-          )
-        }
-        // Only include products that have at least one price
-        .filter { case (_, prices) =>
-          prices.nm.orElse(prices.lp).orElse(prices.mp)
-                .orElse(prices.hp).orElse(prices.dmg).isDefined
-        }
+    /**
+     * METHOD: classifyVariants
+     * PURPOSE: Turns one TCGTracking product's SKUs into (variantName, CardPrices)
+     *          pairs. A Poké Ball/Master Ball Pattern product IS a single variant
+     *          on its own (TCGTracking doesn't give its SKUs a distinct `var` for
+     *          this — it's only visible in the product name), everything else is
+     *          the base card and gets one entry per distinct `var` its SKUs use
+     *          (typically "Normal" and/or "Holofoil" and/or "Reverse Holofoil").
+     * @param product  The TCGTracking product (used for its name)
+     * @param skus     That product's English SKUs
+     * @return         One entry per distinct variant this product represents
+     */
+    private def classifyVariants(product: TcgProduct, skus: List[TcgSku]): List[(String, CardPrices)] =
+      def priceFor(matching: TcgSku => Boolean, cond: String): Option[Double] =
+        skus.filter(s => matching(s) && s.condition == cond).flatMap(_.market).maxOption
+      def pricesFor(matching: TcgSku => Boolean): CardPrices =
+        CardPrices(
+          nm  = priceFor(matching, "NM"),  lp  = priceFor(matching, "LP"),
+          mp  = priceFor(matching, "MP"),  hp  = priceFor(matching, "HP"),
+          dmg = priceFor(matching, "DMG")
+        )
+
+      // é vs plain "e" and curly vs straight quote both show up across
+      // TCGTracking listings — normalize before matching.
+      val normName = product.name.toLowerCase.replace("é", "e").replace("’", "'")
+      if normName.contains("poke ball pattern") then
+        List("Poké Ball Pattern" -> pricesFor(_ => true))
+      else if normName.contains("master ball pattern") then
+        List("Master Ball Pattern" -> pricesFor(_ => true))
+      else
+        skus.map(_.printing).distinct.map(pr => pr -> pricesFor(_.printing == pr))
 
   /**
    * VALUE: layer

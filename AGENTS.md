@@ -2,15 +2,14 @@
 
 ## Active Codebase
 
-The active product is `web/` (V2 React frontend). `V3/` was a rewrite effort that has been abandoned — treat it as historical/dead, not a target for new work.
+The active product is `web/` (V2 React frontend) backed by `poketracker-v2/` (Scala/ZIO backend, deployed on Railway — `web/`'s API calls go here, it is NOT historical). `V3/` was a rewrite effort that has been abandoned — treat it as historical/dead, not a target for new work.
 
 The following directories are historical reference only:
 
 - `files/` — original Node/HTML prototype
 - `V3/` — abandoned rewrite effort
-- `poketracker-v2/` — V2 Scala/ZIO backend
 
-Do not modify historical directories unless the user explicitly requests a historical fix. Historical code may be read only to recover product intent, workflows, interface behavior, and edge cases. All new production implementation belongs in `web/`.
+Do not modify historical directories unless the user explicitly requests a historical fix. Historical code may be read only to recover product intent, workflows, interface behavior, and edge cases. All new production implementation belongs in `web/` and `poketracker-v2/`.
 
 ## Foreman-Controlled Development
 

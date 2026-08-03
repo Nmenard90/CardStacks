@@ -346,3 +346,19 @@ CREATE TABLE IF NOT EXISTS card_price_history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_card_price_history_card_id ON card_price_history(card_id, recorded_at);
+
+-- Migration 003: Per-variant prices (Normal / Holofoil / Reverse Holofoil /
+-- Poké Ball Pattern / Master Ball Pattern).
+-- card_prices held one row per card, so a Reverse Holofoil print's higher
+-- price silently overwrote (or was overwritten by) its Normal print's price,
+-- and Poké Ball/Master Ball Pattern prices — which live on entirely separate
+-- TCGTracking products, not a "printing" flag on the base card — were never
+-- fetched at all. Adding `variant` and widening the uniqueness constraint to
+-- (card_id, variant) lets every priced print of a card get its own row.
+-- Existing rows are backfilled as 'Normal' — the safest assumption, since
+-- that's what buildPriceMap was implicitly favoring before this migration
+-- for cards that only have one print.
+ALTER TABLE card_prices ADD COLUMN IF NOT EXISTS variant TEXT NOT NULL DEFAULT 'Normal';
+ALTER TABLE card_prices DROP CONSTRAINT IF EXISTS card_prices_card_id_key;
+ALTER TABLE card_prices DROP CONSTRAINT IF EXISTS card_prices_card_id_variant_key;
+ALTER TABLE card_prices ADD CONSTRAINT card_prices_card_id_variant_key UNIQUE (card_id, variant);
