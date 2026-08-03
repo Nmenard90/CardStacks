@@ -598,7 +598,7 @@ export function BulkAddPage() {
                     onSetQty={q => dispatch({ type: 'setQty', cardId: t.card.id, qty: q })}
                     onSelectCond={c => dispatch({ type: 'selectCond', cardId: t.card.id, cond: c })}
                     onAdjCond={(c, d) => dispatch({ type: 'adjCond', cardId: t.card.id, cond: c, delta: d })}
-                    onPreview={src => (src ? preview.show(src) : preview.hide())}
+                    onPreview={(src, opts) => (src ? preview.show(src, opts) : preview.hide())}
                   />
                 ))}
               </div>

@@ -424,7 +424,7 @@ export function CollectionPage() {
                       onSetQty={q => setQty(c, q)}
                       onSelectCond={cond => selectCond(c, cond)}
                       onAdjCond={(cond, d) => adjCond(c, cond, d)}
-                      onPreview={src => (src ? preview.show(src) : preview.hide())}
+                      onPreview={(src, opts) => (src ? preview.show(src, opts) : preview.hide())}
                       onAddToBinder={() => setBinderCard(c)}
                     />
                   )

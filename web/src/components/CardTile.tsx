@@ -23,6 +23,7 @@
  */
 import { useState } from 'react'
 import { getPriceHistory } from '../api/cards'
+import type { PreviewOpts } from './CardPreview'
 import { CONDS, COND_COLORS, baseCond, basePrice, cardValue, condPrice, dominantCondClass, totalQty, type CondMap, type PurchaseMap } from '../lib/conditions'
 import { isHolo } from '../lib/rarity'
 import type { Card, PriceHistoryPoint } from '../types'
@@ -46,8 +47,9 @@ interface Props {
   onSelectCond: (cond: string) => void
   /** Called on right-click of a condition badge — decrements that condition by 1. */
   onAdjCond: (cond: string, delta: number) => void
-  /** Called on image hover — parent shows/hides the large preview overlay. */
-  onPreview: (src: string | null) => void
+  /** Called on image hover — parent shows/hides the large preview overlay.
+   *  `opts` carries the holo/price treatment so the zoom matches the tile. */
+  onPreview: (src: string | null, opts?: PreviewOpts) => void
   /** Optional: when provided, a "To binder" button shows and calls this with the card. */
   onAddToBinder?: (card: Card) => void
   /** Optional: what the user says they paid, per condition, if the parent tracks it. */
@@ -108,7 +110,7 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
           <div className={'thumb-wrap' + (isHolo(card.rarity) ? ' holo' : '')}>
             <img
               className="thumb" src={card.images.small} alt={card.name} loading="lazy"
-              onMouseEnter={() => onPreview(card.images.large || card.images.small)}
+              onMouseEnter={() => onPreview(card.images.large || card.images.small, { holo: isHolo(card.rarity), price })}
               onMouseLeave={() => onPreview(null)}
             />
             {price > 0 && <span className="price-ribbon">${price.toFixed(2)}</span>}

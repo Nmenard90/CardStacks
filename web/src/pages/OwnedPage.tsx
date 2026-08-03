@@ -212,7 +212,7 @@ export function OwnedPage() {
                       onSetQty={q => setQty(c, q)}
                       onSelectCond={cond => selectCond(c, cond)}
                       onAdjCond={(cond, d) => adjCond(c, cond, d)}
-                      onPreview={src => (src ? preview.show(src) : preview.hide())}
+                      onPreview={(src, opts) => (src ? preview.show(src, opts) : preview.hide())}
                       purchases={purchases[c.id]}
                       onSetPurchase={(cond, price) => setPurchase(c, cond, price)}
                     />
