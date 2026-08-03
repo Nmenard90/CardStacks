@@ -346,3 +346,209 @@ CREATE TABLE IF NOT EXISTS card_price_history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_card_price_history_card_id ON card_price_history(card_id, recorded_at);
+
+-- Migration 003: Per-variant prices (Normal / Holofoil / Reverse Holofoil /
+-- Poké Ball Pattern / Master Ball Pattern).
+-- card_prices held one row per card, so a Reverse Holofoil print's higher
+-- price silently overwrote (or was overwritten by) its Normal print's price,
+-- and Poké Ball/Master Ball Pattern prices — which live on entirely separate
+-- TCGTracking products, not a "printing" flag on the base card — were never
+-- fetched at all. Adding `variant` and widening the uniqueness constraint to
+-- (card_id, variant) lets every priced print of a card get its own row.
+-- Existing rows are backfilled as 'Normal' — the safest assumption, since
+-- that's what buildPriceMap was implicitly favoring before this migration
+-- for cards that only have one print.
+ALTER TABLE card_prices ADD COLUMN IF NOT EXISTS variant TEXT NOT NULL DEFAULT 'Normal';
+ALTER TABLE card_prices DROP CONSTRAINT IF EXISTS card_prices_card_id_key;
+ALTER TABLE card_prices DROP CONSTRAINT IF EXISTS card_prices_card_id_variant_key;
+ALTER TABLE card_prices ADD CONSTRAINT card_prices_card_id_variant_key UNIQUE (card_id, variant);
+
+-- Migration 004 (Rip Tracker — Agent 1: schema only, no app logic/routes/UI).
+-- Data model for sealed products, their contents, published pull rates, and
+-- rip (box-opening) sessions, so the Rip-or-Hold EV engine and rip-session
+-- API (later work) have something to read/write.
+--
+-- Design notes:
+--   * pack_templates.slots is JSONB (array of {rarity, count}) rather than a
+--     normalized slot table — matches the existing JSONB-for-flexible-shape
+--     pattern already used by collection_entries.conditions and
+--     trade_listings.offering, and a pack's slot structure is read as a
+--     whole, never queried by individual slot.
+--   * product_inserts.card_id is nullable for non-card inserts (player's
+--     guide, code card, etc.) that aren't in the cards catalog — description
+--     carries what they are in that case.
+--   * product_guarantees rows only exist for products where
+--     sealed_products.has_guarantee = true. An ungoverned product (most
+--     English booster boxes) has zero rows here — the EV engine must NOT
+--     infer a guarantee from the schema; hasGuarantee is the single source
+--     of truth, checked explicitly.
+--   * pull_rates.sealed_product_id (not set_id) is the odds scope — the same
+--     card's pull rate can differ between a booster box and an ETB from the
+--     same set, so scoping to the product (not just the set) is required for
+--     the EV math to be correct.
+--   * pulls.collection_entry_id is the provenance link back to the owned
+--     copy this pull created/added to — added later by the rip-session API,
+--     nullable until then.
+CREATE TABLE IF NOT EXISTS sealed_products (
+  id                     TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  name                   TEXT        NOT NULL,
+  set_id                 TEXT        NOT NULL REFERENCES card_sets(id) ON DELETE CASCADE,
+
+  -- 'booster_box' | 'etb' | 'blister' | 'tin' | 'premium_collection' | ...
+  -- Free text, not an enum — new sealed-product kinds ship faster than this
+  -- schema would if it had to be migrated for each one.
+  kind                   TEXT        NOT NULL,
+
+  pack_count             INTEGER     NOT NULL,
+
+  -- Most English booster boxes are NOT guaranteed a hit/holo — this defaults
+  -- false on purpose. Only set true for products that genuinely guarantee
+  -- one (certain premium/special products, Japanese products) — see
+  -- product_guarantees below.
+  has_guarantee          BOOLEAN     NOT NULL DEFAULT FALSE,
+
+  current_sealed_price   NUMERIC(10,2),
+  sealed_price_source    TEXT,
+  sealed_price_updated_at TIMESTAMPTZ,
+
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sealed_products_set_id ON sealed_products(set_id);
+
+-- ── pack_templates ───────────────────────────────────────────────────────────
+-- The slot structure of one pack for a product. One product usually has one
+-- template; UNIQUE is NOT enforced on sealed_product_id alone so a product
+-- with genuinely different pack variants (rare) can have more than one.
+CREATE TABLE IF NOT EXISTS pack_templates (
+  id                TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  sealed_product_id TEXT        NOT NULL REFERENCES sealed_products(id) ON DELETE CASCADE,
+  name              TEXT        NOT NULL DEFAULT 'Standard Pack',
+
+  -- JSON array of {"rarity": "Rare Holo", "count": 1} slot objects.
+  slots             JSONB       NOT NULL DEFAULT '[]',
+
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pack_templates_product_id ON pack_templates(sealed_product_id);
+
+-- ── product_inserts ──────────────────────────────────────────────────────────
+-- Guaranteed non-pack contents: promos, sealed inserts (code cards, player's
+-- guides). Every product's guaranteed extras, whether or not the product as
+-- a whole has_guarantee — a booster box's promo card is still guaranteed
+-- even though the RARE PULL inside the packs is not.
+CREATE TABLE IF NOT EXISTS product_inserts (
+  id                TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  sealed_product_id TEXT        NOT NULL REFERENCES sealed_products(id) ON DELETE CASCADE,
+
+  -- NULL for inserts that aren't a priced card (player's guide, code card).
+  card_id           TEXT        REFERENCES cards(id) ON DELETE SET NULL,
+  -- What this insert is when card_id is NULL, e.g. "Code card", "Player's guide".
+  description       TEXT,
+
+  guaranteed        BOOLEAN     NOT NULL DEFAULT TRUE,
+  quantity          INTEGER     NOT NULL DEFAULT 1,
+
+  CONSTRAINT product_inserts_identifies_something CHECK (card_id IS NOT NULL OR description IS NOT NULL)
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_inserts_product_id ON product_inserts(sealed_product_id);
+
+-- ── product_guarantees ───────────────────────────────────────────────────────
+-- What's guaranteed per box, for has_guarantee=true products only. A row
+-- here means "this product's packs are constrained to deliver this," which
+-- is what licenses the EV engine's "remaining-pack odds" adjustment — an
+-- ungoverned product (the default) must never get that treatment.
+CREATE TABLE IF NOT EXISTS product_guarantees (
+  id                TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  sealed_product_id TEXT        NOT NULL REFERENCES sealed_products(id) ON DELETE CASCADE,
+
+  -- Guarantee is by rarity tier (e.g. "at least one Rare Holo") OR a specific
+  -- card — exactly one of these two is set, never both, never neither.
+  rarity            TEXT,
+  card_id           TEXT        REFERENCES cards(id) ON DELETE CASCADE,
+
+  quantity          INTEGER     NOT NULL DEFAULT 1,
+
+  CONSTRAINT product_guarantees_exactly_one_target CHECK (
+    (rarity IS NOT NULL AND card_id IS NULL) OR (rarity IS NULL AND card_id IS NOT NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_guarantees_product_id ON product_guarantees(sealed_product_id);
+
+-- ── pull_rates ───────────────────────────────────────────────────────────────
+-- The odds table: how likely one card is to appear in one pack of one
+-- product. Scoped to the product (not just the set) because the same card's
+-- rate can differ between a booster box and an ETB from the same set.
+CREATE TABLE IF NOT EXISTS pull_rates (
+  id                     TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  card_id                TEXT        NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+  sealed_product_id      TEXT        NOT NULL REFERENCES sealed_products(id) ON DELETE CASCADE,
+
+  -- Chance this card appears in a single pack of this product. e.g. a 1-in-256
+  -- pull is 0.00390625. NUMERIC (not FLOAT) so tiny probabilities don't lose
+  -- precision — this feeds directly into EV math.
+  per_pack_probability   NUMERIC(12,8) NOT NULL,
+
+  -- 'published' (official/printed odds) or 'community' (crowd-sourced pull
+  -- counting). Never silently treated the same — the EV engine surfaces this.
+  source                 TEXT        NOT NULL,
+  -- How many packs the community figure is based on. NULL for published
+  -- rates (not applicable) or when genuinely unknown — never guessed.
+  sample_size            INTEGER,
+
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  UNIQUE(card_id, sealed_product_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pull_rates_product_id ON pull_rates(sealed_product_id);
+
+-- ── rip_sessions ─────────────────────────────────────────────────────────────
+-- One box/pack-opening session for one user.
+CREATE TABLE IF NOT EXISTS rip_sessions (
+  id                TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  user_id           TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sealed_product_id TEXT        NOT NULL REFERENCES sealed_products(id) ON DELETE CASCADE,
+
+  -- 'in_progress' | 'completed'
+  status            TEXT        NOT NULL DEFAULT 'in_progress',
+
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_rip_sessions_user_id ON rip_sessions(user_id);
+
+-- ── rip_packs ────────────────────────────────────────────────────────────────
+-- One pack within a rip session. Auto-generated from the product's
+-- pack_count when the session is created (rip-session API, later work).
+CREATE TABLE IF NOT EXISTS rip_packs (
+  id             TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  rip_session_id TEXT        NOT NULL REFERENCES rip_sessions(id) ON DELETE CASCADE,
+  pack_index     INTEGER     NOT NULL,
+
+  UNIQUE(rip_session_id, pack_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rip_packs_session_id ON rip_packs(rip_session_id);
+
+-- ── pulls ────────────────────────────────────────────────────────────────────
+-- One scanned card from one pack. The per-card provenance record: which
+-- card, from which pack, from which session, landing in which collection entry.
+CREATE TABLE IF NOT EXISTS pulls (
+  id                  TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  rip_pack_id         TEXT        NOT NULL REFERENCES rip_packs(id) ON DELETE CASCADE,
+  card_id             TEXT        NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+  condition           TEXT        NOT NULL DEFAULT 'NM',
+
+  -- Provenance link to the collection_entries row this pull landed in.
+  -- NULL until the rip-session API (later work) writes it.
+  collection_entry_id TEXT        REFERENCES collection_entries(id) ON DELETE SET NULL,
+
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pulls_rip_pack_id ON pulls(rip_pack_id);
