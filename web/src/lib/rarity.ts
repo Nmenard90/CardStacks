@@ -24,6 +24,9 @@ const HOLO_RARITIES = new Set([
   'rare shiny gx', 'rare ultra',
   'double rare', 'ultra rare', 'illustration rare', 'special illustration rare',
   'hyper rare', 'trainer gallery rare holo',
+  // Mega Evolution era (me3 "Perfect Order", me4 "Chaos Rising") — confirmed
+  // live against both sets' actual card data.
+  'mega hyper rare',
 ])
 
 /** Whether a card's printed rarity is a foil/holo treatment worth a shine effect. */
