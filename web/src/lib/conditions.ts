@@ -9,7 +9,7 @@
  *
  * USED BY: CollectionPage, AnalyzerPage, RecentSidebar, CardTile
  */
-import type { Card, ConditionCount } from '../types'
+import type { Card, CardPrices, ConditionCount } from '../types'
 
 /** The five grading conditions, best to worst. Order matters for display. */
 export const CONDS = ['NM', 'LP', 'MP', 'HP', 'DMG'] as const
@@ -39,14 +39,35 @@ export const baseCond = (key: string): Cond =>
   (key.replace(' 1st Ed', '') as Cond)
 
 /**
+ * FUNCTION: pricesForVariant
+ * PURPOSE: Looks up a card's prices for a specific print variant ("Normal",
+ *          "Holofoil", "Reverse Holofoil", "Poké Ball Pattern", "Master Ball
+ *          Pattern"). Falls back to the card's default `prices` when no
+ *          variant is requested, the card has no `variants` data yet (older
+ *          cached cards fetched before variant support), or the requested
+ *          variant isn't priced for this card.
+ * @param card     The card from the API
+ * @param variant  Variant name, or undefined for the card's default price
+ * @returns        CardPrices for that variant, or undefined if unpriced
+ */
+export function pricesForVariant(card: Card | undefined, variant?: string): CardPrices | undefined {
+  if (variant && variant !== 'Normal' && card?.variants?.length) {
+    const match = card.variants.find(v => v.name === variant)
+    if (match) return match.prices
+  }
+  return card?.prices
+}
+
+/**
  * FUNCTION: basePrice
  * PURPOSE: A card's headline (NM market) price.
  *          Falls back through conditions if NM is missing.
- * @param card  The card from the API
- * @returns     Price in dollars, or 0 when the API has none
+ * @param card     The card from the API
+ * @param variant  Optional print variant — see pricesForVariant
+ * @returns        Price in dollars, or 0 when the API has none
  */
-export function basePrice(card: Card | undefined): number {
-  const p = card?.prices
+export function basePrice(card: Card | undefined, variant?: string): number {
+  const p = pricesForVariant(card, variant)
   if (!p) return 0
   return p.nm ?? p.lp ?? p.mp ?? p.hp ?? p.dmg ?? 0
 }
@@ -56,15 +77,17 @@ export function basePrice(card: Card | undefined): number {
  * PURPOSE: Price for one specific condition of a card.
  *          Uses the API's per-condition price when present, otherwise
  *          NM price × the standard condition multiplier.
- * @param card  The card from the API
- * @param key   Condition key (may include " 1st Ed")
- * @returns     Price in dollars, or 0 when unknown
+ * @param card     The card from the API
+ * @param key      Condition key (may include " 1st Ed")
+ * @param variant  Optional print variant — see pricesForVariant
+ * @returns        Price in dollars, or 0 when unknown
  */
-export function condPrice(card: Card | undefined, key: string): number {
+export function condPrice(card: Card | undefined, key: string, variant?: string): number {
   const cond = baseCond(key)
-  const direct = card?.prices?.[cond.toLowerCase() as 'nm' | 'lp' | 'mp' | 'hp' | 'dmg']
+  const p = pricesForVariant(card, variant)
+  const direct = p?.[cond.toLowerCase() as 'nm' | 'lp' | 'mp' | 'hp' | 'dmg']
   if (direct && direct > 0) return direct
-  const nm = basePrice(card)
+  const nm = basePrice(card, variant)
   return nm > 0 ? +(nm * COND_MULT[cond]).toFixed(2) : 0
 }
 
@@ -153,5 +176,5 @@ export function dominantCondClass(map: CondMap): string {
  * @param card  The card, for price lookup
  * @returns     Dollar value
  */
-export const cardValue = (map: CondMap, card: Card | undefined): number =>
-  Object.entries(map).reduce((sum, [k, q]) => sum + condPrice(card, k) * q, 0)
+export const cardValue = (map: CondMap, card: Card | undefined, variant?: string): number =>
+  Object.entries(map).reduce((sum, [k, q]) => sum + condPrice(card, k, variant) * q, 0)

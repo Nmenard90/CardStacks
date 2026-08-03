@@ -407,6 +407,18 @@
   }
   .page-tracker .details-toggle:hover{color:var(--accent-ink);}
 
+  /* Variant picker — only rendered when a card has priced alternate prints
+     (Reverse Holo, Poké Ball/Master Ball Pattern), so most cards never show
+     this row at all. */
+  .page-tracker .variant-row{display:flex;flex-wrap:wrap;gap:4px;margin:2px 0 4px;}
+  .page-tracker .variant-chip{
+    font-size:11px;font-weight:700;padding:3px 8px;border-radius:99px;
+    background:var(--surface2);border:1.5px solid var(--border);color:var(--muted);
+    cursor:pointer;font-family:'Nunito',sans-serif;transition:all .15s;
+  }
+  .page-tracker .variant-chip:hover{color:var(--text);border-color:var(--accent2);}
+  .page-tracker .variant-chip.sel{background:var(--accent2);border-color:var(--accent2);color:#fff;}
+
   .page-tracker .thumb{width:92px;height:128px;object-fit:contain;border-radius:6px;background:var(--surface2);flex-shrink:0;transition:transform 0.15s;cursor:zoom-in;}
 
   /* Holo shine: only for cards whose printed rarity is an actual foil/holo

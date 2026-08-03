@@ -39,6 +39,14 @@ export interface PriceHistoryPoint {
   dmg?: number
 }
 
+/** One priced print variant: "Normal", "Holofoil", "Reverse Holofoil",
+ *  "Poké Ball Pattern", "Master Ball Pattern" — whichever the backend found
+ *  price data for. See lib/conditions.ts for how CardTile uses this. */
+export interface CardVariant {
+  name: string
+  prices: CardPrices
+}
+
 export interface Card {
   id: string
   setId: string
@@ -48,6 +56,7 @@ export interface Card {
   artist?: string
   images: CardImage
   prices?: CardPrices
+  variants?: CardVariant[]
 }
 
 // ─── Users ───────────────────────────────────────────────────────────────────

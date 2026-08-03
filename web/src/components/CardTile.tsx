@@ -77,6 +77,13 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
   const [historyOpen, setHistoryOpen] = useState(false)
   const [history, setHistory] = useState<PriceHistoryPoint[] | null>(null)
   const [historyState, setHistoryState] = useState<'idle' | 'loading' | 'error'>('idle')
+  // undefined = the card's default/"Normal" print. Only cards with priced
+  // alternate prints (Reverse Holo, Poké Ball/Master Ball Pattern) show a
+  // picker at all — most cards have just the one print.
+  const [selectedVariant, setSelectedVariant] = useState<string | undefined>(undefined)
+  const otherVariants = (card.variants ?? []).filter(v =>
+    v.name !== 'Normal' && (v.prices.nm || v.prices.lp || v.prices.mp || v.prices.hp || v.prices.dmg)
+  )
 
   const toggleHistory = () => {
     setHistoryOpen(open => {
@@ -92,12 +99,12 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
   }
 
   const qty = totalQty(conds)
-  const price = basePrice(card)
+  const price = basePrice(card, selectedVariant)
   const priceStr = price > 0
-    ? '$' + price.toFixed(2) + (qty > 1 ? ' · $' + cardValue(conds, card).toFixed(2) : '')
+    ? '$' + price.toFixed(2) + (qty > 1 ? ' · $' + cardValue(conds, card, selectedVariant).toFixed(2) : '')
     : 'no price'
   const selQty = conds[selCond] ?? 0
-  const value = cardValue(conds, card)
+  const value = cardValue(conds, card, selectedVariant)
   // Condition keys actually owned, in canonical order, 1st Ed after base.
   const ownedKeys = Object.keys(conds)
     .filter(k => conds[k] > 0)
@@ -126,6 +133,21 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
             {priceStr}
             <button className="history-toggle" title="Price history" onClick={toggleHistory}>📈</button>
           </div>
+          {otherVariants.length > 0 && (
+            <div className="variant-row" title="This card has priced alternate prints">
+              <button
+                className={'variant-chip' + (!selectedVariant ? ' sel' : '')}
+                onClick={() => setSelectedVariant(undefined)}
+              >Normal</button>
+              {otherVariants.map(v => (
+                <button
+                  key={v.name}
+                  className={'variant-chip' + (selectedVariant === v.name ? ' sel' : '')}
+                  onClick={() => setSelectedVariant(v.name)}
+                >{v.name}</button>
+              ))}
+            </div>
+          )}
           {historyOpen && (
             <div className="history-popover">
               <div className="history-popover-head">
@@ -229,8 +251,8 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
               <span key={k} className="cbd-item">
                 <span className="cbd-dot" style={{ background: COND_COLORS[baseCond(k)] }} />
                 {k}×{conds[k]}
-                {condPrice(card, k) > 0 && (
-                  <span className="cbd-val">${(condPrice(card, k) * conds[k]).toFixed(2)}</span>
+                {condPrice(card, k, selectedVariant) > 0 && (
+                  <span className="cbd-val">${(condPrice(card, k, selectedVariant) * conds[k]).toFixed(2)}</span>
                 )}
               </span>
             ))}
@@ -244,7 +266,7 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
           <div className="purchase-section">
             {ownedKeys.map(k => {
               const purchase = purchases?.[k]
-              const market = condPrice(card, k)
+              const market = condPrice(card, k, selectedVariant)
               const pct = purchase ? gainLossPct(purchase.price, market) : null
               const diff = purchase && market > 0 ? market - purchase.price : null
               return (
