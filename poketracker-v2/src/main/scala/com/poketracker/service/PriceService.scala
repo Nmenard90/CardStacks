@@ -165,7 +165,12 @@ object PriceService:
    * @param name         Set name
    * @param abbreviation Set abbreviation e.g. "SVI" — matches our ptcgoCode
    */
-  private case class TcgSetResult(id: Int, name: String, abbreviation: Option[String])
+  private case class TcgSetResult(
+    id:           Int,
+    name:         String,
+    abbreviation: Option[String],
+    @jsonField("product_count") productCount: Option[Int]
+  )
   private given JsonDecoder[TcgSetResult] = DeriveJsonDecoder.gen
 
   /**
@@ -185,7 +190,7 @@ object PriceService:
    * PURPOSE: The real PriceService implementation.
    * @param repo  CardRepository — used to save prices after fetching
    */
-  final class Live(repo: CardRepository) extends PriceService:
+  private final class Live(repo: CardRepository, setsCache: Ref[Option[(Long, List[TcgSetResult])]]) extends PriceService:
 
     /**
      * METHOD: get
@@ -257,11 +262,59 @@ object PriceService:
       base.toIntOption.map(_.toString).getOrElse(base)
 
     /**
+     * METHOD: allTcgSets
+     * PURPOSE: Fetches TCGTracking's full Pokémon set catalog (~280 sets, one
+     *          call) and caches it in memory for an hour.
+     *
+     * WHY NOT THE PER-QUERY SEARCH ENDPOINT:
+     *   TCGTracking's `/search?q=` endpoint does a near-literal substring
+     *   match against its stored set name, not a fuzzy/tokenized search.
+     *   Confirmed live: searching the FULL text of our own set names (e.g.
+     *   "SM Black Star Promos", "Shining Fates Shiny Vault", the exact string
+     *   we'd naturally send) returns ZERO results for dozens of sets, because
+     *   words like "Black Star" or "Collection" never appear verbatim in
+     *   TCGTracking's name ("SM Promos", "McDonald's Promos 2019"). This was
+     *   the root cause of ~60 sets (the entire Sun & Moon era, most Black Star
+     *   Promo sets, McDonald's collections, trainer kits) having 0% price
+     *   coverage — not a matching bug, but zero candidates to match against.
+     *   Fetching the whole catalog once and matching client-side sidesteps
+     *   their search entirely.
+     */
+    private def allTcgSets: Task[List[TcgSetResult]] =
+      val ttlMs = 60 * 60 * 1000L
+      setsCache.get.flatMap {
+        case Some((fetchedAt, sets)) if java.lang.System.currentTimeMillis() - fetchedAt < ttlMs =>
+          ZIO.succeed(sets)
+        case _ =>
+          get(s"$BASE/$POKEMON_CAT/sets")
+            .flatMap(json => parse[TcgSearchResponse](json).map(_.sets))
+            .tap(sets => setsCache.set(Some((java.lang.System.currentTimeMillis(), sets))))
+            .catchAll { e =>
+              ZIO.logWarning(s"TCGTracking: failed to fetch full set catalog: ${e.getMessage}") *>
+              ZIO.succeed(List.empty[TcgSetResult])
+            }
+      }
+
+    /**
      * METHOD: findTcgSetId
-     * PURPOSE: Finds the TCGTracking numeric set ID for a given CardSet.
-     *          Tries to match by ptcgoCode (abbreviation) first, then by name.
-     *          Returns None if no match found — this is normal for newer sets
-     *          that TCGTracking hasn't added yet.
+     * PURPOSE: Finds the TCGTracking numeric set ID for a given CardSet by
+     *          matching against the cached full catalog. Returns None if no
+     *          confident match found — this is normal for sets TCGTracking
+     *          genuinely doesn't track (e.g. some promo "sets").
+     *
+     * MATCHING TIERS (first match wins):
+     *   1. Abbreviation equals our ptcgoCode.
+     *   2. Exact name match (punctuation/spacing-insensitive).
+     *   3. Exact match after stripping a TCGTracking "CODE: " prefix
+     *      (e.g. "SWSH04: Vivid Voltage").
+     *   4. Token containment: normalize both names into word sets (folding
+     *      accents, dropping "star"/"pokemon" noise words, singularizing
+     *      plurals) and require our set's tokens be mostly covered by the
+     *      candidate's — handles the many extra tiers TCGTracking wraps
+     *      around a real name: "SM - Cosmic Eclipse", "EX Team Rocket
+     *      Returns", "SWSH01: Sword & Shield Base Set". Ties are broken by
+     *      whichever candidate's product count is closest to our own card
+     *      total, then by the shortest (least noisy) candidate name.
      *
      * @param set  The CardSet to find in TCGTracking
      * @return     Some(tcgSetId) if found, None if not
@@ -269,63 +322,62 @@ object PriceService:
     private def findTcgSetId(set: CardSet): Task[Option[Int]] =
       val norm = (s: String) => s.toLowerCase.replaceAll("[^a-z0-9]", "")
 
-      // Fetch TCGTracking search results for a query; returns empty list on any failure.
-      def searchSets(q: String): Task[List[TcgSetResult]] =
-        val encoded = java.net.URLEncoder.encode(q, "UTF-8")
-        get(s"$BASE/$POKEMON_CAT/search?q=$encoded")
-          .flatMap { json =>
-            parse[TcgSearchResponse](json)
-              .tapError(e => ZIO.logWarning(
-                s"TCGTracking: parse error for '${set.name}' (q='$q'): $e | body: ${json.take(200)}"
-              ))
-              .map(_.sets)
-              .catchAll(_ => ZIO.succeed(List.empty[TcgSetResult]))
-          }
-          .catchAll(e =>
-            ZIO.logWarning(s"TCGTracking: network error for '${set.name}' (q='$q'): ${e.getMessage}") *>
-            ZIO.succeed(List.empty[TcgSetResult])
-          )
+      def foldAccents(s: String): String =
+        java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFKD).replaceAll("\\p{M}", "")
 
-      // TCGTracking often prefixes its set names with its own internal code,
-      // e.g. "SWSH04: Vivid Voltage" or "SV08: Surging Sparks" — an exact
-      // name match against our plain "Vivid Voltage" fails for every set
-      // named this way, silently skipping price-fetching for the whole set.
-      // Confirmed live in production logs (Vivid Voltage: candidates included
-      // "SWSH04: Vivid Voltage" but matched neither by abbreviation — TCGTracking's
-      // abbreviation "SWSH04" isn't our ptcgoCode "VIV" — nor by exact name).
+      val stopWords = Set("star", "pokemon")
+      def stem(t: String): String =
+        if t.length > 3 && t.endsWith("s") then t.dropRight(1) else t
+      def tokens(s: String): Set[String] =
+        foldAccents(s).toLowerCase.split("[^a-z0-9]+").iterator
+          .filter(_.nonEmpty).map(stem).filterNot(stopWords.contains).toSet
+
+      // TCGTracking spells out a couple of retro eras instead of using the
+      // abbreviation our own set names carry ("Black and White Promos" vs.
+      // our "BW Black Star Promos"). Expanding the CANDIDATE's tokens with
+      // the abbreviation (only when both spelled-out words are present) lets
+      // these line up. Deliberately limited to eras confirmed to have no
+      // other numbered set sharing the same spelled-out words — unlike SM or
+      // SWSH, where TCGTracking's own names already carry the bare
+      // abbreviation, so expanding it would tie every "SM 0X" set together.
+      val eraAliases = Map("bw" -> Set("black", "white"), "dp" -> Set("diamond", "pearl"))
+      def expandCandidateTokens(toks: Set[String]): Set[String] =
+        eraAliases.foldLeft(toks) { case (acc, (abbr, spelled)) =>
+          if spelled.subsetOf(toks) then acc + abbr else acc
+        }
+
       def stripTcgPrefix(name: String): String =
         name.split(":", 2) match
           case Array(_, rest) => rest.trim
           case _              => name
 
-      def matchSet(candidates: List[TcgSetResult]): Option[Int] =
+      def exactMatch(candidates: List[TcgSetResult]): Option[TcgSetResult] =
         candidates
           .find(s => s.abbreviation.exists(a => set.ptcgoCode.exists(c => norm(a) == norm(c))))
           .orElse(candidates.find(s => norm(s.name) == norm(set.name)))
           .orElse(candidates.find(s => norm(stripTcgPrefix(s.name)) == norm(set.name)))
-          .map(_.id)
 
-      // Always try BOTH the ptcgoCode search and the name search and combine
-      // candidates, rather than trusting whichever search ran first just
-      // because it returned *something*. Confirmed live: searching TCGTracking
-      // for our ptcgoCode "CRE" (Chilling Reign) returns unrelated results
-      // ("Secret Wonders") — non-empty, so the old "only fall back to name
-      // search when the first search was empty" logic never even tried
-      // searching by the actual name, which correctly finds "SWSH06: Chilling
-      // Reign". A wrong-but-nonempty result is exactly as useless as an empty
-      // one for finding the right set.
-      for
-        byCode     <- set.ptcgoCode.map(searchSets).getOrElse(ZIO.succeed(Nil))
-        byName     <- searchSets(set.name)
-        candidates  = (byCode ++ byName).distinctBy(_.id)
-        result     <- matchSet(candidates) match
-                        case Some(id) => ZIO.succeed(Some(id))
-                        case None =>
-                          ZIO.logInfo(
-                            s"TCGTracking: no match for '${set.name}' (code: ${set.ptcgoCode.getOrElse("none")}). " +
-                            s"Candidates: ${candidates.take(5).map(s => s"${s.abbreviation.getOrElse("?")}/${s.name}").mkString(", ")}"
-                          ).as(None)
-      yield result
+      def bestFuzzyMatch(candidates: List[TcgSetResult]): Option[TcgSetResult] =
+        val ourTokens = tokens(set.name)
+        if ourTokens.isEmpty then None
+        else
+          candidates
+            .map(c => (c, expandCandidateTokens(tokens(c.name))))
+            .map { case (c, candTokens) => (c, candTokens, ourTokens.intersect(candTokens).size.toDouble / ourTokens.size) }
+            .filter(_._3 >= 0.6)
+            .sortBy { case (c, candTokens, ratio) => (-ratio, math.abs(c.productCount.getOrElse(0) - set.total), candTokens.size) }
+            .headOption
+            .map(_._1)
+
+      allTcgSets.flatMap { candidates =>
+        exactMatch(candidates).orElse(bestFuzzyMatch(candidates)) match
+          case Some(m) => ZIO.succeed(Some(m.id))
+          case None =>
+            ZIO.logInfo(
+              s"TCGTracking: no match for '${set.name}' (code: ${set.ptcgoCode.getOrElse("none")}) " +
+              s"among ${candidates.size} cached TCGTracking sets"
+            ).as(None)
+      }
 
     /**
      * METHOD: fetchAndStorePrices
@@ -460,4 +512,9 @@ object PriceService:
    * @return ZLayer[CardRepository, Nothing, PriceService]
    */
   val layer: ZLayer[CardRepository, Nothing, PriceService] =
-    ZLayer.fromFunction(new Live(_))
+    ZLayer.fromZIO {
+      for
+        repo <- ZIO.service[CardRepository]
+        cache <- Ref.make(Option.empty[(Long, List[TcgSetResult])])
+      yield new Live(repo, cache)
+    }
