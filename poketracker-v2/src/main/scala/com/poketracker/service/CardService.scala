@@ -45,7 +45,6 @@ import com.poketracker.models.*
 import com.poketracker.repository.CardRepository
 import com.poketracker.service.PriceService
 import zio.*
-import zio.Schedule
 import zio.json.*
 import java.time.LocalDate
 
@@ -274,22 +273,45 @@ object CardService:
      * METHOD: get
      * PURPOSE: HTTP GET — returns response body as String.
      *          Uses Java's built-in HttpURLConnection, no extra dependency.
-     *          10s connection timeout, 30s read timeout.
+     *          15s connection timeout, 60s read timeout, with retry/backoff
+     *          for pokemontcg.io's frequent transient failures (HTTP 500s,
+     *          timeouts, and occasional empty-but-200 response bodies).
+     *
+     * WHY RETRY/BACKOFF MATTERS HERE:
+     *   A single sync makes many sequential calls (one per page, per set), so
+     *   without retry, one transient blip anywhere aborted the whole set's
+     *   fetch — cards silently missing from search/bulk-add, not because they
+     *   don't exist, but because the one page that would have returned them
+     *   failed and was never retried. The previous single-immediate-retry
+     *   wasn't enough headroom for the API's actual failure pattern, which
+     *   often needs a few seconds to recover.
      *
      * @param url  The URL to fetch
      * @return     Response body, or fails with a descriptive error message
+     *             after all attempts are exhausted
      */
     private def get(url: String): Task[String] =
-      ZIO.attemptBlocking {
-        val conn = java.net.URI.create(url).toURL.openConnection()
-        conn.setRequestProperty("X-Api-Key", apiKey)
-        conn.setConnectTimeout(15000)
-        conn.setReadTimeout(60000)
-        val stream = conn.getInputStream
-        try new String(stream.readAllBytes()) finally stream.close()
-      }.mapError(e => RuntimeException(s"GET $url failed: ${e.getMessage}"))
-        // Retry once on timeout before giving up
-        .retry(Schedule.once)
+      val maxAttempts = 5
+      def attempt(n: Int): Task[String] =
+        ZIO.attemptBlocking {
+          val conn = java.net.URI.create(url).toURL.openConnection()
+          conn.setRequestProperty("X-Api-Key", apiKey)
+          conn.setConnectTimeout(15000)
+          conn.setReadTimeout(60000)
+          val stream = conn.getInputStream
+          try new String(stream.readAllBytes()) finally stream.close()
+        }.mapError(e => RuntimeException(s"GET $url failed: ${e.getMessage}"))
+          .flatMap { body =>
+            if body.trim.isEmpty
+            then ZIO.fail(RuntimeException(s"GET $url returned an empty body"))
+            else ZIO.succeed(body)
+          }
+          .catchAll { e =>
+            if n < maxAttempts
+            then ZIO.sleep(zio.Duration.fromSeconds(1L << (n - 1))) *> attempt(n + 1)
+            else ZIO.fail(RuntimeException(s"GET $url failed after $maxAttempts attempts: ${e.getMessage}"))
+          }
+      attempt(1)
 
     /**
      * METHOD: parse

@@ -193,14 +193,34 @@ object PriceService:
      * @param url  The URL to fetch
      * @return     Response body, or fails with a descriptive message
      */
+    /**
+     * Retries/backs off for TCGTracking's transient failures (500s, timeouts,
+     * empty-but-200 bodies) — the same failure pattern pokemontcg.io has.
+     * Without this, one blip anywhere in a set's products/skus fetch aborted
+     * price-fetching for the whole set, leaving every card in it "no price"
+     * with no automatic recovery until the next 6-hour stale window.
+     */
     private def get(url: String): Task[String] =
-      ZIO.attemptBlocking {
-        val conn = java.net.URI.create(url).toURL.openConnection()
-        conn.setConnectTimeout(10000)
-        conn.setReadTimeout(30000)
-        val stream = conn.getInputStream
-        try new String(stream.readAllBytes()) finally stream.close()
-      }.mapError(e => RuntimeException(s"GET $url failed: ${e.getMessage}"))
+      val maxAttempts = 5
+      def attempt(n: Int): Task[String] =
+        ZIO.attemptBlocking {
+          val conn = java.net.URI.create(url).toURL.openConnection()
+          conn.setConnectTimeout(10000)
+          conn.setReadTimeout(30000)
+          val stream = conn.getInputStream
+          try new String(stream.readAllBytes()) finally stream.close()
+        }.mapError(e => RuntimeException(s"GET $url failed: ${e.getMessage}"))
+          .flatMap { body =>
+            if body.trim.isEmpty
+            then ZIO.fail(RuntimeException(s"GET $url returned an empty body"))
+            else ZIO.succeed(body)
+          }
+          .catchAll { e =>
+            if n < maxAttempts
+            then ZIO.sleep(zio.Duration.fromSeconds(1L << (n - 1))) *> attempt(n + 1)
+            else ZIO.fail(RuntimeException(s"GET $url failed after $maxAttempts attempts: ${e.getMessage}"))
+          }
+      attempt(1)
 
     /**
      * METHOD: parse
