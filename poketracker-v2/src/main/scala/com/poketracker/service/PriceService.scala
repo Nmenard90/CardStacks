@@ -305,22 +305,27 @@ object PriceService:
           .orElse(candidates.find(s => norm(stripTcgPrefix(s.name)) == norm(set.name)))
           .map(_.id)
 
-      // Try ptcgoCode first. If it returns no candidates (TCGTracking searches names,
-      // not abbreviations, so a code like "TEU" may return nothing), retry with the set name.
-      searchSets(set.ptcgoCode.getOrElse(set.name))
-        .flatMap { initial =>
-          if initial.nonEmpty || set.ptcgoCode.isEmpty then ZIO.succeed(initial)
-          else searchSets(set.name)
-        }
-        .flatMap { candidates =>
-          matchSet(candidates) match
-            case Some(id) => ZIO.succeed(Some(id))
-            case None =>
-              ZIO.logInfo(
-                s"TCGTracking: no match for '${set.name}' (code: ${set.ptcgoCode.getOrElse("none")}). " +
-                s"Candidates: ${candidates.take(5).map(s => s"${s.abbreviation.getOrElse("?")}/${s.name}").mkString(", ")}"
-              ).as(None)
-        }
+      // Always try BOTH the ptcgoCode search and the name search and combine
+      // candidates, rather than trusting whichever search ran first just
+      // because it returned *something*. Confirmed live: searching TCGTracking
+      // for our ptcgoCode "CRE" (Chilling Reign) returns unrelated results
+      // ("Secret Wonders") — non-empty, so the old "only fall back to name
+      // search when the first search was empty" logic never even tried
+      // searching by the actual name, which correctly finds "SWSH06: Chilling
+      // Reign". A wrong-but-nonempty result is exactly as useless as an empty
+      // one for finding the right set.
+      for
+        byCode     <- set.ptcgoCode.map(searchSets).getOrElse(ZIO.succeed(Nil))
+        byName     <- searchSets(set.name)
+        candidates  = (byCode ++ byName).distinctBy(_.id)
+        result     <- matchSet(candidates) match
+                        case Some(id) => ZIO.succeed(Some(id))
+                        case None =>
+                          ZIO.logInfo(
+                            s"TCGTracking: no match for '${set.name}' (code: ${set.ptcgoCode.getOrElse("none")}). " +
+                            s"Candidates: ${candidates.take(5).map(s => s"${s.abbreviation.getOrElse("?")}/${s.name}").mkString(", ")}"
+                          ).as(None)
+      yield result
 
     /**
      * METHOD: fetchAndStorePrices
