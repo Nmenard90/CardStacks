@@ -351,9 +351,21 @@ object PriceService:
           case Array(_, rest) => rest.trim
           case _              => name
 
+      // Bonus subsets (Trainer/Galarian Gallery, Shiny Vault) are usually given
+      // the SAME ptcgoCode as their parent set by pokemontcg.io (e.g. Crown
+      // Zenith and Crown Zenith Galarian Gallery both carry "CRZ"), but
+      // TCGTracking lists them as a separate suffixed entry next to the
+      // parent's bare abbreviation ("CRZ" vs. "CRZ:GG", "HIF" vs. "HIF:SV").
+      // Trusting an abbreviation match here would silently attach the
+      // PARENT set's prices to every card in the subset. Confirmed live:
+      // Crown Zenith Galarian Gallery and both Shiny Vault sets matched the
+      // parent set via ptcgoCode and then had 0 cards line up by number,
+      // even though TCGTracking has full price data for the actual subset.
+      val isBonusSubset = Set("vault", "gallery").exists(kw => set.name.toLowerCase.contains(kw))
+
       def exactMatch(candidates: List[TcgSetResult]): Option[TcgSetResult] =
-        candidates
-          .find(s => s.abbreviation.exists(a => set.ptcgoCode.exists(c => norm(a) == norm(c))))
+        (if isBonusSubset then None
+         else candidates.find(s => s.abbreviation.exists(a => set.ptcgoCode.exists(c => norm(a) == norm(c)))))
           .orElse(candidates.find(s => norm(s.name) == norm(set.name)))
           .orElse(candidates.find(s => norm(stripTcgPrefix(s.name)) == norm(set.name)))
 
