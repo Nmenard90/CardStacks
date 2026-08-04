@@ -250,25 +250,26 @@ object PriceService:
     /**
      * METHOD: fetchProducts
      * PURPOSE: Fetches a set's product list from TCGTracking, retrying with a
-     *          cache-busting query param if the response looks truncated.
+     *          cache-busting query param if the response looks stale/short.
      *
-     * WHY: TCGTracking's `/sets/{id}` endpoint intermittently returns far
-     *      fewer products than its own `product_count` field claims — a
-     *      valid, complete-looking (non-empty, parseable) JSON body that's
-     *      just short. Confirmed live: Battle Styles claimed 232 products
-     *      but our production requests consistently got only 52 back
-     *      (mostly sealed products, crowding out real cards), while direct
-     *      requests from elsewhere got the full list every time. Response
-     *      headers show why: TCGTracking sits behind Cloudflare with
-     *      `s-maxage=604800` (7-day edge cache), and `cf-cache-status: HIT`
-     *      / high `Age` on the direct requests confirm the edge Railway's
-     *      requests route through has a stale truncated snapshot cached for
-     *      that URL specifically. Retrying the identical URL just re-hits
-     *      the same cached response — it did nothing here. Appending a
-     *      harmless cache-busting query param on retry forces Cloudflare to
-     *      treat it as a distinct cache key and fetch fresh from origin.
+     * WHY COMPARE AGAINST expectedCards, NOT THE RESPONSE'S OWN product_count:
+     *   The first version of this check compared `products.size` against the
+     *   SAME response's `product_count` field and never fired. Confirmed live
+     *   why: the bad response isn't a partial/cut-off transfer of the current
+     *   232-product set — it's Cloudflare serving an entire OLDER cached
+     *   snapshot from back when TCGTracking had only indexed 52 products for
+     *   this set, so `product_count` inside that stale snapshot is ALSO 52,
+     *   internally consistent with itself. No self-check can catch a snapshot
+     *   that agrees with itself. Our own card count (from pokemontcg.io, a
+     *   completely different, unaffected source) is the only independent
+     *   reference available, so retry against that instead.
+     * @param expectedCards  Our own card count for this set — the retry
+     *                       threshold is deliberately loose (60%) since
+     *                       TCGTracking's real product list legitimately
+     *                       includes non-card products (sealed, code cards)
+     *                       and can differ from our count for other reasons.
      */
-    private def fetchProducts(tcgSetId: Int, setName: String): Task[TcgProductResponse] =
+    private def fetchProducts(tcgSetId: Int, setName: String, expectedCards: Int): Task[TcgProductResponse] =
       val maxAttempts = 3
       def attempt(n: Int): Task[TcgProductResponse] =
         val url =
@@ -283,11 +284,11 @@ object PriceService:
               ))
           }
           .flatMap { resp =>
-            val claimed = resp.productCount.getOrElse(resp.products.size)
-            if resp.products.size < claimed && n < maxAttempts then
+            val numbered = resp.products.count(_.number.isDefined)
+            if numbered < (expectedCards * 0.6).toInt && n < maxAttempts then
               ZIO.logWarning(
-                s"TCGTracking: '$setName' products response looks truncated " +
-                s"(${resp.products.size}/$claimed) — retrying with cache-bust ($n/$maxAttempts)"
+                s"TCGTracking: '$setName' products response looks stale " +
+                s"($numbered numbered / $expectedCards expected) — retrying with cache-bust ($n/$maxAttempts)"
               ) *> ZIO.sleep(zio.Duration.fromSeconds(2L)) *> attempt(n + 1)
             else ZIO.succeed(resp)
           }
@@ -296,11 +297,16 @@ object PriceService:
     /**
      * METHOD: fetchSkus
      * PURPOSE: Fetches a set's SKU/price data from TCGTracking, retrying with
-     *          a cache-busting query param if the response looks truncated.
-     *          Same stale-Cloudflare-edge-cache risk as fetchProducts, using
-     *          the response's own `sku_count` field to detect it.
+     *          a cache-busting query param if the response looks stale/short.
+     *          Same stale-Cloudflare-edge-cache risk as fetchProducts — see
+     *          its doc comment. Validated against the ALREADY-FETCHED product
+     *          list's own count (an independent, same-request reference)
+     *          rather than this response's own claimed sku_count, since a
+     *          stale cached snapshot agrees with itself.
+     * @param expectedProducts  Number of products fetchProducts just returned
+     *                          for this set — used as the staleness reference.
      */
-    private def fetchSkus(tcgSetId: Int, setName: String): Task[TcgSkuResponse] =
+    private def fetchSkus(tcgSetId: Int, setName: String, expectedProducts: Int): Task[TcgSkuResponse] =
       val maxAttempts = 3
       def attempt(n: Int): Task[TcgSkuResponse] =
         val url =
@@ -315,12 +321,11 @@ object PriceService:
               ))
           }
           .flatMap { resp =>
-            val actual = resp.products.values.map(_.size).sum
-            val claimed = resp.skuCount.getOrElse(actual)
-            if actual < claimed && n < maxAttempts then
+            val pricedProducts = resp.products.size
+            if pricedProducts < (expectedProducts * 0.6).toInt && n < maxAttempts then
               ZIO.logWarning(
-                s"TCGTracking: '$setName' SKU response looks truncated " +
-                s"($actual/$claimed) — retrying with cache-bust ($n/$maxAttempts)"
+                s"TCGTracking: '$setName' SKU response looks stale " +
+                s"($pricedProducts products / $expectedProducts expected) — retrying with cache-bust ($n/$maxAttempts)"
               ) *> ZIO.sleep(zio.Duration.fromSeconds(2L)) *> attempt(n + 1)
             else ZIO.succeed(resp)
           }
@@ -513,8 +518,8 @@ object PriceService:
 
         case Some(tcgSetId) =>
           for
-            products     <- fetchProducts(tcgSetId, set.name)
-            skuResp      <- fetchSkus(tcgSetId, set.name)
+            products     <- fetchProducts(tcgSetId, set.name, cards.size)
+            skuResp      <- fetchSkus(tcgSetId, set.name, products.products.size)
 
             pricesByProductId = buildPriceMap(skuResp.products)
 
