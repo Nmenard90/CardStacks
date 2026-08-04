@@ -272,9 +272,18 @@ object PriceService:
     private def fetchProducts(tcgSetId: Int, setName: String, expectedCards: Int): Task[TcgProductResponse] =
       val maxAttempts = 3
       def attempt(n: Int): Task[TcgProductResponse] =
+        // Use the dedicated /cards endpoint, not the bare /sets/{id} endpoint:
+        // confirmed live that for at least one set (Battle Styles), /sets/{id}
+        // consistently served a stale, far-smaller product list from
+        // Railway's network path — even three cache-busted retries with
+        // distinct query params all came back with the same short list,
+        // while /sets/{id}/cards returned the complete, correct list every
+        // time and carries a much fresher Cloudflare cache (hours old, not
+        // days). Keeping the cache-bust param on retries as a second line of
+        // defense in case this endpoint ever goes stale too.
         val url =
-          if n == 1 then s"$BASE/$POKEMON_CAT/sets/$tcgSetId"
-          else s"$BASE/$POKEMON_CAT/sets/$tcgSetId?_cb=${java.lang.System.currentTimeMillis()}"
+          if n == 1 then s"$BASE/$POKEMON_CAT/sets/$tcgSetId/cards"
+          else s"$BASE/$POKEMON_CAT/sets/$tcgSetId/cards?_cb=${java.lang.System.currentTimeMillis()}"
         get(url)
           .flatMap { json =>
             parse[TcgProductResponse](json)
