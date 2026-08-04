@@ -348,18 +348,28 @@ object PriceService:
 
             pricesByProductId = buildPriceMap(skuResp.products)
 
-            numberToProductId = products.products
-                                  .flatMap(p => p.number.map(n => normalizeCollectorNumber(n) -> p.id))
-                                  .toMap
+            // A collector number can map to MORE THAN ONE TCGTracking product —
+            // e.g. Poké Ball/Master Ball Pattern variants are separate products
+            // sharing the base card's number, and some sets list more than one
+            // product for the same number for other reasons. A plain .toMap here
+            // silently kept only the last one TCGTracking listed, which could be
+            // an unpriced product while a sibling product for the SAME card had
+            // real price data — a card could genuinely have a TCGTracking price
+            // and still show "no price" here. Keep every candidate product per
+            // number and use the first one that actually has a price.
+            numberToProductIds = products.products
+                                    .flatMap(p => p.number.map(n => normalizeCollectorNumber(n) -> p.id))
+                                    .groupMap(_._1)(_._2)
 
             _ <- ZIO.logInfo(
                    s"TCGTracking: '${set.name}' — ${products.products.size} products, " +
-                   s"${pricesByProductId.size} with prices, ${numberToProductId.size} with numbers"
+                   s"${pricesByProductId.size} with prices, ${numberToProductIds.size} distinct numbers"
                  )
 
             saved <- ZIO.foreach(cards) { card =>
-                       numberToProductId.get(normalizeCollectorNumber(card.number))
-                         .flatMap(pricesByProductId.get) match
+                       numberToProductIds.getOrElse(normalizeCollectorNumber(card.number), Nil)
+                         .flatMap(pricesByProductId.get)
+                         .headOption match
                          case Some(prices) => repo.upsertPrices(card.id, prices).as(true)
                          case None         => ZIO.succeed(false)
                      }
