@@ -286,10 +286,23 @@ object PriceService:
             ZIO.succeed(List.empty[TcgSetResult])
           )
 
+      // TCGTracking often prefixes its set names with its own internal code,
+      // e.g. "SWSH04: Vivid Voltage" or "SV08: Surging Sparks" — an exact
+      // name match against our plain "Vivid Voltage" fails for every set
+      // named this way, silently skipping price-fetching for the whole set.
+      // Confirmed live in production logs (Vivid Voltage: candidates included
+      // "SWSH04: Vivid Voltage" but matched neither by abbreviation — TCGTracking's
+      // abbreviation "SWSH04" isn't our ptcgoCode "VIV" — nor by exact name).
+      def stripTcgPrefix(name: String): String =
+        name.split(":", 2) match
+          case Array(_, rest) => rest.trim
+          case _              => name
+
       def matchSet(candidates: List[TcgSetResult]): Option[Int] =
         candidates
           .find(s => s.abbreviation.exists(a => set.ptcgoCode.exists(c => norm(a) == norm(c))))
           .orElse(candidates.find(s => norm(s.name) == norm(set.name)))
+          .orElse(candidates.find(s => norm(stripTcgPrefix(s.name)) == norm(set.name)))
           .map(_.id)
 
       // Try ptcgoCode first. If it returns no candidates (TCGTracking searches names,
