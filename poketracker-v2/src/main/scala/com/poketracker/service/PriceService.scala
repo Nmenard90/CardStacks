@@ -153,9 +153,14 @@ object PriceService:
   /**
    * CASE CLASS: TcgProductResponse
    * PURPOSE: Wrapper around the TCGTracking products endpoint response.
-   * @param products  List of all products in the set
+   * @param products      List of all products in the set
+   * @param productCount  TCGTracking's own claimed total for this set — used
+   *                      to detect a truncated response (see fetchProducts).
    */
-  private case class TcgProductResponse(products: List[TcgProduct])
+  private case class TcgProductResponse(
+    products: List[TcgProduct],
+    @jsonField("product_count") productCount: Option[Int]
+  )
   private given JsonDecoder[TcgProductResponse] = DeriveJsonDecoder.gen
 
   /**
@@ -238,6 +243,45 @@ object PriceService:
     private def parse[A: JsonDecoder](json: String): Task[A] =
       ZIO.fromEither(json.fromJson[A])
          .mapError(e => RuntimeException(s"JSON parse error: $e"))
+
+    /**
+     * METHOD: fetchProducts
+     * PURPOSE: Fetches a set's product list from TCGTracking, retrying if the
+     *          response looks truncated.
+     *
+     * WHY: TCGTracking's `/sets/{id}` endpoint intermittently returns far
+     *      fewer products than its own `product_count` field claims — a
+     *      valid, complete-looking (non-empty, parseable) JSON body that's
+     *      just short. Confirmed live: Battle Styles claimed 232 products
+     *      but one response returned only 52 (mostly sealed products,
+     *      crowding out real cards) — a plain retry-on-empty-body check
+     *      never catches this, since the body isn't empty, just wrong. This
+     *      silently priced 40/183 cards instead of all of them, with no
+     *      error anywhere in the pipeline. A second fetch moments later
+     *      returned the full list, so this is transient on TCGTracking's
+     *      side, not a wrong endpoint or a permanently missing set.
+     */
+    private def fetchProducts(tcgSetId: Int, setName: String): Task[TcgProductResponse] =
+      val maxAttempts = 3
+      def attempt(n: Int): Task[TcgProductResponse] =
+        get(s"$BASE/$POKEMON_CAT/sets/$tcgSetId")
+          .flatMap { json =>
+            parse[TcgProductResponse](json)
+              .tapError(e => ZIO.logWarning(
+                s"TCGTracking: failed to parse products for '$setName': $e | " +
+                s"body (first 300 chars): ${json.take(300)}"
+              ))
+          }
+          .flatMap { resp =>
+            val claimed = resp.productCount.getOrElse(resp.products.size)
+            if resp.products.size < claimed && n < maxAttempts then
+              ZIO.logWarning(
+                s"TCGTracking: '$setName' products response looks truncated " +
+                s"(${resp.products.size}/$claimed) — retrying ($n/$maxAttempts)"
+              ) *> ZIO.sleep(zio.Duration.fromSeconds(2L)) *> attempt(n + 1)
+            else ZIO.succeed(resp)
+          }
+      attempt(1)
 
     /**
      * METHOD: normalizeCollectorNumber
@@ -426,12 +470,7 @@ object PriceService:
 
         case Some(tcgSetId) =>
           for
-            productsJson <- get(s"$BASE/$POKEMON_CAT/sets/$tcgSetId")
-            products     <- parse[TcgProductResponse](productsJson)
-              .tapError(e => ZIO.logWarning(
-                s"TCGTracking: failed to parse products for '${set.name}': $e | " +
-                s"body (first 300 chars): ${productsJson.take(300)}"
-              ))
+            products     <- fetchProducts(tcgSetId, set.name)
             skusJson     <- get(s"$BASE/$POKEMON_CAT/sets/$tcgSetId/skus")
             skuResp      <- parse[TcgSkuResponse](skusJson)
               .tapError(e => ZIO.logWarning(
