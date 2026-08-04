@@ -112,7 +112,10 @@ object PriceService:
    *
    * @param products  Product ID -> SKU ID -> SKU data
    */
-  private case class TcgSkuResponse(products: Map[String, Map[String, TcgSku]])
+  private case class TcgSkuResponse(
+    products: Map[String, Map[String, TcgSku]],
+    @jsonField("sku_count") skuCount: Option[Int]
+  )
   private given JsonDecoder[TcgSkuResponse] = DeriveJsonDecoder.gen
 
   /**
@@ -246,25 +249,32 @@ object PriceService:
 
     /**
      * METHOD: fetchProducts
-     * PURPOSE: Fetches a set's product list from TCGTracking, retrying if the
-     *          response looks truncated.
+     * PURPOSE: Fetches a set's product list from TCGTracking, retrying with a
+     *          cache-busting query param if the response looks truncated.
      *
      * WHY: TCGTracking's `/sets/{id}` endpoint intermittently returns far
      *      fewer products than its own `product_count` field claims — a
      *      valid, complete-looking (non-empty, parseable) JSON body that's
      *      just short. Confirmed live: Battle Styles claimed 232 products
-     *      but one response returned only 52 (mostly sealed products,
-     *      crowding out real cards) — a plain retry-on-empty-body check
-     *      never catches this, since the body isn't empty, just wrong. This
-     *      silently priced 40/183 cards instead of all of them, with no
-     *      error anywhere in the pipeline. A second fetch moments later
-     *      returned the full list, so this is transient on TCGTracking's
-     *      side, not a wrong endpoint or a permanently missing set.
+     *      but our production requests consistently got only 52 back
+     *      (mostly sealed products, crowding out real cards), while direct
+     *      requests from elsewhere got the full list every time. Response
+     *      headers show why: TCGTracking sits behind Cloudflare with
+     *      `s-maxage=604800` (7-day edge cache), and `cf-cache-status: HIT`
+     *      / high `Age` on the direct requests confirm the edge Railway's
+     *      requests route through has a stale truncated snapshot cached for
+     *      that URL specifically. Retrying the identical URL just re-hits
+     *      the same cached response — it did nothing here. Appending a
+     *      harmless cache-busting query param on retry forces Cloudflare to
+     *      treat it as a distinct cache key and fetch fresh from origin.
      */
     private def fetchProducts(tcgSetId: Int, setName: String): Task[TcgProductResponse] =
       val maxAttempts = 3
       def attempt(n: Int): Task[TcgProductResponse] =
-        get(s"$BASE/$POKEMON_CAT/sets/$tcgSetId")
+        val url =
+          if n == 1 then s"$BASE/$POKEMON_CAT/sets/$tcgSetId"
+          else s"$BASE/$POKEMON_CAT/sets/$tcgSetId?_cb=${java.lang.System.currentTimeMillis()}"
+        get(url)
           .flatMap { json =>
             parse[TcgProductResponse](json)
               .tapError(e => ZIO.logWarning(
@@ -277,7 +287,40 @@ object PriceService:
             if resp.products.size < claimed && n < maxAttempts then
               ZIO.logWarning(
                 s"TCGTracking: '$setName' products response looks truncated " +
-                s"(${resp.products.size}/$claimed) — retrying ($n/$maxAttempts)"
+                s"(${resp.products.size}/$claimed) — retrying with cache-bust ($n/$maxAttempts)"
+              ) *> ZIO.sleep(zio.Duration.fromSeconds(2L)) *> attempt(n + 1)
+            else ZIO.succeed(resp)
+          }
+      attempt(1)
+
+    /**
+     * METHOD: fetchSkus
+     * PURPOSE: Fetches a set's SKU/price data from TCGTracking, retrying with
+     *          a cache-busting query param if the response looks truncated.
+     *          Same stale-Cloudflare-edge-cache risk as fetchProducts, using
+     *          the response's own `sku_count` field to detect it.
+     */
+    private def fetchSkus(tcgSetId: Int, setName: String): Task[TcgSkuResponse] =
+      val maxAttempts = 3
+      def attempt(n: Int): Task[TcgSkuResponse] =
+        val url =
+          if n == 1 then s"$BASE/$POKEMON_CAT/sets/$tcgSetId/skus"
+          else s"$BASE/$POKEMON_CAT/sets/$tcgSetId/skus?_cb=${java.lang.System.currentTimeMillis()}"
+        get(url)
+          .flatMap { json =>
+            parse[TcgSkuResponse](json)
+              .tapError(e => ZIO.logWarning(
+                s"TCGTracking: failed to parse SKUs for '$setName': $e | " +
+                s"body (first 300 chars): ${json.take(300)}"
+              ))
+          }
+          .flatMap { resp =>
+            val actual = resp.products.values.map(_.size).sum
+            val claimed = resp.skuCount.getOrElse(actual)
+            if actual < claimed && n < maxAttempts then
+              ZIO.logWarning(
+                s"TCGTracking: '$setName' SKU response looks truncated " +
+                s"($actual/$claimed) — retrying with cache-bust ($n/$maxAttempts)"
               ) *> ZIO.sleep(zio.Duration.fromSeconds(2L)) *> attempt(n + 1)
             else ZIO.succeed(resp)
           }
@@ -471,12 +514,7 @@ object PriceService:
         case Some(tcgSetId) =>
           for
             products     <- fetchProducts(tcgSetId, set.name)
-            skusJson     <- get(s"$BASE/$POKEMON_CAT/sets/$tcgSetId/skus")
-            skuResp      <- parse[TcgSkuResponse](skusJson)
-              .tapError(e => ZIO.logWarning(
-                s"TCGTracking: failed to parse SKUs for '${set.name}': $e | " +
-                s"body (first 300 chars): ${skusJson.take(300)}"
-              ))
+            skuResp      <- fetchSkus(tcgSetId, set.name)
 
             pricesByProductId = buildPriceMap(skuResp.products)
 
