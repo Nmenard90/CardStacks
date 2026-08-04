@@ -169,7 +169,8 @@ object PriceService:
     id:           Int,
     name:         String,
     abbreviation: Option[String],
-    @jsonField("product_count") productCount: Option[Int]
+    @jsonField("product_count") productCount: Option[Int],
+    @jsonField("published_on") publishedOn: Option[String]
   )
   private given JsonDecoder[TcgSetResult] = DeriveJsonDecoder.gen
 
@@ -381,8 +382,18 @@ object PriceService:
             .headOption
             .map(_._1)
 
+      // Last resort before giving up: an exact release-date match. Catches
+      // sets TCGTracking names so bare that no name-token overlap is
+      // possible — e.g. our "Sun & Moon" base set has NO name-token match
+      // against TCGTracking's "SM Base Set" (no "sun"/"moon" in either
+      // direction), and a bare "sm" abbreviation would tie against every
+      // other "SM 0X" set. Confirmed unique: no two TCGTracking sets share
+      // a release date, so an exact match here is unambiguous.
+      def dateMatch(candidates: List[TcgSetResult]): Option[TcgSetResult] =
+        candidates.find(c => c.publishedOn.contains(set.releaseDate.toString))
+
       allTcgSets.flatMap { candidates =>
-        exactMatch(candidates).orElse(bestFuzzyMatch(candidates)) match
+        exactMatch(candidates).orElse(dateMatch(candidates)).orElse(bestFuzzyMatch(candidates)) match
           case Some(m) => ZIO.succeed(Some(m.id))
           case None =>
             ZIO.logInfo(
