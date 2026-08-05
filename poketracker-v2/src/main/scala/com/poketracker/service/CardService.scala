@@ -425,9 +425,15 @@ object CardService:
      * @return   Some(price) if pokemontcg.io has any usable pricing, else None
      */
     private def fallbackNm(c: ApiCard): Option[Double] =
+      // Exactly the 5 keys pokemontcg.io's own official SDK declares for
+      // tcgplayer.prices — confirmed against their Python SDK's TCGPrices
+      // dataclass after an earlier guess ("1stEditionHolofoil",
+      // "unlimitedHolofoil") turned out not to match their real key names
+      // ("firstEditionHolofoil"; there is no "unlimited*" key at all, since
+      // unlimited prints are just "normal"/"holofoil" with no prefix).
       val variantPreference = List(
         "holofoil", "reverseHolofoil", "normal",
-        "1stEditionHolofoil", "1stEditionNormal", "unlimitedHolofoil", "unlimited"
+        "firstEditionHolofoil", "firstEditionNormal"
       )
       val fromTcgplayer = c.tcgplayer.flatMap { tp =>
         val ordered = variantPreference.flatMap(tp.prices.get) ++ tp.prices.values.toList
