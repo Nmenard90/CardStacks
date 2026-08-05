@@ -201,9 +201,15 @@ final case class TcgplayerVariantPrices(
 object TcgplayerVariantPrices:
   given JsonCodec[TcgplayerVariantPrices] = DeriveJsonCodec.gen[TcgplayerVariantPrices]
 
+// prices defaults to empty: some cards carry a tcgplayer/cardmarket block
+// with just a url/updatedAt and no prices sub-object at all (not yet priced
+// by that marketplace) — confirmed live, this exact shape 500'd 23 of 173
+// sets on a full refresh sweep ("JSON parse error: .data[7].tcgplayer.
+// prices(missing)") because these fields had no default, so ANY one card
+// missing its prices object failed the whole page's decode.
 final case class TcgplayerInfo(
   url: Option[String], updatedAt: Option[String],
-  prices: Map[String, TcgplayerVariantPrices]
+  prices: Map[String, TcgplayerVariantPrices] = Map.empty
 )
 object TcgplayerInfo:
   given JsonCodec[TcgplayerInfo] = DeriveJsonCodec.gen[TcgplayerInfo]
@@ -216,9 +222,12 @@ final case class CardmarketPrices(
 )
 object CardmarketPrices:
   given JsonCodec[CardmarketPrices] = DeriveJsonCodec.gen[CardmarketPrices]
+  val empty: CardmarketPrices =
+    CardmarketPrices(None, None, None, None, None, None, None, None, None, None, None, None)
 
 final case class CardmarketInfo(
-  url: Option[String], updatedAt: Option[String], prices: CardmarketPrices
+  url: Option[String], updatedAt: Option[String],
+  prices: CardmarketPrices = CardmarketPrices.empty
 )
 object CardmarketInfo:
   given JsonCodec[CardmarketInfo] = DeriveJsonCodec.gen[CardmarketInfo]
