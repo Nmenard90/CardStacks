@@ -58,6 +58,12 @@ lazy val root = project
     version      := "0.1.0-SNAPSHOT",
     scalaVersion := scala3Version,
 
+    // Raised from the compiler default (32): zio-json's DeriveJsonDecoder/
+    // DeriveJsonEncoder macros recurse one inline expansion per case class
+    // field, and ApiCard (every field pokemontcg.io's card API returns) has
+    // 28 — comfortably past the default limit.
+    scalacOptions += "-Xmax-inlines:128",
+
     // ── Libraries ────────────────────────────────────────────────────────────
     // ++= appends all items in the Seq to the existing dependency list.
     libraryDependencies ++= Seq(

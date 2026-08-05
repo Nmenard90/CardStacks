@@ -211,7 +211,7 @@ object BinderRoutes:
                       case Some(cardId) =>
                         val card = Card(cardId, "", parsed.cardName.getOrElse(""),
                                         "", None, None,
-                                        CardImage(parsed.imageUrl.getOrElse(""), ""), None)
+                                        CardImage(parsed.imageUrl.getOrElse(""), ""), None, None)
                         ZIO.serviceWithZIO[BinderService](_.placeCard(binderId, slotIndex, card))
         yield Response.json("""{"ok": true}""")
         ).catchAll(e => ZIO.succeed(Response.badRequest(e.getMessage)))

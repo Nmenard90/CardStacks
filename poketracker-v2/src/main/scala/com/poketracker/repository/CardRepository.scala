@@ -79,6 +79,7 @@ import doobie.postgres.implicits.*
 import doobie.util.transactor.Transactor
 import zio.*
 import zio.interop.catz.*
+import zio.json.*
 import java.time.{Instant, LocalDate}
 
 /**
@@ -161,10 +162,16 @@ trait CardRepository:
   /**
    * METHOD: upsertCard
    * PURPOSE: Inserts a card if it does not exist, updates it if it does.
-   * @param card  The card data to save
+   * @param card             The card data to save (card.details is
+   *                         serialized to JSON and stored verbatim)
+   * @param fallbackPriceNm  A Near-Mint price derived from pokemontcg.io's
+   *                         own bundled tcgplayer/cardmarket data, stored on
+   *                         the card row so applyFallbackPrices can use it
+   *                         later without a fresh API call. None if
+   *                         pokemontcg.io has no pricing for this card.
    * @return      Unit
    */
-  def upsertCard(card: Card): Task[Unit]
+  def upsertCard(card: Card, fallbackPriceNm: Option[Double]): Task[Unit]
 
   /**
    * METHOD: upsertPrices
@@ -176,6 +183,20 @@ trait CardRepository:
    * @return        Unit
    */
   def upsertPrices(cardId: String, prices: CardPrices): Task[Unit]
+
+  /**
+   * METHOD: applyFallbackPrices
+   * PURPOSE: Patches in each card's stored fallback_price_nm (from
+   *          pokemontcg.io's own tcgplayer/cardmarket data) as its `nm`
+   *          price, but ONLY for cards that don't already have one —
+   *          TCGTracking's condition-tiered pricing always wins when it
+   *          exists. Run after every price fetch so cards TCGTracking's
+   *          set/card matching can't reach still end up with a price
+   *          instead of none at all.
+   * @param setId  The set to patch
+   * @return       Number of cards patched (for logging)
+   */
+  def applyFallbackPrices(setId: String): Task[Int]
 
   /**
    * METHOD: findPriceHistory
@@ -296,11 +317,35 @@ object CardRepository:
         })
         .transact(xa)
 
+    /**
+     * METHOD: toCardRow (Live, private)
+     * PURPOSE: Shared row->Card mapping for findCardsBySet/findCardById/
+     *          searchCards, all of which SELECT the same column set.
+     *          details is stored as a JSON TEXT column — decoded back via
+     *          zio-json; any card predating this column, or a row that
+     *          somehow fails to parse, just gets details = None rather than
+     *          failing the whole query.
+     */
+    private def toCardRow(
+      id: String, setId: String, name: String, number: String,
+      rarity: Option[String], artist: Option[String],
+      imgSmall: String, imgLarge: String,
+      nm: Option[Double], lp: Option[Double], mp: Option[Double], hp: Option[Double], dmg: Option[Double],
+      detailsJson: Option[String]
+    ): Card =
+      val prices = if nm.orElse(lp).orElse(mp).orElse(hp).orElse(dmg).isDefined
+                   then Some(CardPrices(nm, lp, mp, hp, dmg))
+                   else None
+      val details = detailsJson.flatMap(_.fromJson[CardDetails].toOption)
+      Card(id, setId, name, number, rarity, artist,
+           CardImage(imgSmall, imgLarge), prices, details)
+
     def findCardsBySet(setId: String): Task[List[Card]] =
       sql"""
         SELECT c.id, c.set_id, c.name, c.number, c.rarity, c.artist,
                c.image_small, c.image_large,
-               p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg
+               p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg,
+               c.details
         FROM cards c
         LEFT JOIN card_prices p ON p.card_id = c.id
         WHERE c.set_id = $setId
@@ -312,41 +357,28 @@ object CardRepository:
       """
         .query[(String, String, String, String, Option[String], Option[String],
                 String, String,
-                Option[Double], Option[Double], Option[Double], Option[Double], Option[Double])]
+                Option[Double], Option[Double], Option[Double], Option[Double], Option[Double],
+                Option[String])]
         .to[List]
-        .map(_.map { case (id, setId, name, number, rarity, artist,
-                           imgSmall, imgLarge,
-                           nm, lp, mp, hp, dmg) =>
-          val prices = if nm.orElse(lp).orElse(mp).orElse(hp).orElse(dmg).isDefined
-                       then Some(CardPrices(nm, lp, mp, hp, dmg))
-                       else None
-          Card(id, setId, name, number, rarity, artist,
-               CardImage(imgSmall, imgLarge), prices)
-        })
+        .map(_.map(toCardRow.tupled))
         .transact(xa)
 
     def findCardById(id: String): Task[Option[Card]] =
       sql"""
         SELECT c.id, c.set_id, c.name, c.number, c.rarity, c.artist,
                c.image_small, c.image_large,
-               p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg
+               p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg,
+               c.details
         FROM cards c
         LEFT JOIN card_prices p ON p.card_id = c.id
         WHERE c.id = $id
       """
         .query[(String, String, String, String, Option[String], Option[String],
                 String, String,
-                Option[Double], Option[Double], Option[Double], Option[Double], Option[Double])]
+                Option[Double], Option[Double], Option[Double], Option[Double], Option[Double],
+                Option[String])]
         .option
-        .map(_.map { case (id, setId, name, number, rarity, artist,
-                           imgSmall, imgLarge,
-                           nm, lp, mp, hp, dmg) =>
-          val prices = if nm.orElse(lp).orElse(mp).orElse(hp).orElse(dmg).isDefined
-                       then Some(CardPrices(nm, lp, mp, hp, dmg))
-                       else None
-          Card(id, setId, name, number, rarity, artist,
-               CardImage(imgSmall, imgLarge), prices)
-        })
+        .map(_.map(toCardRow.tupled))
         .transact(xa)
 
     def searchCards(query: String, limit: Int = 200): Task[List[Card]] =
@@ -358,7 +390,8 @@ object CardRepository:
       sql"""
         SELECT c.id, c.set_id, c.name, c.number, c.rarity, c.artist,
                c.image_small, c.image_large,
-               p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg
+               p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg,
+               c.details
         FROM cards c
         LEFT JOIN card_prices p ON p.card_id = c.id
         LEFT JOIN card_sets s ON s.id = c.set_id
@@ -384,17 +417,10 @@ object CardRepository:
       """
         .query[(String, String, String, String, Option[String], Option[String],
                 String, String,
-                Option[Double], Option[Double], Option[Double], Option[Double], Option[Double])]
+                Option[Double], Option[Double], Option[Double], Option[Double], Option[Double],
+                Option[String])]
         .to[List]
-        .map(_.map { case (id, setId, name, number, rarity, artist,
-                           imgSmall, imgLarge,
-                           nm, lp, mp, hp, dmg) =>
-          val prices = if nm.orElse(lp).orElse(mp).orElse(hp).orElse(dmg).isDefined
-                       then Some(CardPrices(nm, lp, mp, hp, dmg))
-                       else None
-          Card(id, setId, name, number, rarity, artist,
-               CardImage(imgSmall, imgLarge), prices)
-        })
+        .map(_.map(toCardRow.tupled))
         .transact(xa)
 
     def upsertSet(set: CardSet): Task[Unit] =
@@ -423,23 +449,44 @@ object CardRepository:
         .void
         .transact(xa)
 
-    def upsertCard(card: Card): Task[Unit] =
+    def upsertCard(card: Card, fallbackPriceNm: Option[Double]): Task[Unit] =
+      val detailsJson = card.details.map(_.toJson)
       sql"""
         INSERT INTO cards (id, set_id, name, number, rarity, artist,
-                           image_small, image_large, updated_at)
+                           image_small, image_large, details, fallback_price_nm, updated_at)
         VALUES (${card.id}, ${card.setId}, ${card.name}, ${card.number},
                 ${card.rarity}, ${card.artist},
-                ${card.images.small}, ${card.images.large}, NOW())
+                ${card.images.small}, ${card.images.large},
+                $detailsJson, $fallbackPriceNm, NOW())
         ON CONFLICT (id) DO UPDATE SET
-          name        = EXCLUDED.name,
-          number      = EXCLUDED.number,
-          rarity      = EXCLUDED.rarity,
-          artist      = EXCLUDED.artist,
-          image_small = EXCLUDED.image_small,
-          image_large = EXCLUDED.image_large,
-          updated_at  = NOW()
+          name              = EXCLUDED.name,
+          number            = EXCLUDED.number,
+          rarity            = EXCLUDED.rarity,
+          artist            = EXCLUDED.artist,
+          image_small       = EXCLUDED.image_small,
+          image_large       = EXCLUDED.image_large,
+          details           = EXCLUDED.details,
+          fallback_price_nm = EXCLUDED.fallback_price_nm,
+          updated_at        = NOW()
       """
         .update.run.void.transact(xa)
+
+    /**
+     * METHOD: applyFallbackPrices (Live)
+     * PURPOSE: One statement handles both cases: no card_prices row yet
+     *          (plain insert) and a row that exists but has a null nm (the
+     *          COALESCE only fills it in when null, so a real
+     *          TCGTracking-sourced nm is never overwritten).
+     */
+    def applyFallbackPrices(setId: String): Task[Int] =
+      sql"""
+        INSERT INTO card_prices (card_id, price_nm)
+        SELECT id, fallback_price_nm FROM cards
+        WHERE set_id = $setId AND fallback_price_nm IS NOT NULL
+        ON CONFLICT (card_id) DO UPDATE SET
+          price_nm = COALESCE(card_prices.price_nm, EXCLUDED.price_nm)
+      """
+        .update.run.transact(xa)
 
     def upsertPrices(cardId: String, prices: CardPrices): Task[Unit] =
       val upsertLatest = sql"""

@@ -57,8 +57,15 @@ import java.time.LocalDate
 
 /**
  * CASE CLASS: ApiCard
- * PURPOSE: Represents one card as returned by the pokemontcg.io API.
- *          Converted to our internal Card type by toCard() before use.
+ * PURPOSE: Represents one card as returned by the pokemontcg.io API — every
+ *          field it can return, not just the handful the rest of the app
+ *          uses day to day. Converted to our internal Card type (including
+ *          the full CardDetails) by toCard() before use.
+ *
+ *          Fields beyond the original core set are all Option/List-defaulted
+ *          because most only appear on some supertypes/eras (a Trainer card
+ *          has no `hp`, only a few XY-era cards have `ancientTrait`, etc.) —
+ *          a card missing any of them must never fail to decode.
  *
  * @param id      Card ID from the API e.g. "sv1-1"
  * @param name    Card name e.g. "Charizard ex"
@@ -66,7 +73,13 @@ import java.time.LocalDate
  * @param rarity  Rarity string if present e.g. "Special Illustration Rare"
  * @param artist  Illustrator name if listed on the card
  * @param images  URLs to small and large card images
- * @param set     Reference to the set this card belongs to (contains set ID)
+ * @param set     The full embedded set object (same shape as the /sets
+ *                endpoint's entries) — reused as-is rather than a separate
+ *                id-only type, and stored verbatim as CardDetails.embeddedSet.
+ * @param tcgplayer/cardmarket  pokemontcg.io's own bundled pricing — used as
+ *                a fallback price source. Decoded straight into the shared
+ *                model types (see Card.scala) since these are pure data
+ *                pass-through with no transformation needed.
  */
 private case class ApiCard(
   id:     String,
@@ -75,7 +88,28 @@ private case class ApiCard(
   rarity: Option[String],
   artist: Option[String],
   images: ApiImages,
-  set:    ApiSetRef
+  set:    ApiSet,
+  supertype:              Option[String] = None,
+  subtypes:               List[String] = Nil,
+  level:                  Option[String] = None,
+  hp:                     Option[String] = None,
+  types:                  List[String] = Nil,
+  evolvesFrom:            Option[String] = None,
+  evolvesTo:              List[String] = Nil,
+  rules:                  List[String] = Nil,
+  ancientTrait:           Option[CardAncientTrait] = None,
+  regulationMark:         Option[String] = None,
+  abilities:              List[CardAbility] = Nil,
+  attacks:                List[CardAttack] = Nil,
+  weaknesses:             List[CardTypeValue] = Nil,
+  resistances:            List[CardTypeValue] = Nil,
+  retreatCost:            List[String] = Nil,
+  convertedRetreatCost:   Option[Int] = None,
+  flavorText:             Option[String] = None,
+  nationalPokedexNumbers: List[Int] = Nil,
+  legalities:             Map[String, String] = Map.empty,
+  tcgplayer:              Option[TcgplayerInfo] = None,
+  cardmarket:             Option[CardmarketInfo] = None
 )
 
 /**
@@ -86,16 +120,12 @@ private case class ApiCard(
 private case class ApiImages(small: String, large: String)
 
 /**
- * CASE CLASS: ApiSetRef
- * PURPOSE: The set reference embedded in each card response.
- * @param id  The set ID this card belongs to e.g. "sv1"
- */
-private case class ApiSetRef(id: String)
-
-/**
  * CASE CLASS: ApiSet
- * PURPOSE: Represents one set as returned by the pokemontcg.io API.
- *          Converted to our internal CardSet type by toSet() before use.
+ * PURPOSE: Represents one set as returned by the pokemontcg.io API — both
+ *          from the /sets endpoint directly, and as the `set` object
+ *          embedded in every card response (identical shape). Converted to
+ *          our internal CardSet type by toSet() for the former, and to
+ *          CardDetails.embeddedSet for the latter.
  *
  * @param id           Set ID e.g. "sv1", "base1"
  * @param name         Full set name e.g. "Scarlet & Violet"
@@ -105,6 +135,8 @@ private case class ApiSetRef(id: String)
  * @param releaseDate  Release date string from API — format varies, parsed safely
  * @param images       Symbol and logo image URLs
  * @param ptcgoCode    PTCG Online code e.g. "SVI" — used to match TCGTracking prices
+ * @param legalities   Format legality e.g. {"unlimited": "Legal"}
+ * @param updatedAt    When pokemontcg.io last updated this set's data
  */
 private case class ApiSet(
   id:           String,
@@ -114,7 +146,9 @@ private case class ApiSet(
   total:        Int,
   releaseDate:  String,
   images:       ApiSetImages,
-  ptcgoCode:    Option[String]
+  ptcgoCode:    Option[String],
+  legalities:   Map[String, String] = Map.empty,
+  updatedAt:    Option[String] = None
 )
 
 /**
@@ -141,12 +175,13 @@ private case class ApiSetsResp(data: List[ApiSet])
 
 // Automatically generate JSON decoders for all API response types.
 // DeriveJsonDecoder.gen reads the case class field names and matches them
-// to JSON keys automatically — no manual mapping needed.
+// to JSON keys automatically — no manual mapping needed. Nested detail types
+// (CardAbility, CardAttack, TcgplayerInfo, etc.) already have their own
+// JsonDecoder from Card.scala's companion objects, found automatically.
 private given JsonDecoder[ApiImages]    = DeriveJsonDecoder.gen
-private given JsonDecoder[ApiSetRef]    = DeriveJsonDecoder.gen
-private given JsonDecoder[ApiCard]      = DeriveJsonDecoder.gen
 private given JsonDecoder[ApiSetImages] = DeriveJsonDecoder.gen
 private given JsonDecoder[ApiSet]       = DeriveJsonDecoder.gen
+private given JsonDecoder[ApiCard]      = DeriveJsonDecoder.gen
 private given JsonDecoder[ApiCardsResp] = DeriveJsonDecoder.gen
 private given JsonDecoder[ApiSetsResp]  = DeriveJsonDecoder.gen
 
@@ -329,15 +364,96 @@ object CardService:
 
     /**
      * METHOD: toCard
-     * PURPOSE: Converts an ApiCard to our internal Card model.
-     *          Prices are always None here — fetched from TCGTracking separately.
+     * PURPOSE: Converts an ApiCard to our internal Card model, including the
+     *          full CardDetails snapshot (everything pokemontcg.io returned
+     *          beyond the core fields). Prices are always None here —
+     *          fetched from TCGTracking separately (fallbackNm below handles
+     *          pokemontcg.io's own bundled pricing).
      *
      * @param c  The API card to convert
      * @return   Our internal Card
      */
     private def toCard(c: ApiCard): Card =
+      val details = CardDetails(
+        supertype              = c.supertype,
+        subtypes                = c.subtypes,
+        level                   = c.level,
+        hp                      = c.hp,
+        types                   = c.types,
+        evolvesFrom             = c.evolvesFrom,
+        evolvesTo               = c.evolvesTo,
+        rules                   = c.rules,
+        ancientTrait            = c.ancientTrait,
+        regulationMark          = c.regulationMark,
+        abilities                = c.abilities,
+        attacks                  = c.attacks,
+        weaknesses               = c.weaknesses,
+        resistances              = c.resistances,
+        retreatCost              = c.retreatCost,
+        convertedRetreatCost     = c.convertedRetreatCost,
+        flavorText               = c.flavorText,
+        nationalPokedexNumbers   = c.nationalPokedexNumbers,
+        legalities               = c.legalities,
+        tcgplayer                = c.tcgplayer,
+        cardmarket               = c.cardmarket,
+        embeddedSet = Some(EmbeddedSetInfo(
+          id = c.set.id, name = c.set.name, series = c.set.series,
+          printedTotal = c.set.printedTotal, total = c.set.total,
+          releaseDate = c.set.releaseDate, updatedAt = c.set.updatedAt,
+          legalities = c.set.legalities, ptcgoCode = c.set.ptcgoCode,
+          imageSymbol = Some(c.set.images.symbol), imageLogo = Some(c.set.images.logo)
+        ))
+      )
       Card(c.id, c.set.id, c.name, c.number, c.rarity, c.artist,
-           CardImage(c.images.small, c.images.large), None)
+           CardImage(c.images.small, c.images.large), None, Some(details))
+
+    /**
+     * METHOD: fallbackNm
+     * PURPOSE: Derives a Near-Mint-ish fallback price straight from
+     *          pokemontcg.io's own bundled tcgplayer/cardmarket data — no
+     *          extra network call, no TCGTracking set-matching risk. Used to
+     *          fill in cards TCGTracking's matching genuinely can't reach
+     *          (older/promo sets it doesn't track at all).
+     *
+     *          Deliberately NM-only: tcgplayer/cardmarket give per-PRINTING
+     *          data (normal/holofoil/reverseHolofoil/...), not per-CONDITION
+     *          data like TCGTracking does, so there's no honest way to
+     *          derive lp/mp/hp/dmg from them — inventing those would be
+     *          fabricating data we don't actually have.
+     *
+     * @param c  The API card to derive a fallback price from
+     * @return   Some(price) if pokemontcg.io has any usable pricing, else None
+     */
+    private def fallbackNm(c: ApiCard): Option[Double] =
+      val variantPreference = List(
+        "holofoil", "reverseHolofoil", "normal",
+        "1stEditionHolofoil", "1stEditionNormal", "unlimitedHolofoil", "unlimited"
+      )
+      val fromTcgplayer = c.tcgplayer.flatMap { tp =>
+        val ordered = variantPreference.flatMap(tp.prices.get) ++ tp.prices.values.toList
+        ordered.flatMap(v => v.market.orElse(v.mid)).headOption
+      }
+      fromTcgplayer.orElse(
+        c.cardmarket.flatMap { cm =>
+          cm.prices.averageSellPrice.filter(_ > 0)
+            .orElse(cm.prices.trendPrice.filter(_ > 0))
+        }
+      )
+
+    /**
+     * METHOD: numberLess
+     * PURPOSE: Shared collector-number comparator — numeric numbers sort
+     *          numerically, non-numeric numbers (TG01, SWSH001) sort
+     *          alphabetically after all numerics. Factored out of `sorted`
+     *          so card/fallback-price pairs can be sorted the same way
+     *          without unpacking to a bare List[Card] first.
+     */
+    private def numberLess(a: String, b: String): Boolean =
+      (a.toIntOption, b.toIntOption) match
+        case (Some(x), Some(y)) => x < y
+        case (Some(_), None)    => true
+        case (None, Some(_))    => false
+        case _                  => a < b
 
     /**
      * METHOD: toSet
@@ -389,13 +505,7 @@ object CardService:
      * @return       Cards in collector number order
      */
     private def sorted(cards: List[Card]): List[Card] =
-      cards.sortWith { (a, b) =>
-        (a.number.toIntOption, b.number.toIntOption) match
-          case (Some(x), Some(y)) => x < y
-          case (Some(_), None)    => true
-          case (None, Some(_))    => false
-          case _                  => a.number < b.number
-      }
+      cards.sortWith((a, b) => numberLess(a.number, b.number))
 
     def getSets: Task[List[CardSet]] =
       repo.findAllSets.flatMap {
@@ -429,6 +539,8 @@ object CardService:
                             priceService.fetchAndStorePrices(set, cards)
                               .catchAll(e => ZIO.logWarning(s"Price fetch failed for cached $setId: ${e.getMessage}"))
                               *> repo.markPricesFetched(setId)
+                              *> repo.applyFallbackPrices(setId)
+                                   .catchAll(e => ZIO.logWarning(s"applyFallbackPrices failed for $setId: ${e.getMessage}"))
                           case None => ZIO.unit
                         }
                       )
@@ -437,16 +549,19 @@ object CardService:
 
         case _ =>
           for
-            cards  <- fetchPages(setId).map(_.map(toCard))
-            result  = sorted(cards)
-            _      <- ZIO.foreach(result)(repo.upsertCard)
-            setOpt <- repo.findSetById(setId)
-            _      <- setOpt match
-                        case Some(set) =>
-                          priceService.fetchAndStorePrices(set, result)
-                            .catchAll(e => ZIO.logWarning(s"Price fetch failed for $setId: ${e.getMessage}"))
-                            *> repo.markPricesFetched(setId)
-                        case None => ZIO.unit
+            apiCards <- fetchPages(setId)
+            pairs     = apiCards.map(ac => (toCard(ac), fallbackNm(ac)))
+                          .sortWith { case ((a, _), (b, _)) => numberLess(a.number, b.number) }
+            _        <- ZIO.foreach(pairs)((c, fb) => repo.upsertCard(c, fb))
+            setOpt   <- repo.findSetById(setId)
+            _        <- setOpt match
+                          case Some(set) =>
+                            priceService.fetchAndStorePrices(set, pairs.map(_._1))
+                              .catchAll(e => ZIO.logWarning(s"Price fetch failed for $setId: ${e.getMessage}"))
+                              *> repo.markPricesFetched(setId)
+                              *> repo.applyFallbackPrices(setId)
+                                   .catchAll(e => ZIO.logWarning(s"applyFallbackPrices failed for $setId: ${e.getMessage}"))
+                          case None => ZIO.unit
             // Re-read from DB so prices stored above are included in the response.
             // Without this, first-time loads always show "no price" even when prices were just stored.
             withPrices <- repo.findCardsBySet(setId)
@@ -496,9 +611,11 @@ object CardService:
             get(s"$base/cards?q=$apiQuery&pageSize=$n")
               .flatMap(parse[ApiCardsResp])
               .flatMap { resp =>
-                val cards = resp.data.map(toCard)
+                val pairs = resp.data.map(ac => (toCard(ac), fallbackNm(ac)))
                 // Upsert into the DB so subsequent searches are served locally.
-                ZIO.foreach(cards)(repo.upsertCard).as(cards)
+                // fallback_price_nm is stored now even though it isn't applied to
+                // card_prices here — the next refresh of this card's set applies it.
+                ZIO.foreach(pairs)((c, fb) => repo.upsertCard(c, fb)).as(pairs.map(_._1))
               }
               .catchAll { e =>
                 ZIO.logWarning(s"PokéTCG API search fallback failed for '$q': ${e.getMessage}")
@@ -508,15 +625,18 @@ object CardService:
 
     def refreshSet(setId: String): Task[Unit] =
       for
-        cards  <- fetchPages(setId).map(_.map(toCard))
-        _      <- ZIO.foreach(cards)(repo.upsertCard)
-        setOpt <- repo.findSetById(setId)
-        _      <- setOpt match
-                    case Some(set) =>
-                      priceService.fetchAndStorePrices(set, cards)
-                        .catchAll(e => ZIO.logWarning(s"Price refresh failed for $setId: ${e.getMessage}"))
-                        *> repo.markPricesFetched(setId)
-                    case None => ZIO.unit
+        apiCards <- fetchPages(setId)
+        pairs     = apiCards.map(ac => (toCard(ac), fallbackNm(ac)))
+        _        <- ZIO.foreach(pairs)((c, fb) => repo.upsertCard(c, fb))
+        setOpt   <- repo.findSetById(setId)
+        _        <- setOpt match
+                      case Some(set) =>
+                        priceService.fetchAndStorePrices(set, pairs.map(_._1))
+                          .catchAll(e => ZIO.logWarning(s"Price refresh failed for $setId: ${e.getMessage}"))
+                          *> repo.markPricesFetched(setId)
+                          *> repo.applyFallbackPrices(setId)
+                               .catchAll(e => ZIO.logWarning(s"applyFallbackPrices failed for $setId: ${e.getMessage}"))
+                      case None => ZIO.unit
       yield ()
 
     def refreshPrices(setId: String): Task[Unit] =
@@ -531,6 +651,8 @@ object CardService:
                       ZIO.logWarning(s"refreshPrices: set '$setId' not found in DB")
         // Mark as fetched so the 6-hour stale timer resets — next regular load uses DB cache
         _ <- repo.markPricesFetched(setId).catchAll(_ => ZIO.unit)
+        _ <- repo.applyFallbackPrices(setId)
+               .catchAll(e => ZIO.logWarning(s"applyFallbackPrices failed for $setId: ${e.getMessage}"))
       yield ()
 
     /**

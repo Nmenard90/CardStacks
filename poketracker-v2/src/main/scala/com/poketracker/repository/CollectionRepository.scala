@@ -215,7 +215,7 @@ object CollectionRepository:
                 selectedCond = selCond,
                 updatedAt    = updatedAt,
                 card         = Card(cId, setId, name, number, rarity, artist,
-                                    CardImage(imgSmall, imgLarge), prices)
+                                    CardImage(imgSmall, imgLarge), prices, None)
               )
             }
         })

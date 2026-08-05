@@ -163,6 +163,100 @@ final case class PriceHistoryPoint(
 object PriceHistoryPoint:
   given JsonCodec[PriceHistoryPoint] = DeriveJsonCodec.gen[PriceHistoryPoint]
 
+/**
+ * CARD DETAIL TYPES
+ *
+ * PURPOSE:
+ *   Everything pokemontcg.io returns for a card beyond the handful of
+ *   fields (name/number/rarity/artist/images) the rest of the app actually
+ *   uses day to day. Captured in full so the data is there even before we
+ *   have a use for it — cheaper to store once now than to re-fetch later.
+ *   Field set validated by sampling ~700 cards across supertypes (Pokémon/
+ *   Trainer/Energy), eras (1999 Base Set through 2026), and special
+ *   mechanics (GX, VMAX, Tag Team, Ancient Trait, regulation marks).
+ */
+final case class CardAbility(name: String, text: String, `type`: String)
+object CardAbility:
+  given JsonCodec[CardAbility] = DeriveJsonCodec.gen[CardAbility]
+
+final case class CardAttack(
+  name: String, cost: List[String], convertedEnergyCost: Option[Int],
+  damage: Option[String], text: Option[String]
+)
+object CardAttack:
+  given JsonCodec[CardAttack] = DeriveJsonCodec.gen[CardAttack]
+
+final case class CardTypeValue(`type`: String, value: String)
+object CardTypeValue:
+  given JsonCodec[CardTypeValue] = DeriveJsonCodec.gen[CardTypeValue]
+
+final case class CardAncientTrait(name: String, text: String)
+object CardAncientTrait:
+  given JsonCodec[CardAncientTrait] = DeriveJsonCodec.gen[CardAncientTrait]
+
+final case class TcgplayerVariantPrices(
+  low: Option[Double], mid: Option[Double], high: Option[Double],
+  market: Option[Double], directLow: Option[Double]
+)
+object TcgplayerVariantPrices:
+  given JsonCodec[TcgplayerVariantPrices] = DeriveJsonCodec.gen[TcgplayerVariantPrices]
+
+final case class TcgplayerInfo(
+  url: Option[String], updatedAt: Option[String],
+  prices: Map[String, TcgplayerVariantPrices]
+)
+object TcgplayerInfo:
+  given JsonCodec[TcgplayerInfo] = DeriveJsonCodec.gen[TcgplayerInfo]
+
+final case class CardmarketPrices(
+  averageSellPrice: Option[Double], lowPrice: Option[Double], trendPrice: Option[Double],
+  avg1: Option[Double], avg7: Option[Double], avg30: Option[Double],
+  reverseHoloSell: Option[Double], reverseHoloLow: Option[Double], reverseHoloTrend: Option[Double],
+  reverseHoloAvg1: Option[Double], reverseHoloAvg7: Option[Double], reverseHoloAvg30: Option[Double]
+)
+object CardmarketPrices:
+  given JsonCodec[CardmarketPrices] = DeriveJsonCodec.gen[CardmarketPrices]
+
+final case class CardmarketInfo(
+  url: Option[String], updatedAt: Option[String], prices: CardmarketPrices
+)
+object CardmarketInfo:
+  given JsonCodec[CardmarketInfo] = DeriveJsonCodec.gen[CardmarketInfo]
+
+/**
+ * CASE CLASS: EmbeddedSetInfo
+ * PURPOSE: Snapshot of the `set` object as embedded on THIS card's own
+ *          pokemontcg.io response — independent of, and a cross-check
+ *          against, our own card_sets table. releaseDate/updatedAt are kept
+ *          as raw strings (not parsed to LocalDate) since this is a
+ *          store-as-is snapshot, not something the app computes with.
+ */
+final case class EmbeddedSetInfo(
+  id: String, name: String, series: String,
+  printedTotal: Int, total: Int, releaseDate: String, updatedAt: Option[String],
+  legalities: Map[String, String], ptcgoCode: Option[String],
+  imageSymbol: Option[String], imageLogo: Option[String]
+)
+object EmbeddedSetInfo:
+  given JsonCodec[EmbeddedSetInfo] = DeriveJsonCodec.gen[EmbeddedSetInfo]
+
+final case class CardDetails(
+  supertype: Option[String], subtypes: List[String], level: Option[String],
+  hp: Option[String], types: List[String],
+  evolvesFrom: Option[String], evolvesTo: List[String],
+  rules: List[String], ancientTrait: Option[CardAncientTrait],
+  regulationMark: Option[String],
+  abilities: List[CardAbility], attacks: List[CardAttack],
+  weaknesses: List[CardTypeValue], resistances: List[CardTypeValue],
+  retreatCost: List[String], convertedRetreatCost: Option[Int],
+  flavorText: Option[String], nationalPokedexNumbers: List[Int],
+  legalities: Map[String, String],
+  tcgplayer: Option[TcgplayerInfo], cardmarket: Option[CardmarketInfo],
+  embeddedSet: Option[EmbeddedSetInfo]
+)
+object CardDetails:
+  given JsonCodec[CardDetails] = DeriveJsonCodec.gen[CardDetails]
+
 
 
 /**
@@ -204,16 +298,23 @@ object PriceHistoryPoint:
  * @param images    URLs to the card's small and large images.
  *
  * @param prices    Per-condition market prices. None if no pricing data exists.
+ *
+ * @param details   Everything else pokemontcg.io returns for this card
+ *                  (supertype, attacks, abilities, its own tcgplayer/
+ *                  cardmarket pricing, etc.) — see CardDetails above.
+ *                  None only if the card predates this field being added
+ *                  and hasn't been re-fetched since.
  */
 final case class Card(
-  id:     String,
-  setId:  String,
-  name:   String,
-  number: String,
-  rarity: Option[String],
-  artist: Option[String],
-  images: CardImage,
-  prices: Option[CardPrices]
+  id:      String,
+  setId:   String,
+  name:    String,
+  number:  String,
+  rarity:  Option[String],
+  artist:  Option[String],
+  images:  CardImage,
+  prices:  Option[CardPrices],
+  details: Option[CardDetails]
 )
 
 object Card:

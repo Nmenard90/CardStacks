@@ -551,4 +551,16 @@ CREATE TABLE IF NOT EXISTS pulls (
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Migration 005: Full pokemontcg.io card data + a pokemontcg.io-derived
+-- fallback price. `details` is a JSON blob (supertype, attacks, abilities,
+-- tcgplayer/cardmarket pricing, embedded set snapshot, etc. — see
+-- CardDetails in Card.scala) captured verbatim from the API response, even
+-- for fields the app doesn't use yet. `fallback_price_nm` is a Near-Mint
+-- price derived from that same response's own tcgplayer/cardmarket data,
+-- applied to card_prices.price_nm only when TCGTracking has no price for
+-- that card (see PriceService/CardRepository.applyFallbackPrices) — closes
+-- the gap for cards TCGTracking's set/card matching can't reach at all.
+ALTER TABLE cards ADD COLUMN IF NOT EXISTS details TEXT;
+ALTER TABLE cards ADD COLUMN IF NOT EXISTS fallback_price_nm NUMERIC(10,2);
+
 CREATE INDEX IF NOT EXISTS idx_pulls_rip_pack_id ON pulls(rip_pack_id);
