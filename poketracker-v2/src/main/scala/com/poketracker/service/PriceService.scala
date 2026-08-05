@@ -213,12 +213,23 @@ object PriceService:
      * Without this, one blip anywhere in a set's products/skus fetch aborted
      * price-fetching for the whole set, leaving every card in it "no price"
      * with no automatic recovery until the next 6-hour stale window.
+     *
+     * User-Agent is set explicitly because Java's default ("Java/21.0.11")
+     * consistently got a truncated response for large sets specifically from
+     * Railway's network path — confirmed live, Battle Styles (232 products)
+     * came back capped around 49 every time from Railway while direct
+     * requests from elsewhere got the full list every time, on the exact
+     * same URL, cache-busted and endpoint-switched with no change. Smaller
+     * sets never showed this, which fits a size-dependent anti-scraping
+     * response cap keyed off the default JVM UA rather than a genuine cache
+     * or endpoint problem.
      */
     private def get(url: String): Task[String] =
       val maxAttempts = 5
       def attempt(n: Int): Task[String] =
         ZIO.attemptBlocking {
           val conn = java.net.URI.create(url).toURL.openConnection()
+          conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
           conn.setConnectTimeout(10000)
           conn.setReadTimeout(30000)
           val stream = conn.getInputStream
