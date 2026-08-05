@@ -34,7 +34,7 @@
  *             GET /api/collection/:userId, POST /api/collection/:userId/bulk
  */
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { useEffect, useMemo, useReducer, useRef, useState, type KeyboardEvent } from 'react'
 import { getCards, getSets, searchCards } from '../api/cards'
 import { bulkSave, getCollection, type BulkItem } from '../api/collection'
 import { buildSetTotals, narrowByCollectorNumber } from '../lib/cardSearch'
@@ -343,6 +343,32 @@ export function BulkAddPage() {
   }
 
   /**
+   * PURPOSE: Lets the whole add flow run from the number field without ever
+   *   leaving the physical numpad — none of `+ - * .` are valid characters
+   *   in a real collector number, so binding them here can't collide with
+   *   typing an actual number.
+   *   `*` cycles Condition, `+`/`-` adjust the quantity step, `.` toggles
+   *   1st Ed. Digits, `/`, and Enter fall through to the normal typing/
+   *   submit behavior untouched.
+   */
+  const onNumKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') { e.preventDefault(); addByNumber(); return }
+    if (e.key === '*') {
+      e.preventDefault()
+      setCond(c => CONDS[(CONDS.indexOf(c) + 1) % CONDS.length])
+    } else if (e.key === '+') {
+      e.preventDefault()
+      setStep(s => s + 1)
+    } else if (e.key === '-') {
+      e.preventDefault()
+      setStep(s => Math.max(1, s - 1))
+    } else if (e.key === '.') {
+      e.preventDefault()
+      setFirstEd(f => !f)
+    }
+  }
+
+  /**
    * PURPOSE: Add a card from the number box.
    *   Parses `numInput` as either a bare number ("7") or "number/total"
    *   ("080/198") — same "N/D" pattern the Name search box already
@@ -520,7 +546,7 @@ export function BulkAddPage() {
               ref={numRef} type="text" placeholder={activeSet ? '7' : '80/198'} maxLength={16}
               autoComplete="off" spellCheck={false} value={numInput}
               onChange={e => setNumInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addByNumber() } }}
+              onKeyDown={onNumKeyDown}
             />
             <button className="tb-btn primary" onClick={addByNumber} disabled={numBusy}>{numBusy ? '…' : 'Add'}</button>
             {numFlash && <span className={'num-flash ' + (numFlash.err ? 'err' : 'ok')}>{numFlash.text}</span>}
@@ -529,6 +555,7 @@ export function BulkAddPage() {
             {activeSet
               ? `Type the card number and press Enter. A "/total" is accepted but ignored — the set already picks it.`
               : `Type number/total (e.g. 80/198) and press Enter — the total finds the set. Or pick a set above. Promos like SWSH158 go in alone.`}
+            {' · numpad-only: '}<b>*</b>{' cond · '}<b>+</b>/<b>-</b>{' qty · '}<b>.</b>{' 1st ed'}
           </span>
         </div>
 
