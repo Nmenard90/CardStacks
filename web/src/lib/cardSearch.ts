@@ -52,7 +52,9 @@ export function narrowByCollectorNumber(
   if (!m || totals.size === 0) return hits
   const [, num, denom] = m
   return hits.filter(c => {
-    // Numerator: the card's own number must equal the typed number.
+    // Numerator: the card's own number must equal the typed number, ignoring
+    // leading zeros (this regex only fires on a query that's pure digits, so
+    // no letter-prefix case like "SWSH001" reaches this function).
     const sameNumber = c.number === num || parseInt(c.number, 10) === parseInt(num, 10)
     if (!sameNumber) return false
     // Denominator: the card's set total must begin with what's been typed.

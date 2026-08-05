@@ -174,9 +174,23 @@ function persistSession(userId: string, state: State) {
 /* ─── Number matching helpers ─────────────────────────────────────────────── */
 
 /**
+ * PURPOSE: Strips leading zeros from the trailing digit run of a collector
+ *   number, keeping any letter prefix — "007" -> "7", "SWSH001" -> "SWSH1",
+ *   "GG01" -> "GG1". Numbers that don't fit "[letters][zeros][digits]" (like
+ *   "7a", which has a letter AFTER the digits) are returned unchanged, which
+ *   is what keeps "7a" from ever being treated as equal to "7".
+ */
+function stripLeadingZeros(number: string): string {
+  return number.replace(/^([a-z]*)0*(\d+)$/, '$1$2')
+}
+
+/**
  * PURPOSE: Does a card's printed number match what the user typed? Matches
- *   exactly (case-insensitive, e.g. "SWSH158") or numerically ignoring leading
- *   zeros for plain numbers (e.g. "007" === "7"), but never matches "7" to "7a".
+ *   exactly (case-insensitive), or with leading zeros ignored on the numeric
+ *   tail so "007" === "7" and — same idea — "SWSH001" === "SWSH1",
+ *   "GG01" === "GG1". Never matches "7" to "7a" (the letter comes after the
+ *   digits there, so stripLeadingZeros leaves it untouched and the two
+ *   normalized forms differ).
  * @param cardNumber  The card's number field
  * @param typed       What the user typed in the number box
  * @return            true on a confident match
@@ -186,9 +200,7 @@ function numberMatches(cardNumber: string, typed: string): boolean {
   const b = typed.trim().toLowerCase()
   if (!b) return false
   if (a === b) return true
-  // Numeric compare only when BOTH are pure digits (so "7a" never matches "7").
-  if (/^\d+$/.test(a) && /^\d+$/.test(b)) return parseInt(a, 10) === parseInt(b, 10)
-  return false
+  return stripLeadingZeros(a) === stripLeadingZeros(b)
 }
 
 const STYLE = `
@@ -209,8 +221,7 @@ const STYLE = `
 .bulk-page .brow .bhave{color:var(--accent);font-size:11px;font-weight:800;margin-left:6px}
 .bulk-page .bulk-hint{color:var(--muted);font-size:13px;padding:10px 12px}
 .bulk-page .num-entry{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.bulk-page .num-entry input{width:88px;text-align:center;font-size:16px;padding:10px 8px}
-.bulk-page .num-entry .slash{color:var(--muted);font-weight:700}
+.bulk-page .num-entry input{width:120px;text-align:center;font-size:16px;padding:10px 8px}
 .bulk-page .num-flash{font-size:13px;font-weight:700}
 .bulk-page .num-flash.ok{color:var(--green)}
 .bulk-page .num-flash.err{color:var(--red,#e55)}
@@ -248,9 +259,11 @@ export function BulkAddPage() {
   const [step, setStep] = useState(1)
   const [lastAdded, setLastAdded] = useState('')
 
-  // NUMBER ENTRY — two boxes: numerator (card #) and optional denominator (total).
-  const [num, setNum] = useState('')
-  const [den, setDen] = useState('')
+  // NUMBER ENTRY — one box. Accepts a bare number ("7") when a set is picked,
+  // or "number/total" ("080/198") to find the set globally — same "N/D" parsing
+  // the Name search box already does, so there's only ever one field to type
+  // into and Enter always submits (no tabbing to a second box for every card).
+  const [numInput, setNumInput] = useState('')
   const [numFlash, setNumFlash] = useState<{ text: string; err: boolean } | null>(null)
   const [numBusy, setNumBusy] = useState(false)
   const numRef = useRef<HTMLInputElement>(null)
@@ -330,8 +343,13 @@ export function BulkAddPage() {
   }
 
   /**
-   * PURPOSE: Add a card from the number boxes.
-   *   - Set selected → instant local match in that set's loaded cards.
+   * PURPOSE: Add a card from the number box.
+   *   Parses `numInput` as either a bare number ("7") or "number/total"
+   *   ("080/198") — same "N/D" pattern the Name search box already
+   *   recognizes, kept in one field so Enter always submits without ever
+   *   needing to tab to a second box.
+   *   - Set selected → instant local match in that set's loaded cards (the
+   *     "/total" part, if typed, is ignored — the set already disambiguates).
    *   - No set, but a total given → use the total to find the set(s), load each
    *     (getCards falls back to the API and pulls prices), and match the number
    *     there. This avoids the unreliable global text search entirely.
@@ -339,21 +357,23 @@ export function BulkAddPage() {
    *     a total or a set rather than guessing.
    */
   const addByNumber = async () => {
-    const n = num.trim()
-    if (!n || numBusy) return
+    const raw = numInput.trim()
+    if (!raw || numBusy) return
+    const slash = raw.match(/^([A-Za-z0-9]+)\s*\/\s*(\d+)$/)
+    const n = slash ? slash[1] : raw
+    const d = slash ? slash[2] : ''
 
     // Fast path: a set is selected → match against its already-loaded cards.
     if (activeSet) {
       const card = setCards.find(c => numberMatches(c.number, n))
-      if (card) { addCard(card); flash(`✓ #${card.number} ${card.name}`, false); setNum(''); setDen('') }
+      if (card) { addCard(card); flash(`✓ #${card.number} ${card.name}`, false); setNumInput('') }
       else flash(`#${n} not found in ${activeSet.name}`, true)
       numRef.current?.focus()
       return
     }
 
     // Global path: the total identifies the set; a bare number can't.
-    const d = den.trim()
-    if (!d) { flash('add the set total on the right, or pick a set above', true); numRef.current?.focus(); return }
+    if (!d) { flash('type number/total (e.g. 7/198), or pick a set above', true); numRef.current?.focus(); return }
     const candidates = sets.filter(s => String(s.printedTotal) === d || String(s.total) === d)
     if (candidates.length === 0) { flash(`no set with total ${d}`, true); numRef.current?.focus(); return }
 
@@ -372,7 +392,7 @@ export function BulkAddPage() {
         // Unambiguous → add it directly (the fast path).
         addCard(matches[0])
         flash(`✓ #${matches[0].number} ${matches[0].name}`, false)
-        setNum(''); setDen('')
+        setNumInput('')
         numRef.current?.focus()
       } else {
         // Several sets share this number + total. Don't guess — hand the matches
@@ -380,7 +400,7 @@ export function BulkAddPage() {
         // stay on the search box: refocusing the number box here would blur
         // the search input and its onBlur handler would immediately clear the
         // query/results we just set, wiping out the dropdown before it's seen.
-        setNum(''); setDen('')
+        setNumInput('')
         setQuery(`${n}/${d}`)
         searchRef.current?.focus()
         flash(`${matches.length} sets have #${n}/${d} — pick one below`, true)
@@ -492,21 +512,14 @@ export function BulkAddPage() {
           </label>
         </div>
 
-        {/* ── Add by number — two boxes ───────────────────────────────────────── */}
+        {/* ── Add by number — one box, Enter always submits ──────────────────── */}
         <div className="toolbar" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <span className="sort-label">No.:</span>
           <div className="num-entry">
             <input
-              ref={numRef} type="text" placeholder="188" maxLength={12}
-              autoComplete="off" spellCheck={false} value={num}
-              onChange={e => setNum(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addByNumber() } }}
-            />
-            <span className="slash">/</span>
-            <input
-              type="text" placeholder="236" maxLength={12}
-              autoComplete="off" spellCheck={false} value={den}
-              onChange={e => setDen(e.target.value)}
+              ref={numRef} type="text" placeholder={activeSet ? '7' : '80/198'} maxLength={16}
+              autoComplete="off" spellCheck={false} value={numInput}
+              onChange={e => setNumInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addByNumber() } }}
             />
             <button className="tb-btn primary" onClick={addByNumber} disabled={numBusy}>{numBusy ? '…' : 'Add'}</button>
@@ -514,8 +527,8 @@ export function BulkAddPage() {
           </div>
           <span style={{ color: 'var(--muted)', fontSize: 12, flexBasis: '100%' }}>
             {activeSet
-              ? `Type the card number and press Enter — the total box is optional when a set is picked.`
-              : `Type number / set total (e.g. 080 / 198) — the total finds the set. Or pick a set above. Promos like SWSH158 go in the left box.`}
+              ? `Type the card number and press Enter. A "/total" is accepted but ignored — the set already picks it.`
+              : `Type number/total (e.g. 80/198) and press Enter — the total finds the set. Or pick a set above. Promos like SWSH158 go in alone.`}
           </span>
         </div>
 
