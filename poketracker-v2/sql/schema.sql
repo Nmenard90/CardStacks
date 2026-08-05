@@ -564,35 +564,3 @@ ALTER TABLE cards ADD COLUMN IF NOT EXISTS details TEXT;
 ALTER TABLE cards ADD COLUMN IF NOT EXISTS fallback_price_nm NUMERIC(10,2);
 
 CREATE INDEX IF NOT EXISTS idx_pulls_rip_pack_id ON pulls(rip_pack_id);
-
--- Migration 006: Physical storage tracking (boxes -> drawers -> cards).
--- Mirrors real-world stackable card-storage boxes, each with multiple
--- drawers. A card's location lives on collection_entries (one row per
--- user+card already, per the UNIQUE constraint above) rather than a
--- separate join table, since there's no per-copy location in v1 -- all
--- copies of a card the user owns live in the same drawer. Deleting a box
--- or drawer clears drawer_id (ON DELETE SET NULL) rather than touching
--- the owned card itself -- losing a box never loses a card.
-CREATE TABLE IF NOT EXISTS storage_boxes (
-  id         TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
-  user_id    TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  name       TEXT        NOT NULL,
-  position   INTEGER     NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_storage_boxes_user_id ON storage_boxes(user_id);
-
-CREATE TABLE IF NOT EXISTS storage_drawers (
-  id         TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
-  box_id     TEXT        NOT NULL REFERENCES storage_boxes(id) ON DELETE CASCADE,
-  name       TEXT        NOT NULL,
-  position   INTEGER     NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_storage_drawers_box_id ON storage_drawers(box_id);
-
-ALTER TABLE collection_entries
-  ADD COLUMN IF NOT EXISTS drawer_id TEXT REFERENCES storage_drawers(id) ON DELETE SET NULL;
-CREATE INDEX IF NOT EXISTS idx_collection_entries_drawer_id ON collection_entries(drawer_id);

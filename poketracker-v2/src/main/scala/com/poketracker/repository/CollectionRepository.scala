@@ -185,7 +185,7 @@ object CollectionRepository:
     def findByUserWithCards(userId: String): Task[List[OwnedCard]] =
       sql"""
         SELECT
-          ce.card_id, ce.conditions, ce.selected_cond, ce.updated_at, ce.drawer_id,
+          ce.card_id, ce.conditions, ce.selected_cond, ce.updated_at,
           c.id, c.set_id, c.name, c.number, c.rarity, c.artist,
           c.image_small, c.image_large,
           p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg
@@ -195,13 +195,13 @@ object CollectionRepository:
         WHERE ce.user_id = $userId
         ORDER BY ce.updated_at DESC
       """
-        .query[(String, String, String, Instant, Option[String],
+        .query[(String, String, String, Instant,
                 String, String, String, String, Option[String], Option[String],
                 String, String,
                 Option[Double], Option[Double], Option[Double], Option[Double], Option[Double])]
         .to[List]
         .map(_.flatMap {
-          case (cardId, condJson, selCond, updatedAt, drawerId,
+          case (cardId, condJson, selCond, updatedAt,
                 cId, setId, name, number, rarity, artist,
                 imgSmall, imgLarge,
                 nm, lp, mp, hp, dmg) =>
@@ -215,8 +215,7 @@ object CollectionRepository:
                 selectedCond = selCond,
                 updatedAt    = updatedAt,
                 card         = Card(cId, setId, name, number, rarity, artist,
-                                    CardImage(imgSmall, imgLarge), prices, None),
-                drawerId     = drawerId
+                                    CardImage(imgSmall, imgLarge), prices, None)
               )
             }
         })

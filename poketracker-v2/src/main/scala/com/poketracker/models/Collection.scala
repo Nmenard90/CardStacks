@@ -69,12 +69,7 @@ final case class CollectionEntry(
   cardId:       String,
   conditions:   List[ConditionCount],
   selectedCond: String,
-  updatedAt:    Instant,
-  // Which physical storage drawer this card lives in, if the user has
-  // assigned one. None = unassigned. Defaulted so every existing
-  // construction site (save/import flows that have nothing to do with
-  // physical storage) keeps compiling unchanged.
-  drawerId:     Option[String] = None
+  updatedAt:    Instant
 ):
   /**
    * METHOD: totalQuantity
@@ -123,8 +118,7 @@ final case class OwnedCard(
   conditions:   List[ConditionCount],
   selectedCond: String,
   updatedAt:    java.time.Instant,
-  card:         Card,
-  drawerId:     Option[String] = None
+  card:         Card
 )
 
 object OwnedCard:
