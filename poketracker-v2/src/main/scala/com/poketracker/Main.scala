@@ -105,7 +105,8 @@ object Main extends ZIOAppDefault:
                        CollectionRepository.layer ++
                        UserRepository.layer ++
                        BinderRepository.layer ++
-                       RipTrackerRepository.layer)
+                       RipTrackerRepository.layer ++
+                       StorageRepository.layer)
 
         // PriceService needs CardRepository — built separately so CardService can use it
         priceLayer  = repoLayer >>> PriceService.layer
@@ -115,7 +116,8 @@ object Main extends ZIOAppDefault:
                       (CardService.layer ++
                        CollectionService.layer ++
                        UserService.layer ++
-                       BinderService.layer)
+                       BinderService.layer ++
+                       StorageService.layer)
 
         // RipTrackerService needs CardService/CollectionService (already-built
         // services, not just their repositories) plus RipTrackerRepository —
@@ -132,7 +134,8 @@ object Main extends ZIOAppDefault:
                       CollectionRoutes.routes ++
                       UserRoutes.routes ++
                       BinderRoutes.routes ++
-                      RipRoutes.routes
+                      RipRoutes.routes ++
+                      StorageRoutes.routes
 
         // CORS middleware so the React frontend (different Railway domain) can call this API.
         // Allows all origins — tighten to specific frontend URL once we know it.
