@@ -186,13 +186,16 @@ trait CardRepository:
 
   /**
    * METHOD: applyFallbackPrices
-   * PURPOSE: Patches in each card's stored fallback_price_nm (from
-   *          pokemontcg.io's own tcgplayer/cardmarket data) as its `nm`
-   *          price, but ONLY for cards that don't already have one —
-   *          TCGTracking's condition-tiered pricing always wins when it
-   *          exists. Run after every price fetch so cards TCGTracking's
-   *          set/card matching can't reach still end up with a price
-   *          instead of none at all.
+   * PURPOSE: Writes each card's stored fallback_price_nm (from
+   *          pokemontcg.io's own tcgplayer/cardmarket data, fetched with the
+   *          same request as card metadata) as its `nm` price — this is the
+   *          PRIMARY nm source, unconditionally overwriting whatever
+   *          TCGTracking wrote. Cards pokemontcg.io has no pricing for keep
+   *          whatever nm TCGTracking found, since this only touches cards
+   *          with a non-null fallback_price_nm. lp/mp/hp/dmg are always
+   *          TCGTracking's, regardless — pokemontcg.io never provides
+   *          per-condition pricing, only a single reference price. Run
+   *          after every price fetch.
    * @param setId  The set to patch
    * @return       Number of cards patched (for logging)
    */
@@ -473,10 +476,16 @@ object CardRepository:
 
     /**
      * METHOD: applyFallbackPrices (Live)
-     * PURPOSE: One statement handles both cases: no card_prices row yet
-     *          (plain insert) and a row that exists but has a null nm (the
-     *          COALESCE only fills it in when null, so a real
-     *          TCGTracking-sourced nm is never overwritten).
+     * PURPOSE: pokemontcg.io's own bundled pricing is PRIMARY for `nm` —
+     *          it's fetched with the same request as card metadata (zero
+     *          extra network calls, zero TCGTracking set-matching risk), so
+     *          it unconditionally overwrites whatever TCGTracking wrote.
+     *          TCGTracking's `nm` only survives for cards pokemontcg.io has
+     *          no pricing for at all (this INSERT...SELECT simply produces
+     *          no row for those card_ids, so nothing here touches them).
+     *          lp/mp/hp/dmg are untouched either way — pokemontcg.io never
+     *          provides per-condition data, only a single reference price,
+     *          so TCGTracking remains the sole source for those tiers.
      */
     def applyFallbackPrices(setId: String): Task[Int] =
       sql"""
@@ -484,7 +493,7 @@ object CardRepository:
         SELECT id, fallback_price_nm FROM cards
         WHERE set_id = $setId AND fallback_price_nm IS NOT NULL
         ON CONFLICT (card_id) DO UPDATE SET
-          price_nm = COALESCE(card_prices.price_nm, EXCLUDED.price_nm)
+          price_nm = EXCLUDED.price_nm
       """
         .update.run.transact(xa)
 
