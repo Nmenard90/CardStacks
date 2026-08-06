@@ -1,38 +1,23 @@
 /**
- * FILE: BulkAddPage.tsx — high-volume bulk card entry.
+ * BulkAddPage — high-volume bulk card entry.
  *
- * PURPOSE:
- *   The fast place to enter a physical pile of cards into your collection.
- *   Rewritten to fix the old page's data-loss and stale-count bugs:
- *     - Session state lives in a useReducer (one immutable source of truth),
- *       not a mutable ref with a manual re-render counter. The on-screen count
- *       and the Save button are therefore always correct.
- *     - The session is mirrored to localStorage on every change and restored on
- *       load, so navigating away — or a refresh — never loses entered cards.
- *     - A set can be selected, which makes "add by number" an instant local
- *       lookup in that set (no flaky backend number search).
- *   Three ways to add a card:
- *     1. SET + NUMBER  — pick a set, type the collector number, Enter.
- *     2. NUMBER / TOTAL — two boxes ("188" / "236") for a global number lookup
- *        when no set is selected; promos like "SWSH158" go in the left box.
- *     3. NAME SEARCH   — type a name, pick from the dropdown.
- *   "Save" merges the whole session into the existing collection in one request.
- *
- * IMPORTS EXPLAINED:
- *   useReducer/useState/useMemo/useEffect/useRef — session state, search, persistence
- *   useQuery               — load the set list, and the selected set's cards
- *   getCards/getSets/searchCards — set cards, set list, backend name/number search
- *   getCollection/bulkSave — read existing collection, then merge-save the session
- *   CardTile / usePreview  — shared tile component + hover preview overlay
- *   SetSelector / ALL_SETS — the set picker (shared with CollectionPage)
- *   LoginScreen / HeaderNav / useToast / useUser — shell + auth + feedback
- *   conditions helpers     — condition keys, price math, list <-> map conversions
- *   cardSearch helpers     — set totals + collector-number narrowing for name search
+ * HOW IT WORKS
+ *   The session's state lives in one place with one set of rules for
+ *   changing it (`reducer` below), so the on-screen count and the Save
+ *   button can never drift out of sync. The session is mirrored to
+ *   localStorage on every change and restored on load, so navigating away
+ *   — or a refresh — never loses entered cards. Three ways to add a card:
+ *     1. SET + NUMBER   — pick a set, type the collector number, Enter.
+ *        Instant local lookup, no backend search.
+ *     2. NUMBER / TOTAL — two boxes ("188" / "236") for a global number
+ *        lookup when no set is selected; promos like "SWSH158" go in the left box.
+ *     3. NAME SEARCH    — type a name, pick from the dropdown.
+ *   Save merges the whole session into the existing collection in one request.
  *
  * USED BY: App.tsx route "/bulk"
- * DEPENDS ON: GET /api/sets, GET /api/cards/:setId, GET /api/search,
- *             GET /api/collection/:userId, POST /api/collection/:userId/bulk
+ * DEPENDS ON: api/cards, api/collection, lib/cardSearch, lib/conditions
  */
+
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useReducer, useRef, useState, type KeyboardEvent } from 'react'
 import { getCards, getSets, searchCards } from '../api/cards'
@@ -53,8 +38,8 @@ import type { Card } from '../types'
 /* ─── Session state model ─────────────────────────────────────────────────── */
 
 /** One card in the session: the card, how many of each condition, and the
- *  currently-selected condition for quick +/- in the tile. `order` is a counter
- *  so the most recently added card sorts to the top of the grid. */
+ *  currently-selected condition for quick +/- in the tile. `order` is a
+ *  counter so the most recently added card sorts to the top of the grid. */
 interface Tile {
   card: Card
   conds: CondMap
@@ -68,8 +53,14 @@ interface State {
   nextOrder: number
 }
 
-/** Every mutation the session supports. The reducer is the ONLY place state
- *  changes, which is what keeps the count and Save button always accurate. */
+/**
+ * Every change the session can go through — adding a card, adjusting a
+ * quantity, clearing everything, etc. Each one is a plain object with a
+ * `type` field saying which change it is. All state changes go through
+ * `reducer` below, which is the only place that's allowed to build the
+ * next version of the session — that's what keeps the count and Save
+ * button always correct.
+ */
 type Action =
   | { type: 'add'; card: Card; condKey: string; step: number }
   | { type: 'adjSel'; cardId: string; delta: number }
@@ -81,56 +72,75 @@ type Action =
 const EMPTY: State = { tiles: {}, nextOrder: 1 }
 
 /**
- * PURPOSE: Apply a mutation to one tile, copying the tile so the update is
- *   immutable, and drop the tile entirely when it reaches zero total quantity.
- * @param state   Current session state
- * @param cardId  Which tile to change
- * @param fn      Edits the (already-copied) tile in place
- * @return        New state
+ * Changes one tile, working on a fresh copy of it so the original is
+ * never touched directly. Removes the tile entirely if it ends up with
+ * zero copies across every condition.
+ *
+ * @param fn  Makes the actual change, directly on the fresh copy handed to it.
  */
 function withTile(state: State, cardId: string, fn: (t: Tile) => void): State {
   const existing = state.tiles[cardId]
   if (!existing) return state
+
+  // A fresh copy — including its own fresh copy of `conds`, since that's
+  // what `fn` is about to change.
   const tile: Tile = { ...existing, conds: { ...existing.conds } }
   fn(tile)
+
   const tiles = { ...state.tiles }
   if (totalQty(tile.conds) === 0) delete tiles[cardId]
   else tiles[cardId] = tile
+
   return { ...state, tiles }
 }
 
 /**
- * PURPOSE: The session reducer — pure, returns a new State for every action.
- * @param state   Current state
- * @param action  What happened
- * @return        Next state
+ * Takes the current session plus one Action (see above) and returns the
+ * new session that should result. Never changes the old session directly
+ * — always builds and returns a new one. Every possible change to the
+ * session goes through here, which is what keeps the numbers on screen trustworthy.
  */
 function reducer(state: State, action: Action): State {
   switch (action.type) {
     case 'add': {
       const prev = state.tiles[action.card.id]
+
+      // Starts from the card's existing quantities if it's already in the
+      // session, or an empty set of quantities if it's brand new.
       const conds = { ...(prev?.conds ?? {}) }
       conds[action.condKey] = (conds[action.condKey] ?? 0) + action.step
+
+      // The newest tile always gets the current nextOrder, so it sorts first.
       const tile: Tile = { card: action.card, conds, selCond: action.condKey, order: state.nextOrder }
       return { tiles: { ...state.tiles, [action.card.id]: tile }, nextOrder: state.nextOrder + 1 }
     }
+
+    // The tile's own +/- buttons — changes whichever condition is selected.
     case 'adjSel':
       return withTile(state, action.cardId, t => {
         const k = t.selCond
         const n = Math.max(0, (t.conds[k] ?? 0) + action.delta)
         if (n === 0) delete t.conds[k]; else t.conds[k] = n
       })
+
+    // Types an exact quantity in directly.
     case 'setQty':
       return withTile(state, action.cardId, t => {
         if (action.qty <= 0) delete t.conds[t.selCond]; else t.conds[t.selCond] = action.qty
       })
+
+    // Changes which condition a tile's +/- buttons currently target.
     case 'selectCond':
       return withTile(state, action.cardId, t => { t.selCond = action.cond })
+
+    // Right-click on a condition badge — adjusts THAT condition directly,
+    // regardless of which one is currently selected.
     case 'adjCond':
       return withTile(state, action.cardId, t => {
         const n = Math.max(0, (t.conds[action.cond] ?? 0) + action.delta)
         if (n === 0) delete t.conds[action.cond]; else t.conds[action.cond] = n
       })
+
     case 'clear':
       return EMPTY
   }
@@ -142,28 +152,26 @@ function reducer(state: State, action: Action): State {
 const storageKey = (userId: string) => `poketracker_bulk_${userId}`
 
 /**
- * PURPOSE: Lazy initializer for the reducer — restore a saved session if one
- *   exists for this user. Runs synchronously before any persist, so it can
- *   never be clobbered by an empty write.
- * @param userId  The logged-in user's id, or undefined if not yet known
- * @return        The restored session, or an empty one
+ * Restores a saved session for this user, if one exists. Runs once, right
+ * when the page first loads, before anything gets saved back — so it can
+ * never accidentally overwrite a real saved session with an empty one.
  */
 function initSession(userId: string | undefined): State {
   if (!userId) return EMPTY
+
   try {
     const raw = localStorage.getItem(storageKey(userId))
     if (raw) {
       const parsed = JSON.parse(raw) as State
+      // A basic sanity check that this really looks like a saved session.
       if (parsed && parsed.tiles) return parsed
     }
   } catch { /* corrupt or unavailable — fall through to empty */ }
+
   return EMPTY
 }
 
-/**
- * PURPOSE: Mirror the session to localStorage; remove the key when empty so a
- *   cleared/saved session doesn't linger.
- */
+/** Mirrors the session to localStorage; removes the key when empty so a cleared/saved session doesn't linger. */
 function persistSession(userId: string, state: State) {
   try {
     if (Object.keys(state.tiles).length === 0) localStorage.removeItem(storageKey(userId))
@@ -174,26 +182,20 @@ function persistSession(userId: string, state: State) {
 /* ─── Number matching helpers ─────────────────────────────────────────────── */
 
 /**
- * PURPOSE: Strips leading zeros from the trailing digit run of a collector
- *   number, keeping any letter prefix — "007" -> "7", "SWSH001" -> "SWSH1",
- *   "GG01" -> "GG1". Numbers that don't fit "[letters][zeros][digits]" (like
- *   "7a", which has a letter AFTER the digits) are returned unchanged, which
- *   is what keeps "7a" from ever being treated as equal to "7".
+ * Strips leading zeros from the trailing digit run of a collector number,
+ * keeping any letter prefix — "007" -> "7", "SWSH001" -> "SWSH1", "GG01"
+ * -> "GG1". A number that doesn't fit that shape (like "7a", which has a
+ * letter AFTER the digits) is left unchanged, which is what keeps "7a"
+ * from ever matching "7".
  */
 function stripLeadingZeros(number: string): string {
   return number.replace(/^([a-z]*)0*(\d+)$/, '$1$2')
 }
 
 /**
- * PURPOSE: Does a card's printed number match what the user typed? Matches
- *   exactly (case-insensitive), or with leading zeros ignored on the numeric
- *   tail so "007" === "7" and — same idea — "SWSH001" === "SWSH1",
- *   "GG01" === "GG1". Never matches "7" to "7a" (the letter comes after the
- *   digits there, so stripLeadingZeros leaves it untouched and the two
- *   normalized forms differ).
- * @param cardNumber  The card's number field
- * @param typed       What the user typed in the number box
- * @return            true on a confident match
+ * Does a card's printed number match what the user typed? Matches
+ * exactly (ignoring case), or with leading zeros ignored, so "007"
+ * matches "7" and "SWSH001" matches "SWSH1". Never matches "7" to "7a".
  */
 function numberMatches(cardNumber: string, typed: string): boolean {
   const a = cardNumber.trim().toLowerCase()
@@ -203,6 +205,8 @@ function numberMatches(cardNumber: string, typed: string): boolean {
   return stripLeadingZeros(a) === stripLeadingZeros(b)
 }
 
+// This page's own styling, kept here rather than in a separate .css file
+// since it's only ever used on this one page.
 const STYLE = `
 .bulk-page .bulk-search-wrap{position:relative;flex:1;min-width:240px}
 .bulk-page .bulk-search{width:100%;font-size:15px;padding:11px 14px}
@@ -229,18 +233,22 @@ const STYLE = `
 `
 
 export function BulkAddPage() {
-  // CONTEXT + shared data
   const { user } = useUser()
   const toast = useToast()
   const preview = usePreview()
+
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets, enabled: !!user })
+
+  // setId -> set name, so a search result can show its set's name without
+  // another network request.
   const setName = useMemo(() => new Map(sets.map(s => [s.id, s.name])), [sets])
+
   const setTotals = useMemo(() => buildSetTotals(sets), [sets])
 
-  // SESSION STATE — restored from localStorage on first render.
+  // Restored from localStorage on first load — see initSession.
   const [state, dispatch] = useReducer(reducer, user?.id, initSession)
 
-  // Mirror every change back to localStorage (per user). Skipped when logged out.
+  // Saves the session back to localStorage every time it (or the user) changes.
   useEffect(() => {
     if (user) persistSession(user.id, state)
   }, [state, user])
@@ -259,10 +267,10 @@ export function BulkAddPage() {
   const [step, setStep] = useState(1)
   const [lastAdded, setLastAdded] = useState('')
 
-  // NUMBER ENTRY — one box. Accepts a bare number ("7") when a set is picked,
-  // or "number/total" ("080/198") to find the set globally — same "N/D" parsing
-  // the Name search box already does, so there's only ever one field to type
-  // into and Enter always submits (no tabbing to a second box for every card).
+  // NUMBER ENTRY — one box. Accepts a bare number ("7") when a set is
+  // picked, or "number/total" ("080/198") to find the set globally — same
+  // "N/D" parsing the Name search box already does, so there's only ever
+  // one field to type into and Enter always submits.
   const [numInput, setNumInput] = useState('')
   const [numFlash, setNumFlash] = useState<{ text: string; err: boolean } | null>(null)
   const [numBusy, setNumBusy] = useState(false)
@@ -276,14 +284,12 @@ export function BulkAddPage() {
   const [hi, setHi] = useState(0)
   const searchRef = useRef<HTMLInputElement>(null)
 
-  // SAVE
   const [saving, setSaving] = useState(false)
 
-  // Debounced search. All state updates happen inside the timeout callback
-  // (asynchronously), which keeps the effect body free of synchronous setState.
-  // A "number/total" query (e.g. "080/198") is resolved the reliable way — find
-  // the set by its total, load it, and match the number — instead of the backend
-  // text search, so the Name box works for numbers too.
+  // Waits a moment after typing stops before actually searching, so the
+  // backend isn't hit on every keystroke. A "number/total" query (e.g.
+  // "080/198") is resolved by finding the set by its total, loading it,
+  // and matching the number — more reliable than the plain text search.
   useEffect(() => {
     const q = query.trim()
     const delay = q.length < 2 ? 0 : 250
@@ -293,10 +299,12 @@ export function BulkAddPage() {
       setSearching(true)
       setSearchErr(false)
       try {
+        // Checks whether the whole typed text is "number/total".
         const slash = q.match(/^([A-Za-z0-9]+)\s*\/\s*(\d+)$/)
         if (slash) {
-          // "<number>/<total>" — the total identifies the set(s) to look in.
           const [, numStr, denStr] = slash
+
+          // Finds every set whose printed or real total matches what was typed.
           const candidates = sets.filter(s => String(s.printedTotal) === denStr || String(s.total) === denStr)
           const found: Card[] = []
           for (const s of candidates) {
@@ -305,6 +313,8 @@ export function BulkAddPage() {
           }
           setResults(found.slice(0, 40))
         } else {
+          // A normal name/number search, then the same narrowing used on
+          // the main Collection page.
           const hits = await searchCards(q)
           setResults(narrowByCollectorNumber(hits, q, setTotals).slice(0, 40))
         }
@@ -314,10 +324,11 @@ export function BulkAddPage() {
         setSearching(false)
       }
     }, delay)
+
     return () => clearTimeout(timer)
   }, [query, setTotals, sets])
 
-  // Derived session views — plain memoized reads of real state (no re-render hacks).
+  // The session's tiles, newest first.
   const tiles = useMemo(
     () => Object.values(state.tiles).sort((a, b) => b.order - a.order),
     [state.tiles],
@@ -339,22 +350,23 @@ export function BulkAddPage() {
   /** Brief confirmation shown under the number boxes. */
   const flash = (text: string, err: boolean) => {
     setNumFlash({ text, err })
+    // Errors stay visible longer (1.6s) than confirmations (1.1s), so
+    // there's more time to actually read what went wrong.
     window.setTimeout(() => setNumFlash(null), err ? 1600 : 1100)
   }
 
   /**
-   * PURPOSE: Lets the whole add flow run from the number field without ever
-   *   leaving the physical numpad — none of `+ - * .` are valid characters
-   *   in a real collector number, so binding them here can't collide with
-   *   typing an actual number.
-   *   `*` cycles Condition, `+`/`-` adjust the quantity step, `.` toggles
-   *   1st Ed. Digits, `/`, and Enter fall through to the normal typing/
-   *   submit behavior untouched.
+   * Lets the whole add flow run from the number field without ever
+   * leaving the physical numpad — none of `+ - * .` are valid characters
+   * in a real collector number, so binding them here can't collide with
+   * typing an actual number. `*` cycles Condition, `+`/`-` adjust the
+   * quantity step, `.` toggles 1st Ed.
    */
   const onNumKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') { e.preventDefault(); addByNumber(); return }
     if (e.key === '*') {
       e.preventDefault()
+      // Moves to the next condition, wrapping back to the first after the last.
       setCond(c => CONDS[(CONDS.indexOf(c) + 1) % CONDS.length])
     } else if (e.key === '+') {
       e.preventDefault()
@@ -369,27 +381,24 @@ export function BulkAddPage() {
   }
 
   /**
-   * PURPOSE: Add a card from the number box.
-   *   Parses `numInput` as either a bare number ("7") or "number/total"
-   *   ("080/198") — same "N/D" pattern the Name search box already
-   *   recognizes, kept in one field so Enter always submits without ever
-   *   needing to tab to a second box.
-   *   - Set selected → instant local match in that set's loaded cards (the
-   *     "/total" part, if typed, is ignored — the set already disambiguates).
-   *   - No set, but a total given → use the total to find the set(s), load each
-   *     (getCards falls back to the API and pulls prices), and match the number
-   *     there. This avoids the unreliable global text search entirely.
-   *   - No set and no total → a bare number is ambiguous across sets, so ask for
-   *     a total or a set rather than guessing.
+   * Adds a card from the number box. Parses `numInput` as either a bare
+   * number ("7") or "number/total" ("080/198"):
+   *   - Set selected → instant local match in that set's cards (any
+   *     "/total" typed is ignored — the set already picks it).
+   *   - No set, but a total given → uses the total to find the set(s),
+   *     loads each, and matches the number there.
+   *   - No set and no total → a bare number is ambiguous across sets, so
+   *     this asks for a total or a set instead of guessing.
    */
   const addByNumber = async () => {
     const raw = numInput.trim()
     if (!raw || numBusy) return
+
     const slash = raw.match(/^([A-Za-z0-9]+)\s*\/\s*(\d+)$/)
     const n = slash ? slash[1] : raw
     const d = slash ? slash[2] : ''
 
-    // Fast path: a set is selected → match against its already-loaded cards.
+    // Fast path: a set is selected, so just match against its own cards.
     if (activeSet) {
       const card = setCards.find(c => numberMatches(c.number, n))
       if (card) { addCard(card); flash(`✓ #${card.number} ${card.name}`, false); setNumInput('') }
@@ -398,14 +407,13 @@ export function BulkAddPage() {
       return
     }
 
-    // Global path: the total identifies the set; a bare number can't.
+    // No set selected — the total is what identifies which set(s) to look in.
     if (!d) { flash('type number/total (e.g. 7/198), or pick a set above', true); numRef.current?.focus(); return }
     const candidates = sets.filter(s => String(s.printedTotal) === d || String(s.total) === d)
     if (candidates.length === 0) { flash(`no set with total ${d}`, true); numRef.current?.focus(); return }
 
     setNumBusy(true)
     try {
-      // Collect every card matching this number across all sets with that total.
       const matches: Card[] = []
       for (const s of candidates) {
         const cards = await getCards(s.id)
@@ -415,17 +423,15 @@ export function BulkAddPage() {
         flash(`no card #${n}/${d}`, true)
         numRef.current?.focus()
       } else if (matches.length === 1) {
-        // Unambiguous → add it directly (the fast path).
         addCard(matches[0])
         flash(`✓ #${matches[0].number} ${matches[0].name}`, false)
         setNumInput('')
         numRef.current?.focus()
       } else {
-        // Several sets share this number + total. Don't guess — hand the matches
-        // to the dropdown so the user picks the right set by name. Focus must
-        // stay on the search box: refocusing the number box here would blur
-        // the search input and its onBlur handler would immediately clear the
-        // query/results we just set, wiping out the dropdown before it's seen.
+        // Several sets share this number + total — don't guess. Hand it
+        // to the name search dropdown so the user can pick by set name.
+        // Focus stays on the search box: refocusing the number box here
+        // would blur the search box and clear the results we just set.
         setNumInput('')
         setQuery(`${n}/${d}`)
         searchRef.current?.focus()
@@ -446,6 +452,8 @@ export function BulkAddPage() {
     if (results.length) {
       addCard(results[hi] ?? results[0]); setQuery(''); setResults([]); searchRef.current?.focus(); return
     }
+    // No dropdown results yet (Enter pressed before the debounced search
+    // even ran) — do a fresh, immediate search right now instead.
     try {
       const hits = await searchCards(q)
       if (hits.length) { addCard(hits[0]); setQuery(''); setResults([]) }
@@ -463,9 +471,10 @@ export function BulkAddPage() {
   }
 
   /**
-   * PURPOSE: Merge the session into the existing collection and POST once.
-   *   Reads the current collection first so quantities are additive, not
-   *   replacing. On success clears the session; on failure leaves it intact.
+   * Merges the session into the existing collection and sends it as one
+   * request. Reads the current collection first so quantities are ADDED
+   * on top, not replaced. Clears the session on success; leaves it
+   * untouched on failure so nothing is ever lost.
    */
   const save = async () => {
     if (tiles.length === 0) { toast('Nothing to save yet.'); return }
@@ -473,22 +482,31 @@ export function BulkAddPage() {
     try {
       const existing = await getCollection(user.id)
       const byCard = new Map(existing.map(e => [e.cardId, e]))
+
       const items: BulkItem[] = tiles.map(t => {
         const prior = byCard.get(t.card.id)
+
+        // Starts from what's already saved (if anything), then adds the
+        // session's newly-entered quantities on top — this is what makes
+        // the save additive rather than a plain overwrite.
         const map: CondMap = prior ? fromCondList(prior.conditions) : {}
         for (const k of Object.keys(t.conds)) map[k] = (map[k] ?? 0) + t.conds[k]
+
         return {
           cardId: t.card.id,
           conditions: toCondList(map, t.card),
           selectedCond: prior?.selectedCond ?? baseCond(t.selCond),
         }
       })
+
       await bulkSave(user.id, items)
       const n = tiles.reduce((s, t) => s + totalQty(t.conds), 0)
       toast(`Saved ${n} cards across ${items.length} unique cards.`)
+
       dispatch({ type: 'clear' })
       setLastAdded('')
     } catch {
+      // Nothing was lost — the session is left intact so Save can just be tried again.
       toast('Save failed — nothing was stored. Your session is still here.')
     } finally {
       setSaving(false)
@@ -567,6 +585,9 @@ export function BulkAddPage() {
               ref={searchRef} className="bulk-search" type="text" value={query}
               placeholder="Search by name — e.g. Charizard"
               onChange={e => setQuery(e.target.value)}
+              // A short delay before clearing on blur: clicking a dropdown
+              // result also briefly blurs this box just before the click
+              // registers, so clearing instantly would make the click miss.
               onBlur={() => window.setTimeout(() => { setResults([]); setQuery('') }, 150)}
               onKeyDown={e => {
                 if (e.key === 'Enter') { e.preventDefault(); onSearchEnter() }
@@ -583,6 +604,7 @@ export function BulkAddPage() {
                 )}
                 {!searching && !searchErr && results.length === 0 && <div className="bulk-hint">No matches.</div>}
                 {results.map((card, i) => {
+                  // How many are already in the CURRENT session (not the saved collection).
                   const have = totalQty(state.tiles[card.id]?.conds ?? {})
                   return (
                     <button
@@ -631,6 +653,8 @@ export function BulkAddPage() {
             )}
             {tiles.length > 0 && (
               <div className="card-grid">
+                {/* Each tile's callbacks dispatch an Action to the reducer
+                    above, instead of calling a state-updating function directly. */}
                 {tiles.map(t => (
                   <CardTile
                     key={t.card.id} card={t.card} conds={t.conds} selCond={t.selCond}

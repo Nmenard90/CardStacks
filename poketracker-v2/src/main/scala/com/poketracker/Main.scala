@@ -1,53 +1,14 @@
 /**
- * FILE: Main.scala
- * PACKAGE: com.poketracker
- * LOCATION: src/main/scala/com/poketracker/Main.scala
+ * Main — application entry point. Reads DB config, opens the connection,
+ * wires every repository/service/route layer together, and starts the
+ * HTTP server.
  *
- * PURPOSE:
- *   The entry point of the entire application.
- *   Wires all layers together and starts the HTTP server.
- *   This is the only file that knows how everything connects.
- *
- * HOW THE APP STARTS:
- *   1. Read database config from environment variables
- *   2. Create the database connection pool (Transactor)
- *   3. Build the dependency graph: Transactor → Repositories → Services → Routes
- *   4. Start the HTTP server on the configured port
- *
- * WHAT IS A ZLAYER?
- *   ZLayer is ZIO's dependency injection system.
- *   Instead of passing dependencies manually through every function,
- *   we define layers that declare what they need and what they provide.
- *   ZIO wires them together automatically at startup.
- *
- *   Example chain:
- *     Transactor (needs: DB config)
- *       → CardRepository (needs: Transactor)
- *         → CardService (needs: CardRepository)
- *           → CardRoutes (needs: CardService)
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * IMPORTS EXPLAINED:
- *
- *   com.poketracker.api.*
- *     All route objects — CardRoutes, CollectionRoutes, UserRoutes, BinderRoutes.
- *
- *   com.poketracker.config.DatabaseConfig
- *     Reads DB connection settings and creates the connection pool.
- *
- *   com.poketracker.repository.*
- *     All repository layers — CardRepository, CollectionRepository, etc.
- *
- *   com.poketracker.service.*
- *     All service layers — CardService, CollectionService, etc.
- *
- *   zio.*
- *     ZIO core — ZIOAppDefault, ZLayer, ZIO.logInfo, Scope etc.
- *
- *   zio.http.*
- *     Server — starts the HTTP server on the configured port.
- *     Routes — combines multiple route sets into one.
- * ─────────────────────────────────────────────────────────────────────────────
+ * HOW IT WORKS
+ *   Layers build strictly bottom-up: repositories (need only the DB
+ *   connection) -> services (need repositories, and in RipTrackerService's
+ *   case, other already-built services) -> routes (need services). See
+ *   inline comments below for why RipTrackerService and PriceService are
+ *   each built as their own step rather than folded into the main batch.
  *
  * DEPENDS ON: All routes, services, repositories, DatabaseConfig
  */
@@ -61,45 +22,17 @@ import com.poketracker.service.*
 import zio.*
 import zio.http.*
 
-/**
- * OBJECT: Main
- * PURPOSE: Application entry point. Extends ZIOAppDefault which provides
- *          the ZIO runtime and calls our run method automatically.
- */
 object Main extends ZIOAppDefault:
 
-  /**
-   * VALUE: run
-   * PURPOSE: The root ZIO effect representing the entire running application.
-   *          Never completes normally — runs until the process is stopped.
-   *
-   * @return ZIO[Any, Throwable, Unit]
-   *         Needs:       Nothing — ZIOAppDefault provides the environment
-   *         Fails with:  Throwable if startup fails (bad config, DB unreachable)
-   *         Produces:    Unit — runs forever serving requests
-   */
   val run: ZIO[Any, Throwable, Unit] =
+    // Scope guarantees the DB connection closes if the app ever stops.
     ZIO.scoped {
       for
-        // Step 1: Read database connection settings from environment variables.
-        // Fails immediately with a clear message if any required variable is missing.
         config     <- DatabaseConfig.fromEnv
-
-        // Step 2: Open the database connection pool.
-        // Kept open for the entire lifetime of the app.
-        // Automatically closed when the app stops (managed by Scope).
         transactor <- DatabaseConfig.makeTransactor(config)
-
         _          <- ZIO.logInfo("Database connection pool ready")
-
-        // Step 3: Read the port from the PORT environment variable.
-        // Railway sets PORT automatically. Default to 8080 for local dev.
         port       <- System.env("PORT").map(_.flatMap(_.toIntOption).getOrElse(8080))
 
-        // Step 4: Build the dependency layers.
-        // Each layer declares what it needs and ZIO provides it automatically.
-        // The transactor is shared across all repositories.
-        // Build repositories from transactor
         repoLayer   = ZLayer.succeed(transactor) >>>
                       (CardRepository.layer ++
                        CollectionRepository.layer ++
@@ -108,10 +41,9 @@ object Main extends ZIOAppDefault:
                        RipTrackerRepository.layer ++
                        StorageRepository.layer)
 
-        // PriceService needs CardRepository — built separately so CardService can use it
+        // Built separately so CardService.layer can depend on it directly below.
         priceLayer  = repoLayer >>> PriceService.layer
 
-        // Build services from repositories + PriceService
         coreServices = (repoLayer ++ priceLayer) >>>
                       (CardService.layer ++
                        CollectionService.layer ++
@@ -119,16 +51,12 @@ object Main extends ZIOAppDefault:
                        BinderService.layer ++
                        StorageService.layer)
 
-        // RipTrackerService needs CardService/CollectionService (already-built
-        // services, not just their repositories) plus RipTrackerRepository —
-        // built as its own step since it depends on coreServices' output.
+        // Needs both the raw repositories AND the already-built core
+        // services above (not just their repositories), so it can't join the batch.
         ripLayer    = (repoLayer ++ coreServices) >>> RipTrackerService.layer
 
         appLayer    = coreServices ++ ripLayer
 
-        // Step 5: Combine all routes into one.
-        // The health check is defined inline — no service needed for it.
-        // All other routes are defined in their respective route files.
         allRoutes   = Routes(Method.GET / "health" -> Handler.ok) ++
                       CardRoutes.routes ++
                       CollectionRoutes.routes ++
@@ -137,11 +65,8 @@ object Main extends ZIOAppDefault:
                       RipRoutes.routes ++
                       StorageRoutes.routes
 
-        // CORS middleware so the React frontend (different Railway domain) can call this API.
-        // Allows all origins — tighten to specific frontend URL once we know it.
-        // allowCredentials must NOT be Allow when allowedOrigin is wildcard (*) —
-        // browsers reject that combination.  We don't use cookies (userId is in the URL)
-        // so Allow is unnecessary; drop it to use the safe default (Deny).
+        // Required so the frontend (served from a different origin) isn't
+        // blocked by browser CORS checks.
         cors        = Middleware.cors(Middleware.CorsConfig(
                         allowedOrigin    = _ => Some(Header.AccessControlAllowOrigin.All),
                         allowedMethods   = Header.AccessControlAllowMethods.All,
@@ -151,12 +76,7 @@ object Main extends ZIOAppDefault:
                       ))
 
         _          <- ZIO.logInfo(s"Starting PokéTracker API on port $port")
-
-        // Step 6: Start the HTTP server.
-        // Server.serve blocks forever — it keeps running and handling requests.
-        // We provide both the app layer (services/repos) and the server config.
         _          <- Server.serve(allRoutes @@ cors)
                         .provide(appLayer, Server.defaultWithPort(port))
-
       yield ()
     }

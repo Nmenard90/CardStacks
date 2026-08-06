@@ -1,32 +1,13 @@
 /**
- * FILE: RipTracker.scala
- * PACKAGE: com.poketracker.models
- * LOCATION: src/main/scala/com/poketracker/models/RipTracker.scala
+ * Data shapes for Rip Tracker (box-opening EV): sealed products, what's
+ * guaranteed inside them, per-card pull odds, and the sessions users run.
+ * Schema only — no DB code, no math, no routes.
  *
- * PURPOSE:
- *   Data model for the Rip Tracker / Rip-or-Hold feature: sealed products,
- *   their guaranteed contents and pull-rate odds, and the box/pack-opening
- *   sessions users run against them.
+ * Every dollar figure this feeds into the EV math must come from real
+ * market data; nothing here stores a price directly. A missing price is
+ * "not found," never guessed.
  *
- *   This file is schema-and-models only — no repositories, services, routes,
- *   pull-rate math, or seed data. Those are separate, later pieces of work
- *   that read these types; this file (and Migration 004 in sql/schema.sql)
- *   is the frozen contract they build against.
- *
- * DATA INTEGRITY RULE THIS MODEL EXISTS TO SUPPORT:
- *   Every card/product value the Rip-or-Hold engine outputs must come from
- *   real TCGTracking market data. A missing price is surfaced as "price not
- *   found," never estimated/multiplied/interpolated. Nothing in this file
- *   stores a price directly (prices come from CardPrices/CardVariant) — it
- *   only stores the structure (what's guaranteed, what the odds are) that
- *   the EV engine later combines with real prices.
- *
- * IMPORTS:
- *   zio.json.* — JsonCodec/DeriveJsonCodec for automatic JSON conversion
- *   java.time.Instant — JVM standard type for a point in time (UTC timestamp)
- *
- * USED BY: (future) RipTrackerRepository, RipTrackerService, RipRoutes,
- *   the rip-or-hold EV engine
+ * USED BY: (future) RipTrackerRepository, RipTrackerService, RipRoutes
  */
 
 package com.poketracker.models
@@ -35,33 +16,13 @@ import zio.json.*
 import java.time.Instant
 
 /**
- * CASE CLASS: SealedProduct
+ * A purchasable sealed product (booster box, ETB, blister, tin, ...) tied to a set.
  *
- * PURPOSE:
- *   One purchasable sealed product — a booster box, ETB, blister, tin, or
- *   premium collection — tied to a set.
- *
- * @param id                      UUID primary key.
- * @param name                    Display name, e.g. "Surging Sparks Booster Box".
- * @param setId                   Which set this product belongs to.
- * @param kind                    Free-text product kind: "booster_box", "etb",
- *                                "blister", "tin", "premium_collection", etc.
- *                                Not an enum on purpose — new product kinds
- *                                ship faster than a schema/enum migration would.
- * @param packCount               How many booster packs this product contains.
- * @param hasGuarantee            Whether this product's packs are constrained to
- *                                deliver a specific guaranteed pull (rare — most
- *                                English booster boxes are ungoverned and this is
- *                                false). See ProductGuarantee: rows there only
- *                                exist when this is true. The EV engine must
- *                                check this flag explicitly, never infer a
- *                                guarantee from the presence/absence of rows.
- * @param currentSealedPrice      Current real market price for the sealed product
- *                                itself, if known.
- * @param sealedPriceSource       Where currentSealedPrice came from, e.g.
- *                                "TCGTracking sealed listing".
- * @param sealedPriceUpdatedAt    When currentSealedPrice was last refreshed.
- * @param createdAt/updatedAt     Row bookkeeping timestamps.
+ * @param kind          Free-text category ("booster_box", "etb", ...) —
+ *                      not an enum, so a new product kind never needs a migration.
+ * @param hasGuarantee  Whether this product's packs guarantee something
+ *                      specific. Rare — most English booster boxes are not.
+ *                      ProductGuarantee rows only exist when this is true.
  */
 final case class SealedProduct(
   id:                   String,
@@ -80,38 +41,13 @@ final case class SealedProduct(
 object SealedProduct:
   given JsonCodec[SealedProduct] = DeriveJsonCodec.gen[SealedProduct]
 
-/**
- * CASE CLASS: PackSlot
- *
- * PURPOSE:
- *   One slot in a pack's structure — e.g. "1 Rare-or-better slot". Stored as
- *   part of PackTemplate.slots (a JSONB array), not its own table — a pack's
- *   slot structure is always read as a whole, never queried by individual slot.
- *
- * @param rarity  Which rarity tier this slot draws from, e.g. "Rare Holo".
- *                Matches the free-text rarity strings already used on Card.
- * @param count   How many cards this slot contributes to the pack.
- */
+/** One guaranteed slot in a pack, e.g. "1 card Rare Holo or better." */
 final case class PackSlot(rarity: String, count: Int)
 
 object PackSlot:
   given JsonCodec[PackSlot] = DeriveJsonCodec.gen[PackSlot]
 
-/**
- * CASE CLASS: PackTemplate
- *
- * PURPOSE:
- *   The slot structure of one pack for a sealed product. Usually one
- *   template per product; a product can have more than one when it genuinely
- *   has pack variants.
- *
- * @param id               UUID primary key.
- * @param sealedProductId  Which product this template describes a pack of.
- * @param name             Template name, e.g. "Standard Pack" (default) —
- *                         distinguishes variants when a product has more than one.
- * @param slots            The pack's slot structure.
- * @param createdAt        Row bookkeeping timestamp.
- */
+/** Usually one per product; more than one only for products with genuine pack variants. */
 final case class PackTemplate(
   id:              String,
   sealedProductId: String,
@@ -124,23 +60,11 @@ object PackTemplate:
   given JsonCodec[PackTemplate] = DeriveJsonCodec.gen[PackTemplate]
 
 /**
- * CASE CLASS: ProductInsert
+ * A guaranteed extra that ships WITH a product but isn't inside the packs
+ * — a promo card, code card, player's guide. (ProductGuarantee below is
+ * about what's inside the packs.)
  *
- * PURPOSE:
- *   A guaranteed non-pack item that comes with a sealed product — a promo
- *   card, code card, player's guide. Distinct from ProductGuarantee, which
- *   is about what's guaranteed to come out of the PACKS themselves.
- *
- * @param id               UUID primary key.
- * @param sealedProductId  Which product this insert comes with.
- * @param cardId           The card this insert is, if it's a priced card.
- *                         None for non-card inserts (player's guide, code card) —
- *                         description explains what it is in that case.
- * @param description      What this insert is, when it isn't a catalog card.
- * @param guaranteed       Whether this insert is guaranteed present (true for
- *                         nearly all inserts — the field exists for the rare
- *                         case of a chase/random extra that isn't guaranteed).
- * @param quantity         How many of this insert come with the product.
+ * @param cardId  None for non-card inserts (player's guide) — description covers those instead.
  */
 final case class ProductInsert(
   id:              String,
@@ -155,25 +79,11 @@ object ProductInsert:
   given JsonCodec[ProductInsert] = DeriveJsonCodec.gen[ProductInsert]
 
 /**
- * CASE CLASS: ProductGuarantee
+ * What's guaranteed inside the packs — only populated when
+ * SealedProduct.hasGuarantee is true; most products have zero rows here,
+ * which is expected.
  *
- * PURPOSE:
- *   What's guaranteed to come out of the PACKS of a product, for products
- *   where SealedProduct.hasGuarantee is true. Ungoverned products (most
- *   English booster boxes, hasGuarantee=false) have zero rows here — that
- *   absence, plus the explicit flag, is what the EV engine checks before
- *   applying any "guaranteed pull" logic. Never inferred from row presence
- *   alone, since a product could legitimately have no guarantee rows yet
- *   simply because they haven't been curated (see Agent 2 seed work).
- *
- * @param id               UUID primary key.
- * @param sealedProductId  Which product this guarantee applies to.
- * @param rarity           Guarantee by rarity tier, e.g. "at least one Rare
- *                         Holo". Mutually exclusive with cardId — exactly one
- *                         of the two is set.
- * @param cardId           Guarantee of a specific card. Mutually exclusive
- *                         with rarity.
- * @param quantity         How many of the guaranteed rarity/card.
+ * @param rarity/cardId  Exactly one of these two is set, never both.
  */
 final case class ProductGuarantee(
   id:              String,
@@ -187,29 +97,13 @@ object ProductGuarantee:
   given JsonCodec[ProductGuarantee] = DeriveJsonCodec.gen[ProductGuarantee]
 
 /**
- * CASE CLASS: PullRate
+ * One row of the odds table. Real, sourced data the simulation reads
+ * from — never derived here.
  *
- * PURPOSE:
- *   The odds table entry: how likely one card is to appear in a single pack
- *   of a given product. This is the input the Monte Carlo / EV engine
- *   samples from — it is never derived or estimated here.
- *
- * @param id                   UUID primary key.
- * @param cardId               The card this rate is for.
- * @param sealedProductId      Which product this rate applies to. Scoped to
- *                             the product (not just the set) because the same
- *                             card's rate can differ between, say, a booster
- *                             box and an ETB from the same set.
- * @param perPackProbability   Probability this card appears in one pack of
- *                             this product, e.g. 0.00390625 for a 1-in-256 pull.
- * @param source               "published" (official/printed odds) or
- *                             "community" (crowd-sourced pull counting) —
- *                             never conflated; the engine/UI must be able to
- *                             tell them apart.
- * @param sampleSize           How many packs a community figure is based on.
- *                             None for published rates, or when genuinely
- *                             unknown — never guessed.
- * @param createdAt            Row bookkeeping timestamp.
+ * @param sealedProductId  Tied to the product, not just the set — the
+ *                         same card's odds can differ between a booster
+ *                         box and an ETB from the same set.
+ * @param source           "published" or "community" — always kept distinguishable.
  */
 final case class PullRate(
   id:                 String,
@@ -224,11 +118,6 @@ final case class PullRate(
 object PullRate:
   given JsonCodec[PullRate] = DeriveJsonCodec.gen[PullRate]
 
-/**
- * ENUM: RipSessionStatus
- * PURPOSE: Lifecycle of a rip session. Enum (not raw String) so the compiler
- *          rejects any value that isn't one of these two.
- */
 enum RipSessionStatus:
   case InProgress, Completed
 
@@ -245,18 +134,6 @@ object RipSessionStatus:
     }
   )
 
-/**
- * CASE CLASS: RipSession
- *
- * PURPOSE:
- *   One box/pack-opening session for one user against one sealed product.
- *
- * @param id               UUID primary key.
- * @param userId           Who's running this rip.
- * @param sealedProductId  Which product is being opened.
- * @param status           Lifecycle state.
- * @param createdAt        When the session was started.
- */
 final case class RipSession(
   id:              String,
   userId:          String,
@@ -268,17 +145,7 @@ final case class RipSession(
 object RipSession:
   given JsonCodec[RipSession] = DeriveJsonCodec.gen[RipSession]
 
-/**
- * CASE CLASS: RipPack
- *
- * PURPOSE:
- *   One pack within a rip session. Auto-generated from the product's
- *   packCount when the session is created (rip-session API, later work).
- *
- * @param id            UUID primary key.
- * @param ripSessionId  Which session this pack belongs to.
- * @param packIndex     0-based position of this pack within the session.
- */
+/** One pack within a session — a session opening 36 packs gets 36 of these rows. */
 final case class RipPack(
   id:           String,
   ripSessionId: String,
@@ -288,23 +155,7 @@ final case class RipPack(
 object RipPack:
   given JsonCodec[RipPack] = DeriveJsonCodec.gen[RipPack]
 
-/**
- * CASE CLASS: Pull
- *
- * PURPOSE:
- *   One scanned card from one pack — the per-card provenance record tying a
- *   card to exactly which pack/session it came from, and which collection
- *   entry it landed in.
- *
- * @param id                  UUID primary key.
- * @param ripPackId           Which pack this card was pulled from.
- * @param cardId              The card that was pulled.
- * @param condition           Condition it was logged in, e.g. "NM".
- * @param collectionEntryId   Provenance link to the collection_entries row
- *                            this pull added to. None until the rip-session
- *                            API (later work) writes it.
- * @param createdAt           When this pull was recorded.
- */
+/** One scanned card, tying it to the exact pack/session and the collection row it landed in. */
 final case class Pull(
   id:                String,
   ripPackId:         String,

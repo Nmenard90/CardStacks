@@ -9,6 +9,7 @@
 @import './styles/binder.css';
 @import './styles/analyzer.css';
 @import './styles/convention.css';
+@import './styles/collection-shelf.css';
 
 /* Single design-token source for the whole app. Every page used to define
  * its own slightly-different copy of these (different background shades,

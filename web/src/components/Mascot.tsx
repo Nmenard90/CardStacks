@@ -1,15 +1,12 @@
 /**
- * FILE: Mascot.tsx
- * LOCATION: src/components/Mascot.tsx
- *
- * PURPOSE:
- *   A small recurring character (a friendly Poké Ball buddy) used in empty
- *   states, the login screen, and loading spots — gives the app a face
- *   instead of just being a UI kit. Pure inline SVG, no external assets.
+ * Small recurring Poké Ball mascot for empty states and the login screen.
+ * Pure inline SVG (shapes, not an image asset) so it scales cleanly and
+ * needs no network round trip.
  *
  * USED BY: LoginScreen, and empty states across OwnedPage/ShelfPage/
  *   AnalyzerPage/ConventionPage/BulkAddPage.
  */
+
 import type { ReactNode } from 'react'
 
 interface MascotProps {
@@ -26,14 +23,17 @@ export function Mascot({ size = 96, mood = 'idle', caption }: MascotProps) {
           <clipPath id="mascot-ball-clip">
             <circle cx="50" cy="50" r="43" />
           </clipPath>
+
           <g clipPath="url(#mascot-ball-clip)">
             <rect x="0" y="0" width="100" height="50" fill="var(--red)" />
             <rect x="0" y="50" width="100" height="50" fill="#f5f5f7" />
           </g>
+
           <circle cx="50" cy="50" r="43" fill="none" stroke="#000" strokeWidth="5" />
           <rect x="4" y="46.5" width="92" height="7" fill="#000" />
           <circle cx="50" cy="50" r="13" fill="#f5f5f7" stroke="#000" strokeWidth="5" />
           <circle cx="50" cy="50" r="5" fill="#d8d8dc" />
+
           {mood === 'idle' ? (
             <>
               <circle className="mascot-eye" cx="30" cy="30" r="4.5" fill="#000" />
@@ -50,6 +50,7 @@ export function Mascot({ size = 96, mood = 'idle', caption }: MascotProps) {
           )}
         </svg>
       </div>
+
       {caption && <p className="mascot-caption">{caption}</p>}
     </div>
   )

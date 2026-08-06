@@ -1,22 +1,17 @@
 /**
- * FILE: App.tsx
- * LOCATION: src/App.tsx
+ * App — application shell.
  *
- * PURPOSE:
- *   Application shell. Wires up React Query (server cache), the user
- *   session provider, the global toast, and the four routes — mirroring
- *   the old app's URLs: / (tracker), /shelf (binders), /binder/:binderId
- *   (one binder), /analyzer (trade analyzer).
+ * HOW IT WORKS
+ *   Wires up React Query (server-state cache), the user session provider,
+ *   the global toast, and react-router's routes — one per top-level page.
+ *   Provider nesting order is deliberate: QueryClient outermost since any
+ *   provider below it may read from the cache, then UserProvider, then
+ *   ToastProvider, then routing last since it only needs to know which
+ *   page to render.
  *
- * IMPORTS EXPLAINED:
- *   BrowserRouter/Routes/Route — client-side routing (react-router-dom)
- *   QueryClient/Provider       — request caching for sets/cards/binders
- *   UserProvider               — who is logged in, persisted to localStorage
- *   ToastProvider              — the bottom-right toast from the old app
- *
- * USED BY: main.tsx
  * DEPENDS ON: pages/*, context/UserContext, components/Toast
  */
+
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { UserProvider } from './context/UserContext'
@@ -29,27 +24,17 @@ import { ConventionModePage } from './pages/ConventionModePage'
 import { BulkAddPage } from './pages/BulkAddPage'
 import { OwnedPage } from './pages/OwnedPage'
 
-/**
- * VALUE: queryClient
- * PURPOSE: One shared React Query cache. Sets and cards change rarely,
- *          so a 5-minute staleTime avoids refetching on every navigation.
- */
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 1000 * 60 * 5, // cache for 5 minutes
-      retry: 1,                 // one retry, then surface the error
+      staleTime: 1000 * 60 * 5, // sets/cards change rarely; avoids refetching on every nav
+      retry: 1,
     },
   },
 })
 
-/**
- * COMPONENT: App
- * PURPOSE: Mounts providers and routes. Pages handle their own login
- *          gating — the tracker shows the login screen, the others
- *          bounce back to "/" when nobody is signed in.
- * @returns The root React element
- */
+/** Pages handle their own login gating — CollectionPage shows the login
+ *  screen itself; the rest redirect to "/" when nobody's signed in. */
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>

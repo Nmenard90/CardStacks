@@ -1,38 +1,16 @@
 /**
- * FILE: CollectionPage.tsx
- * LOCATION: src/pages/CollectionPage.tsx
+ * The main page for finding and logging cards. Search works across every
+ * set at once — picking a set first is optional, not required. Quantity
+ * edits update the screen immediately and save to the backend in the
+ * background.
  *
- * PURPOSE:
- *   The main page for finding and logging cards. There are two ways to find a
- *   card, and finding one NEVER requires picking a set first:
- *     - Search box (primary): type any name or number and the backend searches
- *       every set at once. With 2+ characters the grid shows cross-set results.
- *     - Set browser (optional): the SetSelector narrows the grid to a single set
- *       when you want to work through one. It is a convenience, not a gate.
- *   Quantity edits are optimistic: the local map updates immediately and the
- *   change is POSTed to the Scala API.
+ * UNUSED: old duplicate from an earlier reorganization — nothing imports
+ * this file. The live page is web/src/pages/CollectionPage.tsx. Kept for
+ * reference.
  *
- *   "My Collection" (every owned card across all sets) is its own page at /owned.
- *   Quick-add and the Recently Added sidebar live on the Bulk Add page (/bulk).
- *
- * IMPORTS EXPLAINED:
- *   useQuery/useQueryClient — cache sets/cards/stats; invalidate stats on save
- *   getCards/getSets/searchCards — one set's cards, set list, all-sets search
- *   bulkSave/getCollection/getStats/saveEntry — collection read + writes
- *   CardTile        — one card cell (thumbnail, price, +/- stepper, conditions)
- *   usePreview      — large hover-image overlay
- *   HeaderNav       — shared, always-visible page navigation
- *   ImportModal     — CSV import dialog
- *   LoginScreen     — shown when nobody is signed in
- *   SetSelector     — optional set picker for browsing one set
- *   useToast/useUser — notifications + current session
- *   conditions.*    — price/quantity helpers shared across the app
- *   csv.*           — CSV export/import helpers
- *
- * USED BY: App.tsx (route "/")
- * DEPENDS ON: GET /api/sets, /api/cards/:setId, /api/search,
- *             GET /api/collection/:userId (+ /stats), POST .../:cardId, .../bulk
+ * USED BY: (none — see above)
  */
+
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getCards, getSets, searchCards } from '../api/cards'
@@ -54,7 +32,6 @@ import { buildSetTotals, narrowByCollectorNumber } from '../lib/cardSearch'
 import { type ImportRow } from '../lib/csv'
 import type { Card } from '../types'
 
-/** Local state for one card: counts per condition + the active condition. */
 interface Entry { conds: CondMap; selCond: string }
 type SortMode = 'number' | 'value' | 'qty' | 'name'
 
@@ -65,34 +42,29 @@ const numKey = (n: string) => {
 }
 
 export function CollectionPage() {
-  // 1) Context hooks
   const { user } = useUser()
   const toast = useToast()
   const qc = useQueryClient()
   const preview = usePreview()
 
-  // 2) State
   const [setId, setSetId] = useState<string | null>(() => localStorage.getItem('poketracker_set'))
   const [search, setSearch] = useState('')
   const [ownedOnly, setOwnedOnly] = useState(false)
   const [sort, setSort] = useState<SortMode>('number')
   const [importOpen, setImportOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
-  // The card whose "add to binder" picker is open (null = closed).
   const [binderCard, setBinderCard] = useState<Card | null>(null)
 
-  // Cross-set search results, populated only while the box holds 2+ characters.
+  // Populated only once the search box holds 2+ characters, and only in all-sets mode.
   const [globalHits, setGlobalHits] = useState<Card[]>([])
   const [globalSearching, setGlobalSearching] = useState(false)
   const globalTimer = useRef<number | null>(null)
 
   const userId = user?.id ?? ''
 
-  // 3) Server data
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets, enabled: !!user })
 
-  // Active set: the stored choice when still valid, else the newest set.
-  // Derived (not synced via an effect) so there is no flash of an empty grid.
+  // The remembered set if it's still valid, else the newest set.
   const activeSetId = useMemo(() => {
     if (setId === ALL_SETS) return ALL_SETS
     if (setId && sets.some(s => s.id === setId)) return setId
@@ -100,7 +72,6 @@ export function CollectionPage() {
     return [...sets].sort((a, b) => b.releaseDate.localeCompare(a.releaseDate))[0].id
   }, [sets, setId])
 
-  // setId -> totals lookup, used to resolve "117/123" to the one card meant.
   const setTotals = useMemo(() => buildSetTotals(sets), [sets])
 
   const { data: cards = [], isLoading: cardsLoading } = useQuery({
@@ -114,10 +85,10 @@ export function CollectionPage() {
     enabled: !!user,
   })
 
-  // Local collection map, seeded once per user from the backend.
+  // Local optimistic copy of what the user owns: the UI reacts to this
+  // immediately, and every mutation below persists to the backend after.
   const [coll, setColl] = useState<Record<string, Entry>>({})
 
-  // 4) Effects
   useEffect(() => {
     if (activeSetId) localStorage.setItem('poketracker_set', activeSetId)
   }, [activeSetId])
@@ -135,13 +106,11 @@ export function CollectionPage() {
       .catch(() => toast('Could not load your collection.'))
   }, [userId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Debounced cross-set search. Runs whenever the box holds 2+ characters,
-  // independent of which set (if any) is selected — finding a card never
-  // depends on the set browser.
+  // Debounced so a fast burst of keystrokes sends one request, not one per key.
   useEffect(() => {
     if (globalTimer.current) clearTimeout(globalTimer.current)
     const q = search.trim()
-    // All setState calls are inside the timer callback — no synchronous setState in the effect body.
+
     globalTimer.current = window.setTimeout(async () => {
       if (q.length < 2 || activeSetId !== ALL_SETS) {
         setGlobalHits([])
@@ -153,17 +122,19 @@ export function CollectionPage() {
       catch { setGlobalHits([]); toast('Search failed - please try again.') }
       finally { setGlobalSearching(false) }
     }, 300)
+
     return () => { if (globalTimer.current) clearTimeout(globalTimer.current) }
   }, [search, setTotals, activeSetId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const cardById = useMemo(() => new Map(cards.map(c => [c.id, c])), [cards])
 
-  // 5) Event handlers / persistence
   const persist = (card: Card, entry: Entry) => {
     saveEntry(userId, card.id, toCondList(entry.conds, card), entry.selCond)
       .then(() => qc.invalidateQueries({ queryKey: ['stats', userId] }))
       .catch(() => toast('Save failed - change not stored.'))
   }
+
+  // Shared by every quantity-changing action below: update on screen first, persist after.
   const mutate = (card: Card, fn: (e: Entry) => Entry) => {
     setColl(prev => {
       const cur = prev[card.id] ?? { conds: {}, selCond: 'NM' }
@@ -172,6 +143,7 @@ export function CollectionPage() {
       return { ...prev, [card.id]: next }
     })
   }
+
   const adj = (card: Card, delta: number) => {
     const key = (coll[card.id] ?? { selCond: 'NM' }).selCond
     mutate(card, e => {
@@ -180,16 +152,20 @@ export function CollectionPage() {
       return e
     })
   }
+
   const setQty = (card: Card, qty: number) =>
     mutate(card, e => {
       if (qty === 0) delete e.conds[e.selCond]; else e.conds[e.selCond] = qty
       return e
     })
+
+  // Switching tabs isn't a change, so this bypasses mutate/persist entirely.
   const selectCond = (card: Card, cond: string) =>
     setColl(prev => ({
       ...prev,
       [card.id]: { conds: { ...(prev[card.id]?.conds ?? {}) }, selCond: cond },
     }))
+
   const adjCond = (card: Card, cond: string, delta: number) =>
     mutate(card, e => {
       const next = Math.max(0, (e.conds[cond] ?? 0) + delta)
@@ -197,8 +173,8 @@ export function CollectionPage() {
       return e
     })
 
-  // CSV import / clear set
   const runImport = async (rows: ImportRow[]): Promise<string> => {
+    // Several rows can reference the same card in different conditions, so group before saving.
     const byCard = new Map<string, CondMap>()
     for (const r of rows) {
       const m = byCard.get(r.cardId) ?? {}
@@ -236,10 +212,7 @@ export function CollectionPage() {
     toast('Set cleared.')
   }
 
-  // 6) Derived values
-  // Search mode kicks in at 2+ characters and is independent of the set browser.
   const isSearchMode = search.trim().length >= 2
-  // All Sets mode searches every set; otherwise search stays inside the set.
   const allSets = activeSetId === ALL_SETS
 
   const filtered = useMemo(() => {
@@ -255,7 +228,7 @@ export function CollectionPage() {
     return list
   }, [cards, coll, ownedOnly, sort])
 
-  // Within-set search (client-side) used when a specific set is selected.
+  // Done client-side rather than via the backend search endpoint, since the set's cards are already loaded.
   const withinSetHits = useMemo(() => {
     if (!isSearchMode || allSets) return []
     const ql = search.trim().toLowerCase()
@@ -266,7 +239,6 @@ export function CollectionPage() {
     )
   }, [cards, search, isSearchMode, allSets])
 
-  // While searching: All Sets -> backend hits, else within-set hits. Else the set grid.
   const displayCards = isSearchMode
     ? (allSets ? globalHits : withinSetHits).filter(c => !ownedOnly || totalQty(coll[c.id]?.conds ?? {}) > 0)
     : filtered
@@ -277,17 +249,14 @@ export function CollectionPage() {
   const completion = set && set.total > 0 ? Math.round((ownedInSet / set.total) * 100) : 0
   const gridReady = isSearchMode ? (allSets ? !globalSearching : true) : !cardsLoading
 
-  // 7) Login guard
   if (!user) return <div className="page-tracker"><LoginScreen /></div>
 
-  // 8) Render
   return (
     <div className="page-tracker">
       <div id="app" style={{ display: 'block' }}>
         <header>
           <div className="logo">POKÉDEX <span>TRACKER</span></div>
           <div className="user-badge">👤 <b>{user.username}</b></div>
-          {/* Primary way to find a card: searches every set, no set required. */}
           <input
             type="text"
             placeholder={allSets ? 'Search every set by name or number' : `Search within ${set?.name ?? 'this set'}`}
@@ -295,7 +264,6 @@ export function CollectionPage() {
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
-          {/* Optional: narrow the grid to one set when not searching. */}
           <SetSelector
             sets={sets}
             selectedId={activeSetId}
@@ -304,7 +272,6 @@ export function CollectionPage() {
           <HeaderNav />
         </header>
 
-        {/* Stats bar */}
         <div className="stats-bar">
           <div className="stat">
             <div className="stat-label">Cards owned</div>
@@ -333,7 +300,6 @@ export function CollectionPage() {
           </div>
         </div>
 
-        {/* Toolbar */}
         <div className="toolbar">
           <span className="sort-label">Sort:</span>
           {(['number', 'value', 'qty', 'name'] as SortMode[]).map(m => (
@@ -351,7 +317,6 @@ export function CollectionPage() {
 
         <div id="app-wrap">
           <div id="main">
-            {/* Set banner only when browsing a set (not while searching). */}
             {!isSearchMode && set && (
               <div className="set-info">
                 {set.images?.logo && <img className="set-logo" src={set.images.logo} alt={set.name} />}
@@ -362,12 +327,10 @@ export function CollectionPage() {
               </div>
             )}
 
-            {/* All Sets selected with nothing typed yet: prompt to browse or search. */}
             {!isSearchMode && allSets && (
               <div className="empty">Pick a set above to browse it, or type a name or number to search every set.</div>
             )}
 
-            {/* Search-mode status lines */}
             {isSearchMode && allSets && globalSearching && <div className="loading">Searching all sets…</div>}
             {isSearchMode && gridReady && displayCards.length > 0 && (
               <div style={{ padding: '8px 18px', color: 'var(--muted)', fontSize: 13 }}>
@@ -378,13 +341,11 @@ export function CollectionPage() {
               <div className="empty">No cards found for "{search.trim()}"{allSets ? '' : ` in ${set?.name ?? 'this set'}`}.</div>
             )}
 
-            {/* Browse-mode status lines (specific set only) */}
             {!isSearchMode && !allSets && cardsLoading && <div className="loading">Loading</div>}
             {!isSearchMode && !allSets && !cardsLoading && set && displayCards.length === 0 && (
               <div className="empty">No cards match.</div>
             )}
 
-            {/* Card grid (shared by both modes) */}
             {gridReady && displayCards.length > 0 && (
               <div className="card-grid">
                 {displayCards.map(c => {

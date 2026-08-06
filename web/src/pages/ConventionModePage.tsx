@@ -1,15 +1,19 @@
 /**
- * FILE: ConventionModePage.tsx
- * LOCATION: src/pages/ConventionModePage.tsx
+ * ConventionModePage — in-person deal assistant for card shows.
  *
- * PURPOSE:
- *   Convention Mode MVP. Reuses the existing card search/pricing API and adds
- *   an in-person deal assistant: asking price, condition, suggested offer,
- *   fake-risk checklist, local paid-price reports, and vendor notes.
+ * HOW IT WORKS
+ *   Reuses the existing card search/pricing API and adds: asking price vs.
+ *   market comparison, a suggested offer, a fake-risk checklist tailored
+ *   to the selected card, and local paid-price/vendor-note logging.
  *
- *   This first version intentionally stores reports in localStorage so the UI
- *   can be tested before adding backend tables/moderation/trust scoring.
+ *   This first version stores reports in the browser (localStorage) on
+ *   purpose, so the UI can be tried out before adding real backend tables/
+ *   moderation/trust scoring.
+ *
+ * USED BY: App.tsx (route "/convention")
+ * DEPENDS ON: api/cards, lib/conditions
  */
+
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getSets, searchCards } from '../api/cards'
@@ -19,9 +23,11 @@ import { usePreview } from '../components/CardPreview'
 import { CONDS, condPrice, type Cond } from '../lib/conditions'
 import type { Card, ConventionPriceReport, PaymentType, VendorNote } from '../types'
 
+// The keys this page's data is saved under in the browser's local storage.
 const REPORT_KEY = 'tcg.convention.priceReports.v1'
 const VENDOR_NOTE_KEY = 'tcg.convention.vendorNotes.v1'
 
+// Friendly display text for each PaymentType code.
 const paymentLabels: Record<PaymentType, string> = {
   cash: 'Cash',
   card: 'Card',
@@ -31,8 +37,11 @@ const paymentLabels: Record<PaymentType, string> = {
 }
 
 const money = (value: number) => value > 0 ? `$${value.toFixed(2)}` : '—'
+
+/** Keeps a number between min and max, inclusive. */
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
+/** Reads and parses saved JSON from local storage, or a fallback if nothing's there (or it's corrupt). */
 function loadJson<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key)
@@ -46,10 +55,12 @@ function saveJson<T>(key: string, value: T) {
   localStorage.setItem(key, JSON.stringify(value))
 }
 
+/** Builds a fraud-prevention checklist, tailored to the specific card/price/condition being checked. */
 function fakeRiskChecklist(card: Card | null, askingPrice: number, claimedCondition: Cond) {
   const name = card?.name.toLowerCase() ?? ''
   const isVintageSignal = ['base', 'charizard', 'blastoise', 'venusaur', 'lugia', '1st edition'].some(x => name.includes(x))
   const isTexturedSignal = ['ex', 'vmax', 'vstar', 'alt art', 'full art', 'secret'].some(x => name.includes(x))
+
   const checks = [
     'Ask to see clear front and back photos outside the sleeve/top loader.',
     'Compare set number, copyright line, font, HP, energy symbols, and rarity symbol against a verified reference.',
@@ -60,6 +71,7 @@ function fakeRiskChecklist(card: Card | null, askingPrice: number, claimedCondit
   if (isTexturedSignal || askingPrice >= 50) checks.push('Modern hits should have the correct raised texture; smooth glossy “texture” is suspicious.')
   if (claimedCondition === 'NM' && askingPrice > 0) checks.push('If the seller claims NM, require corner/back close-ups before paying NM pricing.')
   if (askingPrice > 100) checks.push('For slabs, verify the cert number on the grading company site and compare label/card details.')
+
   return checks.slice(0, 7)
 }
 
@@ -72,28 +84,37 @@ export function ConventionModePage() {
   const [searchMsg, setSearchMsg] = useState('Search for a card to start a convention deal check')
   const [selectedCard, setSelectedCard] = useState<Card | null>(null)
   const [condition, setCondition] = useState<Cond>('NM')
+
+  // Kept as raw text since it's bound directly to a text input.
   const [askingPrice, setAskingPrice] = useState('')
   const [paidPrice, setPaidPrice] = useState('')
   const [booth, setBooth] = useState('')
   const [eventName, setEventName] = useState('')
   const [paymentType, setPaymentType] = useState<PaymentType>('cash')
   const [note, setNote] = useState('')
+
+  // Restored from local storage once, on first load.
   const [reports, setReports] = useState<ConventionPriceReport[]>(() => loadJson(REPORT_KEY, []))
   const [vendorNotes, setVendorNotes] = useState<VendorNote[]>(() => loadJson(VENDOR_NOTE_KEY, []))
+
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets })
   const setName = useMemo(() => new Map(sets.map(s => [s.id, s.name])), [sets])
 
+  // Keeps local storage in sync every time either list changes.
   useEffect(() => saveJson(REPORT_KEY, reports), [reports])
   useEffect(() => saveJson(VENDOR_NOTE_KEY, vendorNotes), [vendorNotes])
 
+  // Waits a moment after typing stops before searching, so a request
+  // isn't sent on every keystroke.
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current)
-    // After picking a card the query is set to its name — use 0ms delay to clear
-    // results immediately without re-running the search. All setState calls stay
-    // inside the timer callback so there's no synchronous setState in the effect body.
+
+    // True right after picking a card, when the box just got filled with
+    // its name — in that case we clear the dropdown, not search again.
     const isCardSelected = selectedCard !== null && query.trim() === selectedCard.name.trim()
+
     timer.current = setTimeout(async () => {
       if (isCardSelected) {
         setResults([])
@@ -121,23 +142,26 @@ export function ConventionModePage() {
   const market = selectedCard ? condPrice(selectedCard, condition) : 0
   const ask = Number(askingPrice) || 0
   const paid = Number(paidPrice) || 0
+
   const reportedForCard = reports.filter(r => r.cardId === selectedCard?.id)
   const paidValues = reportedForCard.map(r => r.paidPrice).filter(v => v > 0).sort((a, b) => a - b)
   const reportedLow = paidValues[0] ?? 0
   const reportedHigh = paidValues[paidValues.length - 1] ?? 0
   const reportedAvg = paidValues.length ? paidValues.reduce((a, b) => a + b, 0) / paidValues.length : 0
+
+  // ~82% of market value, never below the lowest actually-reported price
+  // (or 70% of market if there are no reports yet), never above 95%.
   const suggestedOffer = market > 0 ? clamp(market * 0.82, reportedLow || market * 0.7, market * 0.95) : 0
   const walkAway = market > 0 ? market * 1.03 : 0
   const askVsMarket = market > 0 && ask > 0 ? ((ask - market) / market) * 100 : 0
 
+  // A 0-100 risk score, recomputed only when something it depends on changes.
   const riskScore = useMemo(() => {
     if (!selectedCard) return 0
     let score = 18
     if (ask > market * 1.1 && market > 0) score += 15
     if (ask > 75) score += 15
     if (condition === 'NM') score += 10
-    // Recompute the count from `reports` (stable state) rather than the derived
-    // `reportedForCard` array, so the React Compiler can preserve this memo.
     if (reports.filter(r => r.cardId === selectedCard.id).length < 3) score += 8
     if (!booth.trim()) score += 5
     return clamp(score, 0, 100)
@@ -152,8 +176,10 @@ export function ConventionModePage() {
     setResults([])
   }
 
+  /** Builds and saves a new report for the currently selected card. */
   const logDeal = () => {
     if (!selectedCard || paid <= 0) return
+
     const report: ConventionPriceReport = {
       id: crypto.randomUUID(),
       cardId: selectedCard.id,
@@ -171,7 +197,10 @@ export function ConventionModePage() {
       createdAt: new Date().toISOString(),
       userId: user?.id,
     }
+    // Newest first, capped at 60 entries so it doesn't grow forever.
     setReports(prev => [report, ...prev].slice(0, 60))
+
+    // Only worth a vendor note if a booth or note was actually entered.
     if (booth.trim() || note.trim()) {
       setVendorNotes(prev => [{
         id: crypto.randomUUID(),
@@ -181,6 +210,7 @@ export function ConventionModePage() {
         createdAt: new Date().toISOString(),
       }, ...prev].slice(0, 30))
     }
+
     setPaidPrice('')
     setNote('')
   }
@@ -265,6 +295,8 @@ export function ConventionModePage() {
               </div>
               <div>
                 <label className="field-label">Vendor asking</label>
+                {/* inputMode="decimal" gives mobile devices a numeric
+                    keyboard, even though this is still a plain text input. */}
                 <input className="con-input" inputMode="decimal" value={askingPrice} onChange={e => setAskingPrice(e.target.value)} placeholder="80" />
               </div>
             </div>
@@ -299,7 +331,12 @@ export function ConventionModePage() {
             <div className="form-row three">
               <div><label className="field-label">Paid price</label><input className="con-input" inputMode="decimal" value={paidPrice} onChange={e => setPaidPrice(e.target.value)} placeholder="65" /></div>
               <div><label className="field-label">Booth / vendor</label><input className="con-input" value={booth} onChange={e => setBooth(e.target.value)} placeholder="Booth B12" /></div>
-              <div><label className="field-label">Payment</label><select className="con-input" value={paymentType} onChange={e => setPaymentType(e.target.value as PaymentType)}>{Object.entries(paymentLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>
+              <div>
+                <label className="field-label">Payment</label>
+                <select className="con-input" value={paymentType} onChange={e => setPaymentType(e.target.value as PaymentType)}>
+                  {Object.entries(paymentLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </div>
             </div>
             <div className="form-row">
               <div><label className="field-label">Event</label><input className="con-input" value={eventName} onChange={e => setEventName(e.target.value)} placeholder="Austin Card Show" /></div>
@@ -323,6 +360,7 @@ export function ConventionModePage() {
           <div className="panel-head"><div><p className="eyebrow">Recent activity</p><h2>Local convention log</h2></div></div>
           <div className="history-list">
             {reports.length === 0 && <p className="empty-state">No deals logged yet.</p>}
+            {/* Already stored newest-first, so this just takes the first 10. */}
             {reports.slice(0, 10).map(r => (
               <div className="history-row" key={r.id}>
                 {r.imageUrl && (

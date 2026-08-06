@@ -1,24 +1,15 @@
 /**
- * FILE: RipTrackerRepository.scala
- * PACKAGE: com.poketracker.repository
- * LOCATION: src/main/scala/com/poketracker/repository/RipTrackerRepository.scala
- *
- * PURPOSE:
- *   All database operations for the Rip Tracker feature: sealed products
- *   and their guaranteed contents/pull rates, and rip (box-opening)
- *   sessions/packs/pulls. Mirrors CardRepository/CollectionRepository's
- *   pattern — this is the only file with SQL for these eight tables
- *   (Migration 004 in sql/schema.sql).
+ * RipTrackerRepository — all database access for the Rip Tracker feature
+ * (sealed products, their guaranteed contents/pull rates, and box-opening
+ * sessions/packs/pulls). Migration 004 in sql/schema.sql.
  *
  * NOT WIRED INTO Main.scala YET. Migration 004 has not been run against
  * production — see AGENTS.md's migration-before-deploy rule. Every query
- * here will fail with "relation does not exist" against the current live
- * schema, same as the earlier card_prices.variant outage. Do not add this
- * repository's layer to Main.scala's dependency graph, and do not route
- * live traffic to it, until Migration 004 has actually been run.
+ * here fails with "relation does not exist" against the current live
+ * schema. Do not add this repository's layer to Main.scala, and do not
+ * route live traffic to it, until Migration 004 has actually been run.
  *
  * USED BY: (future) RipTrackerService, once wired
- * DEPENDS ON: Doobie, ZIO, PostgreSQL, RipTracker models
  */
 
 package com.poketracker.repository
@@ -34,39 +25,21 @@ import zio.interop.catz.*
 import zio.json.*
 import java.time.Instant
 
-/**
- * TRAIT: RipTrackerRepository
- * PURPOSE: Interface for all Rip Tracker data access.
- */
 trait RipTrackerRepository:
 
-  /** Fetches one sealed product by ID. */
   def findSealedProduct(id: String): Task[Option[SealedProduct]]
-
-  /** Every sealed product for a set, e.g. to populate a "pick a product" list. */
   def findSealedProductsForSet(setId: String): Task[List[SealedProduct]]
-
-  /** Every pack template for a product (usually one, sometimes more for variants). */
   def findPackTemplates(sealedProductId: String): Task[List[PackTemplate]]
-
-  /** Every guaranteed non-pack insert (promos, sealed inserts) for a product. */
   def findProductInserts(sealedProductId: String): Task[List[ProductInsert]]
 
-  /** Every pack-level guarantee for a product. Empty for ungoverned (has_guarantee=false) products. */
+  /** Empty for ungoverned (has_guarantee=false) products. */
   def findProductGuarantees(sealedProductId: String): Task[List[ProductGuarantee]]
 
-  /** The full pull-rate table for a product — every card with published/community odds. */
   def findPullRates(sealedProductId: String): Task[List[PullRate]]
 
   /**
-   * Creates a rip session AND its rip_packs in one transaction, generating
-   * one RipPack per index from 0 until `packCount`.
-   * @param id               Session ID (caller-generated, so it can be
-   *                         returned immediately without a round trip).
-   * @param userId           Who's running this rip.
-   * @param sealedProductId  Which product is being opened.
-   * @param packCount        How many packs to generate.
-   * @return                 The created session and its generated packs.
+   * Creates a session and its `packCount` packs as one transaction.
+   * @param id  Caller-generated so it can be returned immediately without a round trip.
    */
   def createSessionWithPacks(
     id:              String,
@@ -75,30 +48,14 @@ trait RipTrackerRepository:
     packCount:       Int
   ): Task[(RipSession, List[RipPack])]
 
-  /** Fetches one rip session by ID. */
   def findSession(id: String): Task[Option[RipSession]]
 
-  /** Which session a pack belongs to — the only path from a pack ID (what
-   *  the pulls endpoint receives) back to the userId a pull should be
-   *  recorded against. */
+  /** The only path from a pack ID (what the pulls endpoint receives) back to a userId. */
   def findSessionIdForPack(ripPackId: String): Task[Option[String]]
 
-  /** Every pack in a session, ordered by pack index. */
   def findPacksForSession(ripSessionId: String): Task[List[RipPack]]
-
-  /** Every pull recorded across every pack in a session, newest first. */
   def findPullsForSession(ripSessionId: String): Task[List[Pull]]
 
-  /**
-   * Records one pull into a pack.
-   * @param id                  Pull ID (caller-generated).
-   * @param ripPackId           Which pack this card came from.
-   * @param cardId              The card pulled.
-   * @param condition           Logged condition, e.g. "NM".
-   * @param collectionEntryId   Provenance link to the collection entry this
-   *                            pull added to.
-   * @return                    The created Pull.
-   */
   def insertPull(
     id:                String,
     ripPackId:         String,
@@ -111,9 +68,7 @@ object RipTrackerRepository:
 
   final class Live(xa: Transactor[Task]) extends RipTrackerRepository:
 
-    /** Parses a PackTemplate row's JSONB slots column. Falls back to an
-     *  empty slot list if the stored JSON is somehow malformed rather than
-     *  failing the whole query over one bad row. */
+    /** Malformed JSON degrades to an empty slot list rather than failing the whole query. */
     private def parseSlots(json: String): List[PackSlot] =
       json.fromJson[List[PackSlot]].getOrElse(Nil)
 
@@ -199,14 +154,13 @@ object RipTrackerRepository:
       packCount:       Int
     ): Task[(RipSession, List[RipPack])] =
       val now = Instant.now()
+
       val insertSession = sql"""
         INSERT INTO rip_sessions (id, user_id, sealed_product_id, status, created_at)
         VALUES ($id, $userId, $sealedProductId, 'in_progress', $now)
       """.update.run
 
-      // One RipPack per index — generated here rather than by the caller so
-      // "how many packs does this product have" stays a single source of
-      // truth (SealedProduct.packCount), not duplicated into request bodies.
+      // Generated here, not by the caller, so packCount stays the single source of truth.
       val packIds = List.fill(packCount)(java.util.UUID.randomUUID().toString)
       val insertPacks = (packIds.zipWithIndex).traverse_ { case (packId, idx) =>
         sql"""
@@ -215,6 +169,8 @@ object RipTrackerRepository:
         """.update.run
       }
 
+      // Both inserts as one transaction; we already know what we wrote,
+      // so build the return value directly rather than reading it back.
       (insertSession *> insertPacks).transact(xa).as(
         (
           RipSession(id, userId, sealedProductId, RipSessionStatus.InProgress, now),

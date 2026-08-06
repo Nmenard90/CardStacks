@@ -1,3 +1,15 @@
+/**
+ * UserContext — tracks which user is "logged in" and makes it available
+ * to every page without prop-drilling.
+ *
+ * HOW IT WORKS
+ *   There are no real passwords — logging in just means picking a name
+ *   (see LoginScreen.tsx). The logged-in user is persisted to
+ *   localStorage so it survives a page refresh.
+ *
+ * USED BY: App.tsx (wraps the whole app), every page via useUser()
+ */
+
 import { createContext, useContext, useState, type ReactNode } from 'react'
 import type { User } from '../types'
 
@@ -6,6 +18,7 @@ interface UserContextValue {
   setUser: (user: User | null) => void
 }
 
+// "Nobody logged in" — used only if a component reads this without a Provider above it.
 const UserContext = createContext<UserContextValue>({ user: null, setUser: () => {} })
 
 export function UserProvider({ children }: { children: ReactNode }) {
@@ -27,7 +40,5 @@ export function UserProvider({ children }: { children: ReactNode }) {
   return <UserContext.Provider value={{ user, setUser }}>{children}</UserContext.Provider>
 }
 
-// Hook exported beside its provider on purpose — they are one unit.
-// Only HMR fast-refresh granularity is affected.
 // eslint-disable-next-line react-refresh/only-export-components
 export const useUser = () => useContext(UserContext)

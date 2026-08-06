@@ -1,42 +1,18 @@
 /**
- * FILE: PriceService.scala
- * PACKAGE: com.poketracker.service
- * LOCATION: src/main/scala/com/poketracker/service/PriceService.scala
+ * PriceService — fetches per-condition card prices from TCGTracking and
+ * saves them.
  *
- * PURPOSE:
- *   Fetches per-condition card prices from TCGTracking and stores them
- *   in the card_prices table. Called when a set's cards are loaded and
- *   when prices need refreshing.
+ * HOW IT WORKS
+ *   TCGTracking sets have their own numeric IDs, unrelated to
+ *   pokemontcg.io's — findTcgSetId resolves ours to theirs by matching
+ *   names/codes (see its own doc comment for the tiered matching logic).
+ *   Once resolved, fetchProducts + fetchSkus pull the whole set's prices
+ *   in two calls, matched back to our cards by collector number.
  *
- * WHY TCGTRACKING?
- *   TCGTracking (tcgtracking.com) is free, requires no API key, has no
- *   rate limits, and provides per-condition prices (NM, LP, MP, HP, DMG)
- *   at the SKU level — exactly what we need. Data updates daily at 8 AM EST.
+ * WHY TCGTRACKING: free, no key, no rate limit, per-condition pricing
+ *   (NM/LP/MP/HP/DMG) — TCGTracking is the only source with that shape.
  *
- * HOW TCGTRACKING WORKS:
- *   The API is organized by game category. Pokemon = category 3.
- *   Each set in TCGTracking has a numeric ID (different from pokemontcg.io IDs).
- *   We match sets by name/abbreviation using the search endpoint.
- *   Once we have the TCGTracking set ID, we fetch SKU prices for the whole set.
- *   SKUs contain: product ID, condition (NM/LP/MP/HP/DMG), finish, price.
- *   We match TCGTracking products to our cards by collector number.
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * IMPORTS EXPLAINED:
- *
- *   com.poketracker.models.{CardPrices, CardSet}
- *     CardPrices — the per-condition price model we write to the database.
- *     CardSet    — used to match our sets to TCGTracking sets by ptcgoCode/name.
- *
- *   com.poketracker.repository.CardRepository
- *     Used to save prices to the card_prices table after fetching.
- *
- *   zio.* / zio.json.*
- *     Standard ZIO and JSON imports.
- * ─────────────────────────────────────────────────────────────────────────────
- *
- * USED BY: CardService (called after fetching cards for a set)
- * DEPENDS ON: CardRepository, TCGTracking API (no key required)
+ * USED BY: CardService, right after a set's cards are fetched.
  */
 
 package com.poketracker.service
@@ -45,52 +21,30 @@ import com.poketracker.models.*
 import com.poketracker.repository.CardRepository
 import zio.*
 import zio.json.*
+
+// zio-json's generic "any JSON value" type, used below to hand-write one
+// decoder for a field TCGTracking doesn't send in a consistent shape.
 import zio.json.ast.Json
 
-/**
- * TRAIT: PriceService
- * PURPOSE: Interface for fetching and storing card prices.
- */
 trait PriceService:
 
   /**
-   * METHOD: fetchAndStorePrices
-   * PURPOSE: Fetches per-condition prices for all cards in a set from
-   *          TCGTracking and stores them in the card_prices table.
-   *          Called after loading cards for a set.
-   *
-   * @param set    The CardSet to fetch prices for.
-   *               We use ptcgoCode and name to find the matching TCGTracking set.
-   * @param cards  The cards in the set — we match prices to cards by number.
-   * @return       Unit. Failures are logged but not propagated — missing prices
-   *               are acceptable, the app works without them.
+   * Fetches this set's prices from TCGTracking and saves them. Failures
+   * are logged, not thrown — a missing price is fine, the app still works
+   * without one.
    */
   def fetchAndStorePrices(set: CardSet, cards: List[Card]): Task[Unit]
 
-/**
- * OBJECT: PriceService
- * PURPOSE: Live implementation and ZLayer.
- */
 object PriceService:
 
-  // ── TCGTracking response types ──────────────────────────────────────────────
-  // These match the JSON shape of the TCGTracking SKU endpoint response.
-  // Private to this file — never exposed outside PriceService.
+  // ── TCGTracking response shapes ─────────────────────────────────────────
+  // These match TCGTracking's own JSON exactly. Kept private — nothing
+  // outside this file ever sees them.
 
   /**
-   * CASE CLASS: TcgSku
-   * PURPOSE: One SKU from TCGTracking — a specific card in a specific condition.
-   *
-   * TCGTracking uses compact field names in the SKU response:
-   *   cnd = condition
-   *   var = printing / variant
-   *   lng = language
-   *   mkt = market price
-   *
-   * @param condition  Condition string: "NM", "LP", "MP", "HP", "DMG", or "UNO" (ungraded)
-   * @param printing   The card finish: "Normal", "Reverse Holofoil", "Holofoil", etc.
-   * @param language   Language: "EN", "JP" etc. We only use EN prices.
-   * @param market     Market price in USD. None if no price data available.
+   * One SKU from TCGTracking — one card in one specific condition.
+   * TCGTracking uses short field names: cnd = condition, var = printing,
+   * lng = language, mkt = market price.
    */
   private case class TcgSku(
     @jsonField("cnd") condition: String,
@@ -101,16 +55,8 @@ object PriceService:
   private given JsonDecoder[TcgSku] = DeriveJsonDecoder.gen
 
   /**
-   * CASE CLASS: TcgSkuResponse
-   * PURPOSE: Wrapper around the TCGTracking SKU endpoint response.
-   * HOW THE RESPONSE IS SHAPED:
-   *   TCGTracking nests SKUs by product ID and then SKU ID:
-   *     products -> productId -> skuId -> sku
-   *
-   *   Product IDs are JSON object keys, so they arrive as strings. We convert
-   *   them to Int later when building the lookup map.
-   *
-   * @param products  Product ID -> SKU ID -> SKU data
+   * The SKU list response. TCGTracking nests it as: products -> productId
+   * -> skuId -> sku data.
    */
   private case class TcgSkuResponse(
     products: Map[String, Map[String, TcgSku]],
@@ -118,19 +64,12 @@ object PriceService:
   )
   private given JsonDecoder[TcgSkuResponse] = DeriveJsonDecoder.gen
 
-  /**
-   * CASE CLASS: TcgProduct
-   * PURPOSE: One product (card) from TCGTracking's product list for a set.
-   *
-   * @param id      TCGTracking's numeric product ID
-   * @param number  Collector number — used to match to our Card records
-   * @param name    Card name — used as fallback match if number doesn't work
-   */
-  // number field can be Int, String, or null in TCGTracking API
-  // We parse the whole product as a Map to handle this inconsistency
-  // number is a String like "161/162" — we take the part before "/" to get collector number
+  /** One product (card) from TCGTracking's product list for a set. */
   private case class TcgProduct(id: Int, name: String, number: Option[String])
 
+  // TCGTracking sends `number` inconsistently — sometimes text, sometimes
+  // a raw number, sometimes missing — so this is hand-written instead of
+  // auto-generated, to handle all three shapes without failing.
   private given JsonDecoder[TcgProduct] = JsonDecoder[Json].mapOrFail { json =>
     json.asObject.toRight("TcgProduct must be an object").flatMap { obj =>
       def jsonToInt(value: Json): Either[String, Int] =
@@ -144,6 +83,7 @@ object PriceService:
         nameJson <- obj.get("name").toRight("Missing name field")
         name     <- nameJson.asString.toRight("name must be a string")
       yield
+        // Handles all three shapes `number` can arrive in.
         val number = obj.get("number").flatMap {
           case Json.Str(s) => Some(s)
           case Json.Num(n) => scala.util.Try(n.toString.toInt).toOption.map(_.toString)
@@ -154,11 +94,9 @@ object PriceService:
   }
 
   /**
-   * CASE CLASS: TcgProductResponse
-   * PURPOSE: Wrapper around the TCGTracking products endpoint response.
-   * @param products      List of all products in the set
-   * @param productCount  TCGTracking's own claimed total for this set — used
-   *                      to detect a truncated response (see fetchProducts).
+   * The product list response.
+   * @param productCount  TCGTracking's own claimed total for the set —
+   *                      used to spot a cut-off response (see fetchProducts).
    */
   private case class TcgProductResponse(
     products: List[TcgProduct],
@@ -166,13 +104,7 @@ object PriceService:
   )
   private given JsonDecoder[TcgProductResponse] = DeriveJsonDecoder.gen
 
-  /**
-   * CASE CLASS: TcgSetResult
-   * PURPOSE: One set result from TCGTracking's search endpoint.
-   * @param id           TCGTracking's numeric set ID — used to build product/SKU URLs
-   * @param name         Set name
-   * @param abbreviation Set abbreviation e.g. "SVI" — matches our ptcgoCode
-   */
+  /** One set result from TCGTracking's set list. */
   private case class TcgSetResult(
     id:           Int,
     name:         String,
@@ -182,47 +114,29 @@ object PriceService:
   )
   private given JsonDecoder[TcgSetResult] = DeriveJsonDecoder.gen
 
-  /**
-   * CASE CLASS: TcgSearchResponse
-   * PURPOSE: Wrapper around the TCGTracking search endpoint response.
-   * @param sets  Matching sets
-   */
   private case class TcgSearchResponse(sets: List[TcgSetResult])
   private given JsonDecoder[TcgSearchResponse] = DeriveJsonDecoder.gen
 
-  // Pokemon category ID in TCGTracking
+  // Pokemon's category number in TCGTracking's own system.
   private val POKEMON_CAT = 3
   private val BASE        = "https://tcgtracking.com/tcgapi/v1"
 
   /**
-   * CLASS: Live
-   * PURPOSE: The real PriceService implementation.
-   * @param repo  CardRepository — used to save prices after fetching
+   * The real, working PriceService.
+   * @param setsCache  Holds TCGTracking's full set list in memory for an
+   *                   hour, so we don't fetch it fresh on every call.
    */
   private final class Live(repo: CardRepository, setsCache: Ref[Option[(Long, List[TcgSetResult])]]) extends PriceService:
 
     /**
-     * METHOD: get
-     * PURPOSE: HTTP GET — returns response body as String.
-     * @param url  The URL to fetch
-     * @return     Response body, or fails with a descriptive message
-     */
-    /**
-     * Retries/backs off for TCGTracking's transient failures (500s, timeouts,
-     * empty-but-200 bodies) — the same failure pattern pokemontcg.io has.
-     * Without this, one blip anywhere in a set's products/skus fetch aborted
-     * price-fetching for the whole set, leaving every card in it "no price"
-     * with no automatic recovery until the next 6-hour stale window.
+     * Downloads whatever's at `url`. Retries up to 5 times with a growing
+     * wait between tries, since TCGTracking occasionally times out or
+     * sends back nothing — one bad attempt shouldn't ruin an entire set's
+     * price fetch.
      *
-     * User-Agent is set explicitly because Java's default ("Java/21.0.11")
-     * consistently got a truncated response for large sets specifically from
-     * Railway's network path — confirmed live, Battle Styles (232 products)
-     * came back capped around 49 every time from Railway while direct
-     * requests from elsewhere got the full list every time, on the exact
-     * same URL, cache-busted and endpoint-switched with no change. Smaller
-     * sets never showed this, which fits a size-dependent anti-scraping
-     * response cap keyed off the default JVM UA rather than a genuine cache
-     * or endpoint problem.
+     * The User-Agent header is set to look like a real browser — Railway's
+     * servers were confirmed getting a cut-off response from TCGTracking
+     * for large sets when using the default one, but not with this one.
      */
     private def get(url: String): Task[String] =
       val maxAttempts = 5
@@ -247,51 +161,27 @@ object PriceService:
           }
       attempt(1)
 
-    /**
-     * METHOD: parse
-     * PURPOSE: Parses a JSON string into a typed value.
-     * @tparam A  The type to parse into
-     * @param json  The JSON string
-     * @return      Parsed value or fails with a parse error message
-     */
     private def parse[A: JsonDecoder](json: String): Task[A] =
       ZIO.fromEither(json.fromJson[A])
          .mapError(e => RuntimeException(s"JSON parse error: $e"))
 
     /**
-     * METHOD: fetchProducts
-     * PURPOSE: Fetches a set's product list from TCGTracking, retrying with a
-     *          cache-busting query param if the response looks stale/short.
+     * Fetches a set's product list, retrying with a cache-busting URL if
+     * the response looks too short. TCGTracking's servers sometimes serve
+     * an old cached snapshot that's internally consistent with itself, so
+     * the only way to catch it is comparing against our OWN card count
+     * from a different source (pokemontcg.io) — not TCGTracking's own claimed total.
      *
-     * WHY COMPARE AGAINST expectedCards, NOT THE RESPONSE'S OWN product_count:
-     *   The first version of this check compared `products.size` against the
-     *   SAME response's `product_count` field and never fired. Confirmed live
-     *   why: the bad response isn't a partial/cut-off transfer of the current
-     *   232-product set — it's Cloudflare serving an entire OLDER cached
-     *   snapshot from back when TCGTracking had only indexed 52 products for
-     *   this set, so `product_count` inside that stale snapshot is ALSO 52,
-     *   internally consistent with itself. No self-check can catch a snapshot
-     *   that agrees with itself. Our own card count (from pokemontcg.io, a
-     *   completely different, unaffected source) is the only independent
-     *   reference available, so retry against that instead.
-     * @param expectedCards  Our own card count for this set — the retry
-     *                       threshold is deliberately loose (60%) since
-     *                       TCGTracking's real product list legitimately
-     *                       includes non-card products (sealed, code cards)
-     *                       and can differ from our count for other reasons.
+     * @param expectedCards  Our own card count for this set. The retry
+     *                       threshold is loose (60%) since TCGTracking's
+     *                       product list can legitimately include
+     *                       non-card items too.
      */
     private def fetchProducts(tcgSetId: Int, setName: String, expectedCards: Int): Task[TcgProductResponse] =
       val maxAttempts = 3
       def attempt(n: Int): Task[TcgProductResponse] =
-        // Use the dedicated /cards endpoint, not the bare /sets/{id} endpoint:
-        // confirmed live that for at least one set (Battle Styles), /sets/{id}
-        // consistently served a stale, far-smaller product list from
-        // Railway's network path — even three cache-busted retries with
-        // distinct query params all came back with the same short list,
-        // while /sets/{id}/cards returned the complete, correct list every
-        // time and carries a much fresher Cloudflare cache (hours old, not
-        // days). Keeping the cache-bust param on retries as a second line of
-        // defense in case this endpoint ever goes stale too.
+        // First try uses the plain URL; every retry adds a timestamp so
+        // it can't be served from a stale cache.
         val url =
           if n == 1 then s"$BASE/$POKEMON_CAT/sets/$tcgSetId/cards"
           else s"$BASE/$POKEMON_CAT/sets/$tcgSetId/cards?_cb=${java.lang.System.currentTimeMillis()}"
@@ -315,16 +205,8 @@ object PriceService:
       attempt(1)
 
     /**
-     * METHOD: fetchSkus
-     * PURPOSE: Fetches a set's SKU/price data from TCGTracking, retrying with
-     *          a cache-busting query param if the response looks stale/short.
-     *          Same stale-Cloudflare-edge-cache risk as fetchProducts — see
-     *          its doc comment. Validated against the ALREADY-FETCHED product
-     *          list's own count (an independent, same-request reference)
-     *          rather than this response's own claimed sku_count, since a
-     *          stale cached snapshot agrees with itself.
-     * @param expectedProducts  Number of products fetchProducts just returned
-     *                          for this set — used as the staleness reference.
+     * Same idea as fetchProducts, but for the price (SKU) data — checked
+     * against the product count we already fetched, for the same reason.
      */
     private def fetchSkus(tcgSetId: Int, setName: String, expectedProducts: Int): Task[TcgSkuResponse] =
       val maxAttempts = 3
@@ -352,52 +234,36 @@ object PriceService:
       attempt(1)
 
     /**
-     * METHOD: normalizeCollectorNumber
-     * PURPOSE: Converts collector numbers from both APIs into the same shape
-     *          before matching cards to TCGTracking products.
-     *
-     * WHY THIS IS NEEDED:
-     *   pokemontcg.io can return numbers with leading zeroes, like "001".
-     *   TCGTracking usually returns numbers as "1/198". Without normalization,
-     *   cards 001-099 never match and therefore never receive prices.
-     *
-     * HOW IT WORKS:
-     *   1. Take only the part before "/" for TCGTracking numbers
-     *   2. Trim spaces
-     *   3. If the number is purely numeric, remove leading zeroes
-     *   4. Leave non-numeric promo numbers like "SWSH001" unchanged
-     *
-     * @param number  Collector number from either API
-     * @return        Normalized collector number used for matching
+     * Makes collector numbers from both APIs comparable. pokemontcg.io can
+     * send "001"; TCGTracking sends "1/198". Without this, cards 001-099
+     * would never match anything and never get a price.
      */
     private def normalizeCollectorNumber(number: String): String =
+      // Keeps only the part before any slash.
       val base = number.split("/").head.trim
+      // Strips leading zeros off a purely numeric number; leaves text
+      // numbers like "SWSH001" untouched.
       base.toIntOption.map(_.toString).getOrElse(base)
 
     /**
-     * METHOD: allTcgSets
-     * PURPOSE: Fetches TCGTracking's full Pokémon set catalog (~280 sets, one
-     *          call) and caches it in memory for an hour.
+     * Fetches TCGTracking's full set list (~280 sets, one call) and keeps
+     * it in memory for an hour.
      *
-     * WHY NOT THE PER-QUERY SEARCH ENDPOINT:
-     *   TCGTracking's `/search?q=` endpoint does a near-literal substring
-     *   match against its stored set name, not a fuzzy/tokenized search.
-     *   Confirmed live: searching the FULL text of our own set names (e.g.
-     *   "SM Black Star Promos", "Shining Fates Shiny Vault", the exact string
-     *   we'd naturally send) returns ZERO results for dozens of sets, because
-     *   words like "Black Star" or "Collection" never appear verbatim in
-     *   TCGTracking's name ("SM Promos", "McDonald's Promos 2019"). This was
-     *   the root cause of ~60 sets (the entire Sun & Moon era, most Black Star
-     *   Promo sets, McDonald's collections, trainer kits) having 0% price
-     *   coverage — not a matching bug, but zero candidates to match against.
-     *   Fetching the whole catalog once and matching client-side sidesteps
-     *   their search entirely.
+     * TCGTracking's own search only matches near-exact substrings of the
+     * set name, and our set names often don't literally appear in
+     * TCGTracking's — this was confirmed to leave dozens of sets with
+     * zero matches. Fetching the whole list once and matching ourselves
+     * avoids that entirely.
      */
     private def allTcgSets: Task[List[TcgSetResult]] =
-      val ttlMs = 60 * 60 * 1000L
+      val ttlMs = 60 * 60 * 1000L // one hour
+
       setsCache.get.flatMap {
+        // Still fresh — use the cached copy, no network call.
         case Some((fetchedAt, sets)) if java.lang.System.currentTimeMillis() - fetchedAt < ttlMs =>
           ZIO.succeed(sets)
+
+        // Missing or expired — fetch fresh.
         case _ =>
           get(s"$BASE/$POKEMON_CAT/sets")
             .flatMap(json => parse[TcgSearchResponse](json).map(_.sets))
@@ -409,71 +275,61 @@ object PriceService:
       }
 
     /**
-     * METHOD: findTcgSetId
-     * PURPOSE: Finds the TCGTracking numeric set ID for a given CardSet by
-     *          matching against the cached full catalog. Returns None if no
-     *          confident match found — this is normal for sets TCGTracking
-     *          genuinely doesn't track (e.g. some promo "sets").
+     * Finds a CardSet's matching TCGTracking set ID, or None if no
+     * confident match exists (normal for sets TCGTracking simply doesn't track).
      *
-     * MATCHING TIERS (first match wins):
-     *   1. Abbreviation equals our ptcgoCode.
-     *   2. Exact name match (punctuation/spacing-insensitive).
-     *   3. Exact match after stripping a TCGTracking "CODE: " prefix
-     *      (e.g. "SWSH04: Vivid Voltage").
-     *   4. Token containment: normalize both names into word sets (folding
-     *      accents, dropping "star"/"pokemon" noise words, singularizing
-     *      plurals) and require our set's tokens be mostly covered by the
-     *      candidate's — handles the many extra tiers TCGTracking wraps
-     *      around a real name: "SM - Cosmic Eclipse", "EX Team Rocket
-     *      Returns", "SWSH01: Sword & Shield Base Set". Ties are broken by
-     *      whichever candidate's product count is closest to our own card
-     *      total, then by the shortest (least noisy) candidate name.
-     *
-     * @param set  The CardSet to find in TCGTracking
-     * @return     Some(tcgSetId) if found, None if not
+     * Tries several matching strategies in order, first match wins:
+     *   1. Our set code matches TCGTracking's abbreviation.
+     *   2. Set names match exactly (ignoring punctuation/spacing).
+     *   3. Names match after stripping a "CODE: " prefix TCGTracking adds.
+     *   4. Fuzzy word-overlap match, for names TCGTracking wraps in extra
+     *      wording ("SM - Cosmic Eclipse" vs. "Cosmic Eclipse").
+     *   5. Last resort: an exact release-date match.
      */
     private def findTcgSetId(set: CardSet): Task[Option[Int]] =
+      // Lowercases and strips everything but letters/digits, for loose comparisons.
       val norm = (s: String) => s.toLowerCase.replaceAll("[^a-z0-9]", "")
 
+      // Strips accent marks (é -> e) so accented and plain spellings match.
       def foldAccents(s: String): String =
         java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFKD).replaceAll("\\p{M}", "")
 
+      // Common words that don't help identify a set — dropped before comparing.
       val stopWords = Set("star", "pokemon")
+
+      // A rough plural remover: "cards" -> "card".
       def stem(t: String): String =
         if t.length > 3 && t.endsWith("s") then t.dropRight(1) else t
+
+      // Breaks a set name into a set of individual normalized words, for
+      // comparing word-by-word rather than as one exact string.
       def tokens(s: String): Set[String] =
         foldAccents(s).toLowerCase.split("[^a-z0-9]+").iterator
           .filter(_.nonEmpty).map(stem).filterNot(stopWords.contains).toSet
 
-      // TCGTracking spells out a couple of retro eras instead of using the
-      // abbreviation our own set names carry ("Black and White Promos" vs.
-      // our "BW Black Star Promos"). Expanding the CANDIDATE's tokens with
-      // the abbreviation (only when both spelled-out words are present) lets
-      // these line up. Deliberately limited to eras confirmed to have no
-      // other numbered set sharing the same spelled-out words — unlike SM or
-      // SWSH, where TCGTracking's own names already carry the bare
-      // abbreviation, so expanding it would tie every "SM 0X" set together.
+      // TCGTracking spells out a couple of retro eras by full name instead
+      // of using our abbreviation ("Black and White Promos" vs. our "BW
+      // Black Star Promos"). This adds the short code back in when both
+      // spelled-out words are present, so the two can line up.
       val eraAliases = Map("bw" -> Set("black", "white"), "dp" -> Set("diamond", "pearl"))
       def expandCandidateTokens(toks: Set[String]): Set[String] =
         eraAliases.foldLeft(toks) { case (acc, (abbr, spelled)) =>
           if spelled.subsetOf(toks) then acc + abbr else acc
         }
 
+      // Removes a "CODE: " prefix TCGTracking sometimes adds, e.g.
+      // "SWSH04: Vivid Voltage" -> "Vivid Voltage".
       def stripTcgPrefix(name: String): String =
         name.split(":", 2) match
           case Array(_, rest) => rest.trim
           case _              => name
 
-      // Bonus subsets (Trainer/Galarian Gallery, Shiny Vault) are usually given
-      // the SAME ptcgoCode as their parent set by pokemontcg.io (e.g. Crown
-      // Zenith and Crown Zenith Galarian Gallery both carry "CRZ"), but
-      // TCGTracking lists them as a separate suffixed entry next to the
-      // parent's bare abbreviation ("CRZ" vs. "CRZ:GG", "HIF" vs. "HIF:SV").
-      // Trusting an abbreviation match here would silently attach the
-      // PARENT set's prices to every card in the subset. Confirmed live:
-      // Crown Zenith Galarian Gallery and both Shiny Vault sets matched the
-      // parent set via ptcgoCode and then had 0 cards line up by number,
-      // even though TCGTracking has full price data for the actual subset.
+      // Bonus subsets (Trainer Gallery, Shiny Vault) usually share their
+      // parent set's code in our data, but TCGTracking lists them
+      // separately ("CRZ" vs "CRZ:GG"). Trusting a code match here would
+      // wrongly attach the PARENT set's prices to the subset's cards —
+      // confirmed live, this happened and every card came up unmatched
+      // afterward. So bonus subsets skip the code-match step entirely.
       val isBonusSubset = Set("vault", "gallery").exists(kw => set.name.toLowerCase.contains(kw))
 
       def exactMatch(candidates: List[TcgSetResult]): Option[TcgSetResult] =
@@ -488,19 +344,17 @@ object PriceService:
         else
           candidates
             .map(c => (c, expandCandidateTokens(tokens(c.name))))
+            // What fraction of our name's words does this candidate cover?
             .map { case (c, candTokens) => (c, candTokens, ourTokens.intersect(candTokens).size.toDouble / ourTokens.size) }
+            // Below 60% coverage, it's probably a different set entirely.
             .filter(_._3 >= 0.6)
+            // Best coverage first; ties broken by closest card count, then shortest name.
             .sortBy { case (c, candTokens, ratio) => (-ratio, math.abs(c.productCount.getOrElse(0) - set.total), candTokens.size) }
             .headOption
             .map(_._1)
 
-      // Last resort before giving up: an exact release-date match. Catches
-      // sets TCGTracking names so bare that no name-token overlap is
-      // possible — e.g. our "Sun & Moon" base set has NO name-token match
-      // against TCGTracking's "SM Base Set" (no "sun"/"moon" in either
-      // direction), and a bare "sm" abbreviation would tie against every
-      // other "SM 0X" set. Confirmed unique: no two TCGTracking sets share
-      // a release date, so an exact match here is unambiguous.
+      // No two TCGTracking sets share a release date, so this is always
+      // unambiguous — used as a last resort for names too different to match by words.
       def dateMatch(candidates: List[TcgSetResult]): Option[TcgSetResult] =
         candidates.find(c => c.publishedOn.contains(set.releaseDate.toString))
 
@@ -515,25 +369,15 @@ object PriceService:
       }
 
     /**
-     * METHOD: fetchAndStorePrices
-     * PURPOSE: Main entry point. Finds the set in TCGTracking, fetches SKU prices,
-     *          matches them to our cards by collector number, and saves to the DB.
-     *
-     *          The matching process:
-     *            1. Find TCGTracking set ID from ptcgoCode or name
-     *            2. Fetch all products for the set (gives us number → productId mapping)
-     *            3. Fetch all SKUs for the set (gives us productId → condition prices)
-     *            4. For each of our cards, find matching product by number
-     *            5. Build CardPrices from the SKUs for that product
-     *            6. Save to card_prices table
-     *
-     * @param set    The set to fetch prices for
-     * @param cards  Cards in the set
-     * @return       Unit — price failures are logged, not propagated
+     * The main entry point. Finds the set on TCGTracking, fetches its
+     * prices, matches each price to our own cards by collector number,
+     * and saves the results.
      */
     def fetchAndStorePrices(set: CardSet, cards: List[Card]): Task[Unit] =
       findTcgSetId(set).flatMap {
         case None =>
+          // No match on TCGTracking at all — log it and stop. Still
+          // counts as success; "no prices found" is a normal outcome.
           ZIO.logInfo(s"TCGTracking: skipping prices for '${set.name}' — no set match found")
 
         case Some(tcgSetId) =>
@@ -543,15 +387,11 @@ object PriceService:
 
             pricesByProductId = buildPriceMap(skuResp.products)
 
-            // A collector number can map to MORE THAN ONE TCGTracking product —
-            // e.g. Poké Ball/Master Ball Pattern variants are separate products
-            // sharing the base card's number, and some sets list more than one
-            // product for the same number for other reasons. A plain .toMap here
-            // silently kept only the last one TCGTracking listed, which could be
-            // an unpriced product while a sibling product for the SAME card had
-            // real price data — a card could genuinely have a TCGTracking price
-            // and still show "no price" here. Keep every candidate product per
-            // number and use the first one that actually has a price.
+            // A card's number can map to MORE THAN ONE TCGTracking product
+            // (Poké Ball/Master Ball variants share a base number). Keeps
+            // every product for each number, not just the last one seen —
+            // otherwise a card could have a real price sitting on a
+            // sibling product and still show "no price" here.
             numberToProductIds = products.products
                                     .flatMap(p => p.number.map(n => normalizeCollectorNumber(n) -> p.id))
                                     .groupMap(_._1)(_._2)
@@ -562,6 +402,8 @@ object PriceService:
                  )
 
             saved <- ZIO.foreach(cards) { card =>
+                       // Every product sharing this card's number, keeping
+                       // only the first one that actually has a price.
                        numberToProductIds.getOrElse(normalizeCollectorNumber(card.number), Nil)
                          .flatMap(pricesByProductId.get)
                          .headOption match
@@ -570,7 +412,8 @@ object PriceService:
                      }
 
             matched = saved.count(identity)
-            // Log matched count; if any unmatched, append a sample so we can spot number-format mismatches
+
+            // Only builds the unmatched-cards list when something actually failed to match.
             unmatchedSample = {
                                 if matched < cards.size then
                                   val names = cards.zip(saved)
@@ -586,31 +429,17 @@ object PriceService:
       }
 
     /**
-     * METHOD: buildPriceMap
-     * PURPOSE: Groups SKUs by productId and extracts NM/LP/MP/HP/DMG prices.
-     *          A product can have multiple SKUs (Normal, Holofoil, 1st Edition etc).
-     *          We prefer Holofoil prices for holo cards, Normal for non-holo.
-     *          If both exist, we take the higher (Holofoil) price as it's more common
-     *          for valuable cards.
-     *
-     * HOW TCGTRACKING RETURNS SKUS:
-     *   The /skus endpoint returns a nested object:
-     *     products -> productId -> skuId -> sku
-     *
-     *   We only keep English SKUs, then group prices back under the numeric
-     *   product ID so cards can be matched by collector number.
-     *
-     * @param products  Product ID -> SKU ID -> SKU data from TCGTracking
-     * @return          Map from productId to CardPrices
+     * Groups a set's SKUs by product and pulls out one price per
+     * condition. A product can have several printings (Normal, Holofoil,
+     * 1st Edition) — takes the highest price found for each condition.
      */
     private def buildPriceMap(products: Map[String, Map[String, TcgSku]]): Map[Int, CardPrices] =
       products
+        // Keeps only English-language SKUs, dropping the inner SKU IDs we don't need.
         .flatMap { case (productId, skuMap) =>
           productId.toIntOption.map(_ -> skuMap.values.filter(_.language == "EN").toList)
         }
         .map { case (productId, productSkus) =>
-          // For each condition, take the highest price across all printings
-          // (Holofoil > Normal for cards that have both)
           def priceFor(cond: String): Option[Double] =
             productSkus
               .filter(_.condition == cond)
@@ -625,21 +454,17 @@ object PriceService:
             dmg = priceFor("DMG")
           )
         }
-        // Only include products that have at least one price
+        // Drops products with no usable price at all.
         .filter { case (_, prices) =>
           prices.nm.orElse(prices.lp).orElse(prices.mp)
                 .orElse(prices.hp).orElse(prices.dmg).isDefined
         }
 
-  /**
-   * VALUE: layer
-   * PURPOSE: ZLayer that provides a PriceService.
-   * @return ZLayer[CardRepository, Nothing, PriceService]
-   */
   val layer: ZLayer[CardRepository, Nothing, PriceService] =
     ZLayer.fromZIO {
       for
-        repo <- ZIO.service[CardRepository]
+        repo  <- ZIO.service[CardRepository]
+        // Starts the in-memory set-list cache empty.
         cache <- Ref.make(Option.empty[(Long, List[TcgSetResult])])
       yield new Live(repo, cache)
     }

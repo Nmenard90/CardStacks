@@ -1,21 +1,23 @@
 /**
- * FILE: OwnedPage.tsx
- * LOCATION: src/pages/OwnedPage.tsx
+ * OwnedPage — every card the user owns, across all sets, in one place.
  *
- * PURPOSE:
- *   Shows every card the user owns across all sets in one unified view.
- *   Cards are loaded from GET /api/collection/:userId/owned which JOIN-fetches
- *   card details server-side so there are no per-card requests.
- *   Supports local search (name/number/set), sort (name/qty/value/set), and
- *   the same +/− quantity adjustments as CollectionPage.
+ * HOW IT WORKS
+ *   Cards are loaded from GET /api/collection/:userId/owned, which fetches
+ *   card details on the backend so there are no per-card requests.
+ *   Supports local search (name/number/set), sort (name/qty/value/set),
+ *   the same +/- quantity adjustments as CollectionPage, plus a Shelf view
+ *   for browsing by physical storage location (see CollectionShelf).
  *
  * USED BY: App.tsx (route "/owned")
- * DEPENDS ON: GET /api/collection/:userId/owned, POST /api/collection/:userId/:cardId
+ * DEPENDS ON: api/collection, api/storage, components/CollectionShelf
  */
+
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getOwnedCards, saveEntry } from '../api/collection'
+import { assignCards, listBoxes, unassignCard } from '../api/storage'
 import { CardTile } from '../components/CardTile'
+import { CollectionShelf } from '../components/CollectionShelf'
 import { usePreview } from '../components/CardPreview'
 import { LoginScreen } from '../components/LoginScreen'
 import { Mascot } from '../components/Mascot'
@@ -23,10 +25,12 @@ import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
 import { HeaderNav } from '../components/HeaderNav'
 import { basePrice, cardValue, fromCondList, fromPurchaseList, toCondList, totalQty, type CondMap, type PurchaseMap } from '../lib/conditions'
-import type { Card, OwnedCard } from '../types'
+import type { Card, OwnedCard, StorageBox } from '../types'
 
+/** Local per-card editing state: the condition/quantity map, plus which condition tab is active. */
 interface Entry { conds: CondMap; selCond: string }
 type SortMode = 'name' | 'qty' | 'value' | 'set'
+type ViewMode = 'list' | 'shelf'
 
 export function OwnedPage() {
   const { user } = useUser()
@@ -34,38 +38,74 @@ export function OwnedPage() {
   const preview = usePreview()
 
   const [cards, setCards] = useState<Card[]>([])
+
+  // Lookup tables keyed by card ID, for hundreds of cards' worth of local state.
   const [coll, setColl] = useState<Record<string, Entry>>({})
   const [purchases, setPurchases] = useState<Record<string, PurchaseMap>>({})
+
+  // Card ID -> which drawer it's assigned to. Only assigned cards appear as keys.
+  const [drawerOf, setDrawerOf] = useState<Record<string, string>>({})
+  const [boxes, setBoxes] = useState<StorageBox[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortMode>('name')
+  const [view, setView] = useState<ViewMode>('list')
 
   const userId = user?.id ?? ''
 
+  // Loads the user's whole collection once, when this page first loads.
   useEffect(() => {
     if (!userId) return
-    // All state mutations in async callbacks — avoids cascading renders from synchronous setState.
     getOwnedCards(userId)
       .then((owned: OwnedCard[]) => {
         setCards(owned.map(o => o.card))
+
         const m: Record<string, Entry> = {}
         const p: Record<string, PurchaseMap> = {}
+        const d: Record<string, string> = {}
         for (const o of owned) {
           m[o.cardId] = { conds: fromCondList(o.conditions), selCond: o.selectedCond || 'NM' }
           p[o.cardId] = fromPurchaseList(o.conditions)
+          if (o.drawerId) d[o.cardId] = o.drawerId
         }
         setColl(m)
         setPurchases(p)
+        setDrawerOf(d)
         setLoading(false)
       })
       .catch(() => { toast('Could not load your collection.'); setLoading(false) })
   }, [userId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const reloadBoxes = () => { if (userId) listBoxes(userId).then(setBoxes).catch(() => {}) }
+  useEffect(reloadBoxes, [userId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Reassigns (or unassigns, when drawerId is "") one card's storage location. */
+  const setCardDrawer = async (cardId: string, drawerId: string) => {
+    // Remembered in case the save fails and needs rolling back.
+    const prev = drawerOf[cardId]
+
+    // Updates the screen right away, before the server confirms.
+    setDrawerOf(d => ({ ...d, [cardId]: drawerId }))
+    try {
+      if (drawerId) {
+        const result = await assignCards(userId, [cardId], drawerId)
+        if (result.warning) toast(result.warning)
+      } else {
+        await unassignCard(userId, cardId)
+      }
+      reloadBoxes()
+    } catch {
+      toast('Could not update storage location.')
+      setDrawerOf(d => ({ ...d, [cardId]: prev ?? '' }))
+    }
+  }
 
   const persist = (card: Card, entry: Entry) => {
     saveEntry(userId, card.id, toCondList(entry.conds, card, purchases[card.id]), entry.selCond)
       .catch(() => toast('Save failed — change not stored.'))
   }
 
+  /** Logs (or updates) what the user says they paid for one condition of a card. */
   const setPurchase = (card: Card, cond: string, price: number) => {
     setPurchases(prev => {
       const next = { ...prev, [card.id]: { ...prev[card.id], [cond]: { price, purchasedAt: new Date().toISOString() } } }
@@ -76,12 +116,13 @@ export function OwnedPage() {
     })
   }
 
+  /** Changes one card's entry, saves it, and drops the card from the list if it's now fully removed. */
   const mutate = (card: Card, fn: (e: Entry) => Entry) => {
     setColl(prev => {
       const cur = prev[card.id] ?? { conds: {}, selCond: 'NM' }
       const next = fn({ conds: { ...cur.conds }, selCond: cur.selCond })
       persist(card, next)
-      // Remove from the local card list if all quantities drop to zero
+
       if (totalQty(next.conds) === 0) {
         setCards(cs => cs.filter(c => c.id !== card.id))
       }
@@ -104,6 +145,8 @@ export function OwnedPage() {
       return e
     })
 
+  // Only switches which condition tab is active — nothing owned changes,
+  // so this doesn't go through mutate/persist.
   const selectCond = (card: Card, cond: string) =>
     setColl(prev => ({
       ...prev,
@@ -125,6 +168,7 @@ export function OwnedPage() {
     cards.reduce((sum, c) => sum + cardValue(coll[c.id]?.conds ?? {}, c), 0),
   [cards, coll])
 
+  // The final list shown on screen, after search and sorting.
   const displayed = useMemo(() => {
     const q = search.trim().toLowerCase()
     const list = q
@@ -137,6 +181,7 @@ export function OwnedPage() {
 
     if (sort === 'name')  list.sort((a, b) => a.name.localeCompare(b.name))
     if (sort === 'qty')   list.sort((a, b) => totalQty(coll[b.id]?.conds ?? {}) - totalQty(coll[a.id]?.conds ?? {}))
+    // Ties broken by base NM price.
     if (sort === 'value') list.sort((a, b) => cardValue(coll[b.id]?.conds ?? {}, b) - cardValue(coll[a.id]?.conds ?? {}, a) || basePrice(b) - basePrice(a))
     if (sort === 'set')   list.sort((a, b) => a.setId.localeCompare(b.setId) || parseInt(a.number) - parseInt(b.number))
     return list
@@ -182,46 +227,74 @@ export function OwnedPage() {
         </div>
 
         <div className="toolbar">
-          <span className="sort-label">Sort:</span>
-          {(['name', 'qty', 'value', 'set'] as SortMode[]).map(m => (
-            <button key={m} className={'tb-btn' + (sort === m ? ' active' : '')} onClick={() => setSort(m)}>
-              {m === 'name' ? 'Name' : m === 'qty' ? 'Qty ↓' : m === 'value' ? 'Value ↓' : 'Set'}
-            </button>
-          ))}
+          <span className="sort-label">View:</span>
+          <button className={'tb-btn' + (view === 'list' ? ' active' : '')} onClick={() => setView('list')}>List</button>
+          <button className={'tb-btn' + (view === 'shelf' ? ' active' : '')} onClick={() => setView('shelf')}>Shelf</button>
+
+          {/* Sort buttons only make sense in list view. */}
+          {view === 'list' && (
+            <>
+              <span className="sort-label" style={{ marginLeft: 12 }}>Sort:</span>
+              {(['name', 'qty', 'value', 'set'] as SortMode[]).map(m => (
+                <button key={m} className={'tb-btn' + (sort === m ? ' active' : '')} onClick={() => setSort(m)}>
+                  {m === 'name' ? 'Name' : m === 'qty' ? 'Qty ↓' : m === 'value' ? 'Value ↓' : 'Set'}
+                </button>
+              ))}
+            </>
+          )}
         </div>
 
-        <div id="app-wrap">
-          <div id="main">
-            {loading && <div className="loading">Loading your collection…</div>}
-            {!loading && cards.length === 0 && (
-              <div className="empty">
-                <Mascot size={80} mood="sleepy" caption={<>You don't own any cards yet. Use <Link to="/bulk">Bulk Add</Link> to get started.</>} />
-              </div>
-            )}
-            {!loading && cards.length > 0 && displayed.length === 0 && (
-              <div className="empty">No cards match "{search}".</div>
-            )}
-            {!loading && displayed.length > 0 && (
-              <div className="card-grid">
-                {displayed.map(c => {
-                  const entry = coll[c.id] ?? { conds: {}, selCond: 'NM' }
-                  return (
-                    <CardTile
-                      key={c.id} card={c} conds={entry.conds} selCond={entry.selCond}
-                      onAdj={d => adj(c, d)}
-                      onSetQty={q => setQty(c, q)}
-                      onSelectCond={cond => selectCond(c, cond)}
-                      onAdjCond={(cond, d) => adjCond(c, cond, d)}
-                      onPreview={(src, opts) => (src ? preview.show(src, opts) : preview.hide())}
-                      purchases={purchases[c.id]}
-                      onSetPurchase={(cond, price) => setPurchase(c, cond, price)}
-                    />
-                  )
-                })}
-              </div>
-            )}
+        {view === 'list' && (
+          <div id="app-wrap">
+            <div id="main">
+              {loading && <div className="loading">Loading your collection…</div>}
+              {!loading && cards.length === 0 && (
+                <div className="empty">
+                  <Mascot size={80} mood="sleepy" caption={<>You don't own any cards yet. Use <Link to="/bulk">Bulk Add</Link> to get started.</>} />
+                </div>
+              )}
+              {!loading && cards.length > 0 && displayed.length === 0 && (
+                <div className="empty">No cards match "{search}".</div>
+              )}
+              {!loading && displayed.length > 0 && (
+                <div className="card-grid">
+                  {displayed.map(c => {
+                    const entry = coll[c.id] ?? { conds: {}, selCond: 'NM' }
+                    return (
+                      <CardTile
+                        key={c.id} card={c} conds={entry.conds} selCond={entry.selCond}
+                        onAdj={d => adj(c, d)}
+                        onSetQty={q => setQty(c, q)}
+                        onSelectCond={cond => selectCond(c, cond)}
+                        onAdjCond={(cond, d) => adjCond(c, cond, d)}
+                        onPreview={(src, opts) => (src ? preview.show(src, opts) : preview.hide())}
+                        purchases={purchases[c.id]}
+                        onSetPurchase={(cond, price) => setPurchase(c, cond, price)}
+                      />
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
+
+        {view === 'shelf' && !loading && (
+          <div style={{ padding: '16px 20px' }}>
+            <CollectionShelf
+              userId={userId}
+              cards={cards}
+              coll={coll}
+              boxes={boxes}
+              drawerOf={drawerOf}
+              // Always empty — binder integration was never wired into
+              // this page, so no card is ever reported as "in a binder."
+              binderLocationOf={{}}
+              onReloadBoxes={reloadBoxes}
+              onSetCardDrawer={setCardDrawer}
+            />
+          </div>
+        )}
       </div>
       {preview.overlay}
     </div>

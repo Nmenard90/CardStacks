@@ -1,15 +1,14 @@
 /**
- * FILE: BinderRepository.scala
- * PACKAGE: com.poketracker.repository
- * LOCATION: src/main/scala/com/poketracker/repository/BinderRepository.scala
+ * BinderRepository — all database access for binders and their card slots.
  *
- * PURPOSE:
- *   Handles all database operations for binders and their card slots.
- *   Binders and slots are stored in two separate tables (binders and binder_slots)
- *   and this repository joins them together when fetching.
+ * HOW IT WORKS
+ *   Binders and slots live in two tables (`binders`, `binder_slots`).
+ *   `findByUser` returns binder covers only (no slots — the shelf view
+ *   doesn't need them). `findById` and `updateSlot` each run two
+ *   statements as one transaction so a binder's slots can never be read
+ *   or written half-updated relative to the binder row itself.
  *
  * USED BY: BinderService
- * DEPENDS ON: Doobie, ZIO, Binder model
  */
 
 package com.poketracker.repository
@@ -24,50 +23,16 @@ import zio.*
 import zio.interop.catz.*
 import java.time.Instant
 
-/**
- * TRAIT: BinderRepository
- * PURPOSE: Interface for all binder data access operations.
- */
 trait BinderRepository:
-
-  /**
-   * METHOD: findByUser
-   * PURPOSE: Fetches all binders owned by a user, without their slots.
-   *          Used for the binder shelf view — we show binder covers
-   *          without loading all card data for every binder.
-   * @param userId  The user whose binders to fetch
-   * @return        List of binders, newest first, without slot data
-   */
+  /** Slots omitted — used for the shelf view, which only shows covers. */
   def findByUser(userId: String): Task[List[Binder]]
 
-  /**
-   * METHOD: findById
-   * PURPOSE: Fetches a single binder with all its slots.
-   *          Used when opening a binder to view its pages.
-   * @param id  The binder's UUID
-   * @return    Some(binder) with all slots, None if not found
-   */
+  /** Full binder with every slot — used when a binder is actually opened. */
   def findById(id: String): Task[Option[Binder]]
 
-  /**
-   * METHOD: create
-   * PURPOSE: Creates a new empty binder.
-   * @param binder  The binder to create (slots list will be empty)
-   * @return        Unit
-   */
   def create(binder: Binder): Task[Unit]
 
-  /**
-   * METHOD: updateSlot
-   * PURPOSE: Places or removes a card from a specific slot.
-   *          If cardId is Some, places the card. If None, empties the slot.
-   * @param binderId   Which binder
-   * @param slotIndex  Which position in the binder (0-based)
-   * @param cardId     The card to place, or None to empty the slot
-   * @param cardName   Cached card name for display
-   * @param imageUrl   Cached card image URL for display
-   * @return           Unit
-   */
+  /** `cardId = None` clears the slot; `Some` places that card. */
   def updateSlot(
     binderId:  String,
     slotIndex: Int,
@@ -76,42 +41,13 @@ trait BinderRepository:
     imageUrl:  Option[String]
   ): Task[Unit]
 
-  /**
-   * METHOD: updateName
-   * PURPOSE: Renames a binder.
-   * @param id    The binder to rename
-   * @param name  The new name
-   * @return      Unit
-   */
   def updateName(id: String, name: String): Task[Unit]
-
-  /**
-   * METHOD: updateCover
-   * PURPOSE: Sets the cover image for a binder.
-   * @param id        The binder to update
-   * @param imageUrl  URL to use as the cover image
-   * @return          Unit
-   */
   def updateCover(id: String, imageUrl: String): Task[Unit]
 
-  /**
-   * METHOD: updatePocketSize
-   * PURPOSE: Changes how many card pockets each binder page holds.
-   *          Slots keep their indexes — cards re-flow across pages in the
-   *          UI because a page simply shows a different range of indexes.
-   * @param id          The binder to update
-   * @param pocketSize  The new size (Four, Nine, or Twelve)
-   * @return            Unit
-   */
+  /** Slot indexes are untouched — pages simply re-flow to the new pockets-per-page. */
   def updatePocketSize(id: String, pocketSize: PocketSize): Task[Unit]
 
-  /**
-   * METHOD: delete
-   * PURPOSE: Deletes a binder and all its slots.
-   *          The ON DELETE CASCADE in the schema handles deleting slots automatically.
-   * @param id  The binder to delete
-   * @return    Unit
-   */
+  /** Slots cascade-delete via the schema's FK constraint. */
   def delete(id: String): Task[Unit]
 
 object BinderRepository:
@@ -128,15 +64,11 @@ object BinderRepository:
         .query[(String, String, String, String, Option[String], Instant, Instant)]
         .to[List]
         .map(_.map { case (id, uid, name, size, cover, createdAt, updatedAt) =>
-          // Create binder with empty slots — slots are loaded separately when needed
           Binder(id, uid, name, PocketSize.valueOf(size), cover, Nil, createdAt, updatedAt)
         })
         .transact(xa)
 
     def findById(id: String): Task[Option[Binder]] =
-      // Two queries: one for the binder, one for its slots.
-      // We run both in the same transaction for consistency —
-      // the slot data will match the binder data as of the same moment.
       val binderQuery =
         sql"""
           SELECT id, user_id, name, pocket_size, cover_image, created_at, updated_at
@@ -155,8 +87,8 @@ object BinderRepository:
           .query[(Int, Option[String], Option[String], Option[String])]
           .to[List]
 
-      // Run both queries in the same transaction then combine the results.
-      // For comprehension in Doobie's ConnectionIO context.
+      // Both queries run in the same transaction so slots can't be read
+      // against a binder row that changed in between.
       (for
         binderOpt <- binderQuery
         slots     <- slotsQuery
@@ -192,7 +124,8 @@ object BinderRepository:
           image_url = EXCLUDED.image_url
       """
         .update.run.void
-        // Also update the binder's updated_at timestamp so the shelf shows the right order
+        // Bumps the binder's own updated_at in the same transaction, so
+        // the shelf sorts by most-recently-touched binder.
         .flatMap { _ =>
           sql"UPDATE binders SET updated_at = NOW() WHERE id = $binderId"
             .update.run.void
@@ -212,15 +145,12 @@ object BinderRepository:
         .update.run.void.transact(xa)
 
     def updatePocketSize(id: String, pocketSize: PocketSize): Task[Unit] =
-      // pocket_size is stored as the enum's name ("Four" | "Nine" | "Twelve"),
-      // same encoding the INSERT in create() uses.
       sql"""
         UPDATE binders SET pocket_size = ${pocketSize.toString}, updated_at = NOW() WHERE id = $id
       """
         .update.run.void.transact(xa)
 
     def delete(id: String): Task[Unit] =
-      // ON DELETE CASCADE in schema.sql automatically deletes all binder_slots rows
       sql"DELETE FROM binders WHERE id = $id"
         .update.run.void.transact(xa)
 

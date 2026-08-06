@@ -1,28 +1,8 @@
 /**
- * FILE: CollectionRepository.scala
- * PACKAGE: com.poketracker.repository
- * LOCATION: src/main/scala/com/poketracker/repository/CollectionRepository.scala
- *
- * PURPOSE:
- *   Handles all database operations for user card collections.
- *   A collection is the set of cards a user owns, with per-condition quantities.
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * IMPORTS EXPLAINED:
- *
- *   cats.syntax.all.*
- *     Provides .void (discard return value) and other Cats syntax extensions.
- *
- *   io.circe / zio.json
- *     We use zio.json for API responses but store conditions as JSONB in Postgres.
- *     We use the raw string approach — store as JSON text, parse on read.
- *
- *   doobie.postgres.circe.jsonb.implicits.*  (NOT used here — we use manual JSON)
- *     We handle JSONB as raw strings to avoid adding circe as a dependency.
- * ─────────────────────────────────────────────────────────────────────────────
+ * CollectionRepository — all database access for what users own. A
+ * "collection entry" is one card a user owns, with a count per condition.
  *
  * USED BY: CollectionService
- * DEPENDS ON: Doobie, ZIO, Collection model
  */
 
 package com.poketracker.repository
@@ -38,67 +18,19 @@ import zio.interop.catz.*
 import zio.json.*
 import java.time.Instant
 
-/**
- * TRAIT: CollectionRepository
- * PURPOSE: Interface for all collection data access operations.
- */
 trait CollectionRepository:
-
-  /**
-   * METHOD: findByUser
-   * PURPOSE: Fetches all collection entries for a user.
-   *          Returns the user's entire collection in one query.
-   * @param userId  The user whose collection to fetch
-   * @return        List of all cards the user owns with quantities
-   */
   def findByUser(userId: String): Task[List[CollectionEntry]]
-
-  /**
-   * METHOD: findEntry
-   * PURPOSE: Fetches a single collection entry for a specific card.
-   * @param userId  The user
-   * @param cardId  The card
-   * @return        Some(entry) if the user owns this card, None if not
-   */
   def findEntry(userId: String, cardId: String): Task[Option[CollectionEntry]]
-
-  /**
-   * METHOD: upsertEntry
-   * PURPOSE: Saves a collection entry — inserts if new, updates if existing.
-   * @param entry  The collection entry to save
-   * @return       Unit
-   */
   def upsertEntry(entry: CollectionEntry): Task[Unit]
-
-  /**
-   * METHOD: deleteEntry
-   * PURPOSE: Removes a card from a user's collection entirely.
-   *          Called when a user sets all quantities to zero.
-   * @param userId  The user
-   * @param cardId  The card to remove
-   * @return        Unit
-   */
   def deleteEntry(userId: String, cardId: String): Task[Unit]
 
-  /**
-   * METHOD: bulkUpsert
-   * PURPOSE: Saves multiple collection entries in a single database transaction.
-   *          Much faster than calling upsertEntry repeatedly for each card.
-   *          Used when importing a collection from CSV.
-   * @param entries  The entries to save
-   * @return         Unit
-   */
+  /** All entries as one transaction — used for CSV imports; if any row fails, none are kept. */
   def bulkUpsert(entries: List[CollectionEntry]): Task[Unit]
 
   /**
-   * METHOD: findByUserWithCards
-   * PURPOSE: Fetches every collection entry for a user joined with full card
-   *          details from the cards and card_prices tables.
-   *          Used by GET /api/collection/:userId/owned to avoid N+1 per-card
-   *          lookups on the frontend.  Entries whose card no longer exists in
-   *          the cards table are silently excluded (INNER JOIN).
-   * @param userId  The user whose collection to fetch
-   * @return        All owned cards with enriched card data, newest first
+   * Every owned card for a user, joined with the card's name/image/price so
+   * the frontend gets it all in one request. A card since removed from the
+   * catalog (no matching `cards` row) is silently dropped.
    */
   def findByUserWithCards(userId: String): Task[List[OwnedCard]]
 
@@ -116,8 +48,7 @@ object CollectionRepository:
         .query[(String, String, String, String, String, Instant)]
         .to[List]
         .map(_.flatMap { case (id, uid, cardId, condJson, selCond, updatedAt) =>
-          // Parse the JSONB conditions column from JSON string.
-          // If parsing fails (corrupted data), skip the row rather than crashing.
+          // `conditions` is stored as jsonb text; a row that fails to parse is dropped.
           condJson.fromJson[List[ConditionCount]].toOption.map { conditions =>
             CollectionEntry(id, uid, cardId, conditions, selCond, updatedAt)
           }
@@ -140,8 +71,8 @@ object CollectionRepository:
         .transact(xa)
 
     def upsertEntry(entry: CollectionEntry): Task[Unit] =
-      // Serialize the conditions list to JSON for storage in the JSONB column.
       val condJson = entry.conditions.toJson
+
       sql"""
         INSERT INTO collection_entries
           (id, user_id, card_id, conditions, selected_cond, updated_at)
@@ -163,9 +94,6 @@ object CollectionRepository:
         .update.run.void.transact(xa)
 
     def bulkUpsert(entries: List[CollectionEntry]): Task[Unit] =
-      // Run all upserts in a single transaction.
-      // If any one fails, the entire batch is rolled back — no partial saves.
-      // .traverse_ runs an effect for each item and discards the results.
       entries.traverse_ { entry =>
         val condJson = entry.conditions.toJson
         sql"""

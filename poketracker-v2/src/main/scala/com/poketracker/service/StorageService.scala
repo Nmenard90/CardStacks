@@ -1,11 +1,11 @@
 /**
- * FILE: StorageService.scala
- * PACKAGE: com.poketracker.service
- * LOCATION: src/main/scala/com/poketracker/service/StorageService.scala
+ * StorageService — physical storage: boxes, drawers, assigning owned
+ * cards to them.
  *
- * PURPOSE:
- *   Business logic for physical storage — boxes, drawers, and assigning
- *   owned cards to them.
+ * HOW IT WORKS
+ *   Thin rules layer over StorageRepository. Most methods are direct
+ *   pass-throughs; the one with real logic is assignCards, which flags
+ *   (but never blocks) when a set is being split across drawers.
  *
  * USED BY: StorageRoutes
  * DEPENDS ON: StorageRepository
@@ -35,9 +35,9 @@ trait StorageService:
 
   /**
    * Assigns cards to a drawer, then checks whether any OTHER owned card
-   * sharing a set with what was just assigned already lives in a
-   * different drawer — surfaced as an informational warning, never a
-   * block, since splitting a set across boxes is a real thing users do.
+   * from the same set already lives in a different drawer. Surfaced as an
+   * informational warning only — splitting a set across boxes is a real
+   * thing users do, so this never blocks the assignment.
    */
   def assignCards(userId: String, cardIds: List[String], drawerId: String): Task[AssignResult]
 
@@ -55,21 +55,26 @@ object StorageService:
   final class Live(repo: StorageRepository) extends StorageService:
 
     def getBoxes(userId: String): Task[List[StorageBox]] = repo.findBoxesByUser(userId)
+
     def createBox(userId: String, name: String): Task[StorageBox] =
       ZIO.when(name.trim.isEmpty)(ZIO.fail(new IllegalArgumentException("Box name cannot be empty")))
         *> repo.createBox(userId, name.trim)
+
     def renameBox(id: String, name: String): Task[Unit] =
       ZIO.when(name.trim.isEmpty)(ZIO.fail(new IllegalArgumentException("Box name cannot be empty")))
         *> repo.renameBox(id, name.trim)
+
     def reorderBox(id: String, position: Int): Task[Unit] = repo.reorderBox(id, position)
     def deleteBox(id: String): Task[Unit] = repo.deleteBox(id)
 
     def createDrawer(boxId: String, name: String): Task[StorageDrawer] =
       ZIO.when(name.trim.isEmpty)(ZIO.fail(new IllegalArgumentException("Drawer name cannot be empty")))
         *> repo.createDrawer(boxId, name.trim)
+
     def renameDrawer(id: String, name: String): Task[Unit] =
       ZIO.when(name.trim.isEmpty)(ZIO.fail(new IllegalArgumentException("Drawer name cannot be empty")))
         *> repo.renameDrawer(id, name.trim)
+
     def reorderDrawer(id: String, position: Int): Task[Unit] = repo.reorderDrawer(id, position)
     def deleteDrawer(id: String): Task[Unit] = repo.deleteDrawer(id)
 
@@ -79,6 +84,7 @@ object StorageService:
     def assignCards(userId: String, cardIds: List[String], drawerId: String): Task[AssignResult] =
       for
         assigned <- repo.assignCards(userId, cardIds, drawerId)
+        // Runs after the assignment, not before — needs to see the cards just moved.
         overlap  <- repo.countOtherDrawerCardsInSameSets(userId, cardIds, drawerId)
         warning   = buildOverlapWarning(overlap)
       yield AssignResult(assigned, warning)

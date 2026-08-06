@@ -1,12 +1,11 @@
 /**
- * FILE: BinderService.scala
- * PACKAGE: com.poketracker.service
- * LOCATION: src/main/scala/com/poketracker/service/BinderService.scala
+ * BinderService — creating binders, placing/removing cards from slots,
+ * bounds-checking slot operations.
  *
- * PURPOSE:
- *   Business logic for managing card binders.
- *   Handles creating binders, placing and removing cards from slots,
- *   and validating that slot operations are within bounds.
+ * HOW IT WORKS
+ *   Thin rules layer over BinderRepository: validates slot index range,
+ *   rejects blank names, and builds new Binder objects client-side so a
+ *   create doesn't need a round-trip read to know what it just saved.
  *
  * USED BY: BinderRoutes
  * DEPENDS ON: BinderRepository
@@ -20,106 +19,37 @@ import zio.*
 import java.time.Instant
 import java.util.UUID
 
-/**
- * TRAIT: BinderService
- * PURPOSE: Interface for all binder business logic.
- */
 trait BinderService:
 
-  /**
-   * METHOD: getBinders
-   * PURPOSE: Returns all binders for a user without slot data.
-   *          Used for the shelf view — we show covers without loading all cards.
-   * @param userId  The user
-   * @return        List of binders, newest first
-   */
+  /** Without slot data — the shelf view only needs covers. */
   def getBinders(userId: String): Task[List[Binder]]
 
-  /**
-   * METHOD: getBinder
-   * PURPOSE: Returns a single binder with all its slots.
-   *          Used when opening a binder to view and edit pages.
-   * @param id  The binder UUID
-   * @return    Some(binder) with all slots, None if not found
-   */
+  /** With every slot, for opening a binder to view/edit pages. */
   def getBinder(id: String): Task[Option[Binder]]
 
-  /**
-   * METHOD: createBinder
-   * PURPOSE: Creates a new empty binder for a user.
-   * @param userId      Who owns this binder
-   * @param name        Display name e.g. "My Charizards"
-   * @param pocketSize  How many cards per page
-   * @return            The newly created Binder
-   */
   def createBinder(
     userId:     String,
     name:       String,
     pocketSize: PocketSize
   ): Task[Binder]
 
-  /**
-   * METHOD: placeCard
-   * PURPOSE: Places a card in a specific slot of a binder.
-   *          If the slot already has a card, it is replaced.
-   * @param binderId   The binder to place the card in
-   * @param slotIndex  Which slot (0-based, counts across all pages)
-   * @param card       The card to place
-   * @return           Unit, or fails if slot index is out of range
-   */
+  /** Replaces whatever was already in the slot, if anything. */
   def placeCard(binderId: String, slotIndex: Int, card: Card): Task[Unit]
 
-  /**
-   * METHOD: removeCard
-   * PURPOSE: Removes a card from a slot, leaving it empty.
-   * @param binderId   The binder
-   * @param slotIndex  Which slot to clear
-   * @return           Unit
-   */
   def removeCard(binderId: String, slotIndex: Int): Task[Unit]
 
-  /**
-   * METHOD: renameBinder
-   * PURPOSE: Changes a binder's display name.
-   * @param id    The binder to rename
-   * @param name  The new name
-   * @return      Unit
-   */
   def renameBinder(id: String, name: String): Task[Unit]
 
-  /**
-   * METHOD: setCover
-   * PURPOSE: Sets a binder's cover image.
-   * @param id        The binder
-   * @param imageUrl  URL to use as cover (usually a card image the user owns)
-   * @return          Unit
-   */
   def setCover(id: String, imageUrl: String): Task[Unit]
 
-  /**
-   * METHOD: resizeBinder
-   * PURPOSE: Changes a binder's pocket size after creation.
-   *          Placed cards are not touched — their slot indexes stay the
-   *          same and the pages simply re-flow at the new pockets-per-page.
-   * @param id          The binder to resize
-   * @param pocketSize  The new size (Four, Nine, or Twelve)
-   * @return            Unit
-   */
+  /** Placed cards keep their slot index — pages just re-flow at the new pocket count. */
   def resizeBinder(id: String, pocketSize: PocketSize): Task[Unit]
 
-  /**
-   * METHOD: deleteBinder
-   * PURPOSE: Permanently deletes a binder and all its slots.
-   * @param id  The binder to delete
-   * @return    Unit
-   */
   def deleteBinder(id: String): Task[Unit]
 
 object BinderService:
 
-  // Maximum slots allowed per binder.
-  // A 9-pocket binder with 100 pages = 900 slots.
-  // This prevents accidental creation of enormous binders.
+  // Sanity cap, not a real limit — a 9-pocket binder with 100 pages is 900 slots.
   private val MaxSlots = 2000
 
   final class Live(repo: BinderRepository) extends BinderService:
@@ -137,14 +67,13 @@ object BinderService:
         name       = name.trim,
         pocketSize = pocketSize,
         coverImage = None,
-        slots      = Nil,        // New binders start empty
+        slots      = Nil,
         createdAt  = Instant.now(),
         updatedAt  = Instant.now()
       )
       repo.create(binder).as(binder)
 
     def placeCard(binderId: String, slotIndex: Int, card: Card): Task[Unit] =
-      // Validate slot index is within allowed range
       ZIO.when(slotIndex < 0 || slotIndex >= MaxSlots)(
         ZIO.fail(new IllegalArgumentException(
           s"Slot index $slotIndex is out of range. Must be between 0 and ${MaxSlots - 1}."

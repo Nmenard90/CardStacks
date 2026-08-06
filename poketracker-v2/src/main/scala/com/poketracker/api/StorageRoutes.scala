@@ -1,26 +1,22 @@
 /**
- * FILE: StorageRoutes.scala
- * PACKAGE: com.poketracker.api
- * LOCATION: src/main/scala/com/poketracker/api/StorageRoutes.scala
+ * StorageRoutes — HTTP endpoints for physical storage (boxes, drawers, card assignment).
  *
- * PURPOSE:
- *   HTTP endpoints for physical storage (boxes, drawers, card assignment).
+ * HOW IT WORKS
+ *   Pure request/response plumbing over StorageService — parse, delegate,
+ *   respond. No business logic here.
  *
- * ENDPOINTS:
- *   GET    /api/storage/:userId/boxes                         — list boxes with drawers
- *   POST   /api/storage/:userId/boxes                         — create a box
- *   PUT    /api/storage/boxes/:boxId                          — rename/reorder a box
- *   DELETE /api/storage/boxes/:boxId                          — delete a box
- *   POST   /api/storage/boxes/:boxId/drawers                  — create a drawer
- *   PUT    /api/storage/drawers/:drawerId                     — rename/reorder a drawer
- *   DELETE /api/storage/drawers/:drawerId                     — delete a drawer
- *   GET    /api/storage/drawers/:drawerId/cards                — cards in a drawer
- *   GET    /api/storage/:userId/unassigned                    — owned cards with no drawer
- *   POST   /api/storage/:userId/assign                        — assign cards to a drawer
- *   DELETE /api/storage/:userId/assign/:cardId                — unassign a card
- *
- * USED BY: Main.scala
- * DEPENDS ON: StorageService
+ * ENDPOINTS
+ *   GET    /api/storage/:userId/boxes                — list boxes with drawers
+ *   POST   /api/storage/:userId/boxes                — create a box
+ *   PUT    /api/storage/boxes/:boxId                 — rename/reorder a box
+ *   DELETE /api/storage/boxes/:boxId                 — delete a box
+ *   POST   /api/storage/boxes/:boxId/drawers         — create a drawer
+ *   PUT    /api/storage/drawers/:drawerId            — rename/reorder a drawer
+ *   DELETE /api/storage/drawers/:drawerId            — delete a drawer
+ *   GET    /api/storage/drawers/:drawerId/cards      — cards in a drawer
+ *   GET    /api/storage/:userId/unassigned           — owned cards with no drawer
+ *   POST   /api/storage/:userId/assign               — assign cards to a drawer
+ *   DELETE /api/storage/:userId/assign/:cardId       — unassign a card
  */
 
 package com.poketracker.api
@@ -38,7 +34,7 @@ object StorageRoutes:
   private case class CreateDrawerRequest(name: String)
   private given JsonDecoder[CreateDrawerRequest] = DeriveJsonDecoder.gen
 
-  /** name/position are both optional — only the fields present are changed. */
+  /** name/position are both optional — a PUT only changes whichever fields are present. */
   private case class UpdateRequest(name: Option[String], position: Option[Int])
   private given JsonDecoder[UpdateRequest] = DeriveJsonDecoder.gen
 
@@ -71,6 +67,7 @@ object StorageRoutes:
           body   <- req.body.asString
           parsed <- ZIO.fromEither(body.fromJson[UpdateRequest])
                       .mapError(e => RuntimeException(s"Bad request: $e"))
+          // ZIO.foreach over an Option: runs only if that field was sent.
           _      <- ZIO.foreach(parsed.name)(n => ZIO.serviceWithZIO[StorageService](_.renameBox(boxId, n)))
           _      <- ZIO.foreach(parsed.position)(p => ZIO.serviceWithZIO[StorageService](_.reorderBox(boxId, p)))
         yield Response.json("""{"ok": true}""")

@@ -1,23 +1,18 @@
 /**
- * FILE: RipTrackerService.scala
- * PACKAGE: com.poketracker.service
- * LOCATION: src/main/scala/com/poketracker/service/RipTrackerService.scala
+ * RipTrackerService — running a rip (box-opening) session and computing
+ * the rip-or-hold verdict.
  *
- * PURPOSE:
- *   Business logic for the Rip Tracker feature: running rip (box-opening)
- *   sessions and computing the rip-or-hold verdict. Orchestrates
- *   RipTrackerRepository (session/pull storage), CardRepository (real
- *   prices), CollectionService (merges pulls into the user's collection,
- *   respecting the existing merge rule), and RipOrHoldEngine (the pure
- *   math — this file feeds it, never reimplements it).
+ * HOW IT WORKS
+ *   Orchestration layer: ties together session/pull storage
+ *   (RipTrackerRepository), real card prices (CardRepository), merging
+ *   pulls into the user's collection (CollectionService), and
+ *   RipOrHoldEngine's math. This file only feeds RipOrHoldEngine real
+ *   data — it never recalculates the math itself.
  *
- * NOT WIRED INTO Main.scala YET — see RipTrackerRepository's header. This
- * whole feature stays off the live app until Migration 004 has actually
+ * NOT WIRED IN YET — stays off the live app until its DB migration has
  * been run against production.
  *
  * USED BY: (future) RipRoutes, once wired
- * DEPENDS ON: RipTrackerRepository, CardRepository, CollectionRepository,
- *   CollectionService, CardService, RipOrHoldEngine
  */
 
 package com.poketracker.service
@@ -28,68 +23,40 @@ import zio.*
 import java.util.UUID
 
 /**
- * CASE CLASS: PullResult
- * PURPOSE: What POST /rip-sessions/:id/pulls returns for one recorded pull —
- *          the pull itself plus the marginal-value flags the UI uses to
- *          nudge trading/selling a dupe instead of just logging it.
- * @param pull          The recorded Pull, with its collectionEntryId set.
- * @param alreadyOwned  Whether the user owned at least one copy of this card
- *                      BEFORE this pull (i.e. this pull is a duplicate).
- * @param setComplete   Whether the user now owns at least one copy of every
- *                      card in this card's set, after this pull.
+ * What recording one pull returns — the pull itself, plus flags the UI
+ * uses to nudge trading away a duplicate instead of just logging it.
+ *
+ * @param alreadyOwned  Whether the user owned this card BEFORE this pull.
+ * @param setComplete   Whether the user now owns every card in this set,
+ *                      after this pull.
  */
 final case class PullResult(pull: Pull, alreadyOwned: Boolean, setComplete: Boolean)
 
-/**
- * CASE CLASS: SessionRecap
- * PURPOSE: What GET /rip-sessions/:id returns — the session plus every pack
- *          and every pull, for the end-of-rip review screen.
- */
+/** A session plus every pack and pull in it, for the end-of-rip review screen. */
 final case class SessionRecap(session: RipSession, packs: List[RipPack], pulls: List[Pull])
 
-/**
- * TRAIT: RipTrackerService
- * PURPOSE: Interface for all Rip Tracker business logic.
- */
 trait RipTrackerService:
 
   /**
-   * Starts a rip session for a product, auto-generating its packs from the
-   * product's packCount.
-   * @param userId     Who's running this rip.
-   * @param productId  Which sealed product is being opened.
-   * @return           The created session and its generated packs.
+   * Starts a session for a product, creating one pack row per pack it contains.
    */
   def createSession(userId: String, productId: String): Task[(RipSession, List[RipPack])]
 
   /**
-   * Records one scanned card into a pack: writes the Pull, merges it into
-   * the user's collection (existing merge rule — quantities combine only
-   * within the same condition), and flags whether it's a duplicate and/or
-   * completes the set.
-   * @param ripPackId  Which pack this card was pulled from.
-   * @param cardId     The card pulled.
-   * @param condition  Logged condition, e.g. "NM".
-   * @return           The pull plus marginal-value flags.
+   * Records one scanned card: saves the pull, adds it to the user's
+   * collection (combining with any existing count in the same
+   * condition), and reports whether it was a duplicate and/or completed the set.
    */
   def recordPull(ripPackId: String, cardId: String, condition: String): Task[PullResult]
 
-  /** Full recap of a session — packs and pulls — for the review screen. */
+  /** The full session recap for the review screen. */
   def getRecap(ripSessionId: String): Task[Option[SessionRecap]]
 
   /**
-   * Builds the rip-or-hold verdict for a product: guaranteed floor, per-pack/
-   * open EV, Monte Carlo distribution, ceiling check, and (if a user is
-   * given) marginal-to-you value. Every price gap is reported, never guessed.
-   * @param sealedProductId       The product to evaluate.
-   * @param userId                Optional — enables the marginal-value view.
-   * @param chaseThreshold        Optional single-card price threshold for
-   *                              "P(pulling a chase hit)".
-   * @param projectedSealedPrice  Optional labeled forecast — kept separate
-   *                              from the real current sealed price.
-   * @param trials                Monte Carlo trial count (brief default 10,000).
-   * @return                      The structured Verdict, or None if the
-   *                              product doesn't exist.
+   * Builds the rip-or-hold verdict for a product. Every price gap is
+   * reported, never guessed.
+   * @param userId          Optional — turns on the "value to you" view.
+   * @param chaseThreshold  Optional single-card price used for "odds of pulling a chase hit."
    */
   def getVerdict(
     sealedProductId:      String,
@@ -101,6 +68,8 @@ trait RipTrackerService:
 
 object RipTrackerService:
 
+  // Depends on five collaborators — three repositories plus two other
+  // services — all handed in from outside (see `layer` at the bottom).
   final class Live(
     ripRepo:        RipTrackerRepository,
     cardRepo:       CardRepository,
@@ -111,6 +80,8 @@ object RipTrackerService:
 
     def createSession(userId: String, productId: String): Task[(RipSession, List[RipPack])] =
       for
+        // Stops with a clear error if the product doesn't exist — a
+        // session genuinely can't be created without one.
         product <- ripRepo.findSealedProduct(productId)
                      .someOrFail(RuntimeException(s"Unknown sealed product: $productId"))
         result  <- ripRepo.createSessionWithPacks(
@@ -119,10 +90,10 @@ object RipTrackerService:
       yield result
 
     /**
-     * Adds `delta` to the matching condition's quantity, or appends a new
-     * ConditionCount if this condition hasn't been logged for this card yet.
-     * This IS the merge rule: same card + same condition combines; same
-     * card + a different condition stays a separate line.
+     * Adds `delta` to the matching condition's count, or adds a new
+     * condition row if this one hasn't been logged for this card yet.
+     * This is the actual merge rule: same card + same condition combines
+     * into one number; same card + a different condition stays separate.
      */
     private def mergeConditionQty(
       existing:  List[ConditionCount],
@@ -131,8 +102,10 @@ object RipTrackerService:
     ): List[ConditionCount] =
       val idx = existing.indexWhere(_.condition == condition)
       if idx >= 0 then
+        // Already logged in this condition — update that row's count.
         existing.updated(idx, existing(idx).copy(quantity = existing(idx).quantity + delta))
       else
+        // First time in this condition — add a new row.
         existing :+ ConditionCount(condition, delta, price = None)
 
     private def isSetComplete(userId: String, setId: String): Task[Boolean] =
@@ -141,18 +114,25 @@ object RipTrackerService:
         userEntries <- collectionRepo.findByUser(userId)
         ownedIds     = userEntries.map(_.cardId).toSet
         setCardIds   = setCards.map(_.id).toSet
+
+      // Complete only if the set actually has cards AND the user owns
+      // every one of them.
       yield setCardIds.nonEmpty && setCardIds.subsetOf(ownedIds)
 
     def recordPull(ripPackId: String, cardId: String, condition: String): Task[PullResult] =
       for
-        // A pack doesn't carry its own userId — look it up via the session
-        // it belongs to. rip_packs -> rip_sessions is the only path to it.
+        // A pack doesn't carry its own user — find it through the session it belongs to.
         session    <- resolveSessionForPack(ripPackId)
+
+        // Makes sure this card actually exists in our catalog before referencing it.
         _          <- cardSvc.ensureCached(List(cardId))
         card       <- cardRepo.findCardById(cardId)
                         .someOrFail(RuntimeException(s"Unknown card: $cardId"))
         existing   <- collectionRepo.findEntry(session.userId, cardId)
+
+        // Was at least one copy already owned, in any condition, before this pull?
         alreadyOwnedBefore = existing.exists(_.conditions.exists(_.quantity > 0))
+
         merged      = mergeConditionQty(existing.map(_.conditions).getOrElse(Nil), condition, 1)
         selCond     = existing.map(_.selectedCond).getOrElse(condition)
         updated    <- collectionSvc.updateEntry(session.userId, cardId, merged, selCond)
@@ -162,10 +142,9 @@ object RipTrackerService:
       yield PullResult(pull, alreadyOwnedBefore, complete)
 
     /**
-     * Finds which rip session a pack belongs to. RipTrackerRepository
-     * doesn't expose a direct "pack -> session" lookup (packs are always
-     * fetched by session elsewhere), so this does one small query rather
-     * than adding a repository method only this call site would ever use.
+     * Finds which session a pack belongs to. There's no direct "pack ->
+     * session" lookup elsewhere, so this does its own small query rather
+     * than adding one just for this single use.
      */
     private def resolveSessionForPack(ripPackId: String): Task[RipSession] =
       for
@@ -200,22 +179,25 @@ object RipTrackerService:
             guarantees <- ripRepo.findProductGuarantees(sealedProductId)
             rates      <- ripRepo.findPullRates(sealedProductId)
 
-            // Only concrete-card guarantees/inserts can be priced without
-            // guessing — a rarity-tier guarantee ("at least one Rare Holo")
-            // doesn't identify WHICH card you'll get, and averaging across
-            // candidates would be exactly the estimate this engine refuses
-            // to do. Rarity-tier guarantees stay visible in the DB for a
-            // future, more capable pass; they just don't contribute a
-            // dollar figure to this one.
+            // Only guarantees for a SPECIFIC card can be priced honestly —
+            // a rarity-tier guarantee ("at least one Rare Holo") doesn't
+            // say which exact card you'll get, and guessing an average
+            // would be exactly the kind of estimate this engine refuses
+            // to make. Those stay in the database but don't add to this total.
             floorItems  = inserts.filter(_.guaranteed).flatMap(i => i.cardId.map(_ -> i.quantity)) ++
                           guarantees.flatMap(g => g.cardId.map(_ -> g.quantity))
 
+            // Every card we'll need a price for: guaranteed items plus everything in the odds table.
             neededIds   = (floorItems.map(_._1) ++ rates.map(_.cardId)).distinct
             cards      <- ZIO.foreach(neededIds)(cardRepo.findCardById)
-            // NM price is the real-price basis throughout — matches how the
-            // rest of the app treats "the" price for a card.
+
+            // Builds a cardId -> price lookup from the Near Mint price of
+            // every card we found. NM is the standard reference price used
+            // everywhere else in this app.
             prices      = cards.flatten.flatMap(c => c.prices.flatMap(_.nm).map(c.id -> _)).toMap
 
+            // From here on, this method just gathers real data and hands
+            // it to RipOrHoldEngine's math — see that file for what each line computes.
             floor       = RipOrHoldEngine.guaranteedFloor(floorItems, prices)
             engineRates = rates.map(r => PullRateInput(r.cardId, r.perPackProbability))
             perPack     = RipOrHoldEngine.perPackEv(engineRates, prices)
@@ -226,6 +208,7 @@ object RipTrackerService:
                             product.currentSealedPrice.getOrElse(0.0), chaseThreshold, trials
                           )
 
+            // Only builds the "value to you" view if we know which user is asking.
             marginal   <- userId match
                             case None => ZIO.succeed(None)
                             case Some(uid) =>

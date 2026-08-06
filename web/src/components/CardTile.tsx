@@ -1,26 +1,14 @@
 /**
- * FILE: CardTile.tsx
- * LOCATION: src/components/CardTile.tsx
- *
- * PURPOSE:
- *   One card in the collection grid — thumbnail (hover = big preview),
- *   name/number/rarity/artist, price line, −/qty/+ stepper for the selected
- *   condition, condition badges with per-condition counts, and the breakdown
- *   row with per-condition values.  Stateless: the parent owns all counts and
- *   calls the backend; the tile just renders and fires callbacks.
- *
- * IMPORTS EXPLAINED:
- *   CONDS/COND_COLORS   — canonical condition order and badge colors
- *   baseCond            — strips " 1st Ed" suffix to get the base condition key
- *   basePrice/cardValue — NM price and total value across all owned conditions
- *   condPrice           — price for one specific condition key
- *   dominantCondClass   — CSS class controlling the tile border color
- *   totalQty            — sum of all condition quantities
- *   CondMap             — Record<string, number> — condition → count
- *   Card                — type-only import; zero runtime cost
+ * One card in the collection grid — thumbnail (hover = big preview),
+ * name/number/rarity/artist, price line, −/qty/+ stepper for the selected
+ * condition, condition badges with per-condition counts, and a breakdown
+ * row with per-condition values. Stateless: the parent owns all counts
+ * and calls the backend; this tile just renders and reports what the
+ * user clicked.
  *
  * USED BY: CollectionPage, BulkAddPage
  */
+
 import { useState } from 'react'
 import { getPriceHistory } from '../api/cards'
 import type { PreviewOpts } from './CardPreview'
@@ -28,41 +16,29 @@ import { CONDS, COND_COLORS, baseCond, basePrice, cardValue, condPrice, dominant
 import { isHolo } from '../lib/rarity'
 import type { Card, PriceHistoryPoint } from '../types'
 
-/**
- * INTERFACE: Props
- * PURPOSE: All inputs the tile needs to render and respond to user actions.
- *   Callbacks are wired by the parent so the tile itself is stateless.
- */
 interface Props {
   card: Card
-  /** Condition → quantity owned for this card. */
   conds: CondMap
   /** Which condition the qty stepper currently edits. */
   selCond: string
-  /** Called when the user clicks +/− on the selected condition. */
   onAdj: (delta: number) => void
-  /** Called when the user types directly into the qty input. */
   onSetQty: (qty: number) => void
-  /** Called when the user clicks a condition badge to switch the active condition. */
   onSelectCond: (cond: string) => void
-  /** Called on right-click of a condition badge — decrements that condition by 1. */
+  /** Right-click on a condition badge — decrements that condition by 1. */
   onAdjCond: (cond: string, delta: number) => void
-  /** Called on image hover — parent shows/hides the large preview overlay.
-   *  `opts` carries the holo/price treatment so the zoom matches the tile. */
+  /** Hover shows/hides the big preview; `opts` carries holo/price so the zoom matches the tile. */
   onPreview: (src: string | null, opts?: PreviewOpts) => void
-  /** Optional: when provided, a "To binder" button shows and calls this with the card. */
+  /** If given, a "To binder" button shows and calls this with the card. */
   onAddToBinder?: (card: Card) => void
-  /** Optional: what the user says they paid, per condition, if the parent tracks it. */
   purchases?: PurchaseMap
-  /** Optional: when provided, each owned condition gets a "log what you paid" control. */
+  /** If given, each owned condition gets a "log what you paid" control. */
   onSetPurchase?: (cond: string, price: number) => void
 }
 
 /**
- * Percent above/below what a card is worth now vs. what was paid for it.
- * A $0 purchase price (e.g. pulled from a pack) has no percent return in the
- * usual sense — it's Infinity, not undefined — so that's reported as such
- * rather than hidden; only an unknown market price yields no comparison at all.
+ * Gain/loss vs. purchase price. $0 paid but a real market value now shows
+ * as Infinity rather than being hidden — a genuinely infinite return, not
+ * a missing value.
  */
 function gainLossPct(paid: number, market: number): number | null {
   if (market <= 0) return null
@@ -77,10 +53,11 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
   const [historyOpen, setHistoryOpen] = useState(false)
   const [history, setHistory] = useState<PriceHistoryPoint[] | null>(null)
   const [historyState, setHistoryState] = useState<'idle' | 'loading' | 'error'>('idle')
-  // undefined = the card's default/"Normal" print. Only cards with priced
-  // alternate prints (Reverse Holo, Poké Ball/Master Ball Pattern) show a
-  // picker at all — most cards have just the one print.
+
+  // undefined = default print. Only cards with priced alternates
+  // (Reverse Holo, Poké/Master Ball Pattern) show a variant picker at all.
   const [selectedVariant, setSelectedVariant] = useState<string | undefined>(undefined)
+
   const otherVariants = (card.variants ?? []).filter(v =>
     v.name !== 'Normal' && (v.prices.nm || v.prices.lp || v.prices.mp || v.prices.hp || v.prices.dmg)
   )
@@ -88,6 +65,7 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
   const toggleHistory = () => {
     setHistoryOpen(open => {
       const next = !open
+      // Fetch on first open only, not on every toggle.
       if (next && history === null && historyState === 'idle') {
         setHistoryState('loading')
         getPriceHistory(card.id)
@@ -105,7 +83,8 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
     : 'no price'
   const selQty = conds[selCond] ?? 0
   const value = cardValue(conds, card, selectedVariant)
-  // Condition keys actually owned, in canonical order, 1st Ed after base.
+
+  // NM→LP→MP→HP→DMG order, "1st Ed" right after its plain version.
   const ownedKeys = Object.keys(conds)
     .filter(k => conds[k] > 0)
     .sort((a, b) => CONDS.indexOf(baseCond(a)) - CONDS.indexOf(baseCond(b)) || a.length - b.length)
@@ -133,6 +112,7 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
             {priceStr}
             <button className="history-toggle" title="Price history" onClick={toggleHistory}>📈</button>
           </div>
+
           {otherVariants.length > 0 && (
             <div className="variant-row" title="This card has priced alternate prints">
               <button
@@ -148,12 +128,14 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
               ))}
             </div>
           )}
+
           {historyOpen && (
             <div className="history-popover">
               <div className="history-popover-head">
                 Price history
                 <button className="history-close" onClick={() => setHistoryOpen(false)}>✕</button>
               </div>
+
               {historyState === 'loading' && <p className="history-msg">Loading…</p>}
               {historyState === 'error' && <p className="history-msg">Could not load history.</p>}
               {historyState === 'idle' && history !== null && history.length === 0 && (
@@ -161,8 +143,6 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
                   No history yet — snapshots start accumulating from the next time this card's price refreshes.
                 </p>
               )}
-              {/* A single point can't show a trend — a "chart" with one bar is
-                  just a solid rectangle. Show the one snapshot as text instead. */}
               {historyState === 'idle' && history !== null && history.length === 1 && (
                 <p className="history-msg">
                   Only one snapshot so far — {new Date(history[0].recordedAt).toLocaleDateString()}
@@ -171,8 +151,7 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
                 </p>
               )}
               {historyState === 'idle' && history !== null && history.length > 1 && (() => {
-                // Show only the most recent snapshots — a full unbounded history
-                // (accumulating every ~6h forever) is more than useful in a small popover.
+                // Only the last 5 — a full unbounded history is more than useful in a small popover.
                 const recent = history.slice(-5)
                 const vals = recent.map(h => h.nm ?? 0)
                 const max = Math.max(...vals, 0.01)
@@ -212,6 +191,7 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
             />
             <button className="qbtn" onClick={() => onAdj(1)}>+</button>
           </div>
+
           {onAddToBinder && (
             <button
               className="tb-btn"
@@ -225,6 +205,8 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
       <div className="cond-section">
         <div className="cond-row">
           {CONDS.map(c => {
+            // Combines a plain condition's count with its "1st Ed" count
+            // so e.g. the NM badge reflects both.
             const count = (conds[c] ?? 0) + (conds[c + ' 1st Ed'] ?? 0)
             return (
               <span
@@ -240,11 +222,13 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
             )
           })}
         </div>
+
         {ownedKeys.length > 0 && (
           <button className="details-toggle" onClick={() => setDetailsOpen(o => !o)}>
             {detailsOpen ? 'Hide details ▴' : `Details${value > 0 ? ` · $${value.toFixed(2)}` : ''} ▾`}
           </button>
         )}
+
         {detailsOpen && ownedKeys.length > 0 && (
           <div className="cond-breakdown-row">
             {ownedKeys.map(k => (
@@ -259,9 +243,8 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
             {value > 0 && <span className="cond-total">= ${value.toFixed(2)}</span>}
           </div>
         )}
-        {/* Purchase price: its own row below the value breakdown, one line per
-            owned condition, so "what you paid" is never squeezed into the same
-            line as the market-price numbers. */}
+
+        {/* Own row, never sharing a line with the market-price breakdown above. */}
         {detailsOpen && onSetPurchase && ownedKeys.length > 0 && (
           <div className="purchase-section">
             {ownedKeys.map(k => {
@@ -280,8 +263,7 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
                         onKeyDown={e => {
                           if (e.key === 'Enter') {
                             const v = parseFloat(purchaseInput)
-                            // >= 0, not > 0: $0 is valid (e.g. a card pulled from a pack).
-                            if (!isNaN(v) && v >= 0) onSetPurchase(k, v)
+                            if (!isNaN(v) && v >= 0) onSetPurchase(k, v)  // $0 is a valid purchase price (pack pull)
                             setEditingPurchase(null)
                           } else if (e.key === 'Escape') setEditingPurchase(null)
                         }}

@@ -1,17 +1,13 @@
 /**
- * FILE: StorageRepository.scala
- * PACKAGE: com.poketracker.repository
- * LOCATION: src/main/scala/com/poketracker/repository/StorageRepository.scala
+ * StorageRepository — all database access for physical storage: boxes,
+ * drawers, and which drawer an owned card is filed into.
  *
- * PURPOSE:
- *   All database operations for physical storage (boxes, drawers, and
- *   which drawer an owned card is assigned to). A card's location lives on
- *   collection_entries.drawer_id (see schema.sql migration 006) rather than
- *   a separate join table — there's one row per (user, card) already, and
- *   v1 tracks one location per card, not per physical copy.
+ * HOW IT WORKS: A card's location lives directly on its collection_entries
+ * row (`drawer_id`), not a separate assignment table — there's already one
+ * row per (user, card) and this app tracks one location per card, not per
+ * physical copy.
  *
  * USED BY: StorageService
- * DEPENDS ON: Doobie, ZIO, Storage model, Collection model (for OwnedCard)
  */
 
 package com.poketracker.repository
@@ -28,51 +24,35 @@ import zio.json.*
 import java.time.Instant
 
 trait StorageRepository:
-
-  /** All boxes for a user, each with its drawers (and each drawer's live card count), ordered by position. */
   def findBoxesByUser(userId: String): Task[List[StorageBox]]
-
-  /** Creates a new box at the end of the user's stack. */
   def createBox(userId: String, name: String): Task[StorageBox]
-
   def renameBox(id: String, name: String): Task[Unit]
   def reorderBox(id: String, position: Int): Task[Unit]
 
-  /** Deletes a box and its drawers. Cards in those drawers get drawer_id = NULL, not deleted. */
+  /** Cards in this box's drawers become unassigned, not deleted. */
   def deleteBox(id: String): Task[Unit]
 
-  /** Creates a new drawer at the end of a box. */
   def createDrawer(boxId: String, name: String): Task[StorageDrawer]
-
   def renameDrawer(id: String, name: String): Task[Unit]
   def reorderDrawer(id: String, position: Int): Task[Unit]
 
-  /** Deletes a drawer. Cards in it get drawer_id = NULL, not deleted. */
+  /** Cards in this drawer become unassigned, not deleted. */
   def deleteDrawer(id: String): Task[Unit]
 
-  /** Every owned card currently assigned to a drawer. */
   def findDrawerCards(drawerId: String): Task[List[OwnedCard]]
-
-  /** Every owned card with no drawer assigned yet. */
   def findUnassignedCards(userId: String): Task[List[OwnedCard]]
 
-  /**
-   * Assigns the given cards (owned by userId) to a drawer.
-   * @return number of cards actually assigned, and — separately, since this
-   *         is a pure read — whether any OTHER owned card from the same
-   *         set(s) is already in a different drawer.
-   */
+  /** @return how many cards were actually moved. */
   def assignCards(userId: String, cardIds: List[String], drawerId: String): Task[Int]
 
   /**
-   * Counts, across the given cards' sets, how many OTHER owned cards from
-   * those same sets already sit in a drawer other than `drawerId`. Used by
-   * the service layer to build the "this set is split across boxes"
-   * warning — informational only, never blocks the assignment.
+   * Counts owned cards from the same set(s) already filed in a DIFFERENT
+   * drawer — purely informational, feeds a "this set is split across boxes"
+   * heads-up. Call after assignCards: the cards just moved already carry
+   * the new drawerId, so they're naturally excluded by the different-drawer check.
    */
   def countOtherDrawerCardsInSameSets(userId: String, cardIds: List[String], drawerId: String): Task[Int]
 
-  /** Clears a card's drawer assignment (moves it back to "unassigned"). */
   def unassignCard(userId: String, cardId: String): Task[Unit]
 
 object StorageRepository:
@@ -112,6 +92,7 @@ object StorageRepository:
             StorageDrawer(id, boxId, name, pos, count, createdAt, updatedAt)
           }
           .groupBy(_.boxId)
+
         boxes.map { case (id, uid, name, pos, createdAt, updatedAt) =>
           StorageBox(id, uid, name, pos, drawersByBox.getOrElse(id, Nil), createdAt, updatedAt)
         }
@@ -138,8 +119,6 @@ object StorageRepository:
         .update.run.void.transact(xa)
 
     def deleteBox(id: String): Task[Unit] =
-      // ON DELETE CASCADE removes its drawers; each drawer's ON DELETE SET NULL
-      // on collection_entries.drawer_id clears the assignment without touching the card.
       sql"DELETE FROM storage_boxes WHERE id = $id".update.run.void.transact(xa)
 
     def createDrawer(boxId: String, name: String): Task[StorageDrawer] =
@@ -165,12 +144,14 @@ object StorageRepository:
     def deleteDrawer(id: String): Task[Unit] =
       sql"DELETE FROM storage_drawers WHERE id = $id".update.run.void.transact(xa)
 
-    /** Shared row -> OwnedCard mapping for findDrawerCards / findUnassignedCards.
-     *  A Fragment (not a raw String spliced via "#$") — Fragment ++ concatenation
-     *  is the pattern already proven working elsewhere in this file (see
-     *  countOtherDrawerCardsInSameSets); "#$" raw-string splicing sends the
-     *  literal text as a bind parameter instead of inlining it, breaking every
-     *  query built on it. */
+    /**
+     * Base SELECT shared by findDrawerCards/findUnassignedCards, extended
+     * with a WHERE clause via `++`. Built with Fragment.const on a fixed
+     * literal string (no interpolated values) specifically so it composes
+     * safely with `++` and `fr"..."` fragments below — string-concatenating
+     * a raw SQL string with user-supplied values here was a real injection
+     * bug previously in this codebase.
+     */
     private val ownedCardQuery: Fragment =
       Fragment.const(
         """
@@ -233,9 +214,6 @@ object StorageRepository:
         .transact(xa)
 
     def assignCards(userId: String, cardIds: List[String], drawerId: String): Task[Int] =
-      // One UPDATE per card, all in a single transaction — matches the
-      // per-item-loop pattern CollectionRepository.bulkUpsert already uses
-      // in this codebase, rather than introducing a new IN-clause helper.
       cardIds.traverse { cardId =>
         sql"""
           UPDATE collection_entries SET drawer_id = $drawerId
@@ -246,12 +224,8 @@ object StorageRepository:
     def countOtherDrawerCardsInSameSets(userId: String, cardIds: List[String], drawerId: String): Task[Int] =
       if cardIds.isEmpty then ZIO.succeed(0)
       else
-        // OR-chain over the (already small — one bulk-assign call's worth of)
-        // card ids, built with plain Fragment concatenation. Call this AFTER
-        // assignCards: the just-assigned cards already carry drawer_id, so
-        // the "!= drawerId" check below naturally excludes them without
-        // needing to explicitly subtract them back out.
         val idMatch = cardIds.map(id => fr"c2.id = $id").reduce(_ ++ fr" OR " ++ _)
+
         (fr"""
           SELECT COUNT(*) FROM collection_entries ce
           JOIN cards c ON c.id = ce.card_id

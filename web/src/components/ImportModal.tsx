@@ -1,20 +1,17 @@
 /**
- * FILE: ImportModal.tsx
- * LOCATION: src/components/ImportModal.tsx
- *
- * PURPOSE:
- *   The old "⬆ IMPORT CSV" modal: paste CSV or upload a file, validate,
- *   and hand parsed rows back to the page to bulk-save.
+ * "⬆ IMPORT CSV" popup: paste or upload CSV, validate it, hand the parsed
+ * rows back to the page to actually save.
  *
  * USED BY: CollectionPage
  */
+
 import { useRef, useState } from 'react'
 import { parseImport, type ImportRow } from '../lib/csv'
 
 interface Props {
   open: boolean
   onClose: () => void
-  /** Receives validated rows; resolves to a result message for the modal. */
+  /** Receives the validated rows; resolves to a result message for the modal. */
   onImport: (rows: ImportRow[]) => Promise<string>
 }
 
@@ -40,6 +37,7 @@ export function ImportModal({ open, onClose, onImport }: Props) {
       setResult({ ok: false, msg: 'No valid rows found. Need "Card ID" and "Quantity" columns.' })
       return
     }
+
     setBusy(true)
     try {
       const msg = await onImport(rows)
@@ -73,11 +71,13 @@ export function ImportModal({ open, onClose, onImport }: Props) {
           Card IDs look like <code>sv1-1</code>, <code>base1-4</code> — same format as the Export CSV.
           Rows missing a valid Card ID or with Quantity&nbsp;≤&nbsp;0 are skipped.
         </p>
+
         <input ref={fileRef} type="file" accept=".csv" onChange={handleFile} />
         <textarea
           placeholder={'Card ID,Quantity,Condition\nsv1-1,2,NM\nbase1-4,1,LP'}
           value={text} onChange={e => setText(e.target.value)}
         />
+
         {result && <div className={'import-result ' + (result.ok ? 'ok' : 'err')}>{result.msg}</div>}
         <div className="modal-btns">
           <button className="tb-btn" onClick={downloadTemplate}>⬇ Template</button>

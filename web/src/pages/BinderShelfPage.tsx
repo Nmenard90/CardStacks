@@ -1,21 +1,17 @@
 /**
- * FILE: BinderShelfPage.tsx
- * LOCATION: src/pages/BinderShelfPage.tsx
+ * BinderShelfPage — "My Binders." A grid of binder covers, plus the New
+ * Binder modal (name, cover photo, pocket size).
  *
- * PURPOSE:
- *   "My Binders" — a 1:1 port of the old shelf.html. A grid of binder
- *   covers with the spine-and-rings treatment, an in-card delete
- *   confirmation, and the New Binder modal (name, cover photo upload,
- *   pocket size). Clicking a binder opens /binder/:binderId.
- *
- * IMPORTS EXPLAINED:
- *   useNavigate     — programmatic navigation after create / open
- *   listBinders…    — the binder API module (Scala backend)
- *   useUser         — current session; page bounces to "/" when logged out
+ * HOW IT WORKS
+ *   Loads the shelf once per logged-in user. Cover photos are stored as
+ *   data URLs (the file is read client-side and inlined as base64 —
+ *   there's no separate image upload endpoint). Create is two calls:
+ *   createBinder (name + pocketSize only) then, if a cover was picked, a
+ *   follow-up updateBinder — the create endpoint doesn't accept a cover directly.
  *
  * USED BY: App (route "/shelf")
- * DEPENDS ON: api/binders, context/UserContext, styles/shelf.css
  */
+
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createBinder, deleteBinder, listBinders, updateBinder } from '../api/binders'
@@ -37,19 +33,21 @@ export function BinderShelfPage() {
   const navigate = useNavigate()
 
   // ── Page state ──────────────────────────────────────────────────────────
-  const [binders, setBinders] = useState<Binder[]>([])      // the shelf
-  const [loaded, setLoaded] = useState(false)               // first fetch done
-  const [confirmId, setConfirmId] = useState<string | null>(null) // delete overlay
+  const [binders, setBinders] = useState<Binder[]>([])              // the shelf
+  const [loaded, setLoaded] = useState(false)                       // first fetch done
+  const [confirmId, setConfirmId] = useState<string | null>(null)   // delete overlay open for this binder
+
   // Create-modal state.
   const [modalOpen, setModalOpen] = useState(false)
   const [name, setName] = useState('')
-  const [cover, setCover] = useState<string | null>(null)   // data-URL preview
+  const [cover, setCover] = useState<string | null>(null)           // chosen cover photo, as a data URL
   const [size, setSize] = useState<PocketSize>('Nine')
-  const [creating, setCreating] = useState(false)
+  const [creating, setCreating] = useState(false)                   // create request in flight
+
   const fileRef = useRef<HTMLInputElement>(null)
   const nameRef = useRef<HTMLInputElement>(null)
 
-  // Logged-out visitors go back to the login screen, like the old page.
+  // Logged-out visitors go back to the login screen.
   useEffect(() => { if (!user) navigate('/') }, [user, navigate])
 
   // Load the shelf once per user.
@@ -61,8 +59,12 @@ export function BinderShelfPage() {
   }, [user]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Create modal ────────────────────────────────────────────────────────
+
+  // Opens the "New Binder" popup, resetting all its fields first.
   const openModal = () => {
     setName(''); setCover(null); setSize('Nine'); setModalOpen(true)
+
+    // Give the popup a moment to appear, then put the cursor in the name box.
     setTimeout(() => nameRef.current?.focus(), 50)
   }
 
@@ -70,6 +72,9 @@ export function BinderShelfPage() {
   const handleCover = (file: File | undefined) => {
     if (!file) return
     if (file.size > 5 * 1024 * 1024) { toast('Image must be under 5MB'); return }
+
+    // Reads the picked file and turns it into one long piece of text that
+    // an <img> tag can display directly, with no upload needed.
     const reader = new FileReader()
     reader.onload = ev => setCover(ev.target?.result as string)
     reader.readAsDataURL(file)
@@ -82,6 +87,7 @@ export function BinderShelfPage() {
   const create = async () => {
     if (!user || creating) return
     setCreating(true)
+
     try {
       const b = await createBinder(user.id, name.trim() || 'My Binder', size)
       if (cover) await updateBinder(user.id, b.id, { coverImage: cover })
@@ -92,6 +98,7 @@ export function BinderShelfPage() {
     }
   }
 
+  // Deletes one binder by its id.
   const remove = async (id: string) => {
     if (!user) return
     try {
@@ -103,7 +110,7 @@ export function BinderShelfPage() {
     }
   }
 
-  // Escape closes the modal; Enter inside it creates — like the old page.
+  // Escape closes the modal; Enter inside it creates.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setModalOpen(false)
@@ -111,8 +118,9 @@ export function BinderShelfPage() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }) // re-bound each render so `create` sees current modal state
+  }) // re-bound each render so `create` always sees the current modal state
 
+  // Nobody logged in — the redirect above is already sending them away.
   if (!user) return null
 
   return (
@@ -130,6 +138,7 @@ export function BinderShelfPage() {
           {loaded ? `${binders.length} binder${binders.length !== 1 ? 's' : ''}` : 'Loading…'}
         </div>
         <div className="grid">
+
           {loaded && binders.length === 0 && (
             <div className="empty">
               <Mascot size={84} mood="idle" />
@@ -137,6 +146,7 @@ export function BinderShelfPage() {
               <p>Click "+ New Binder" to create your first one</p>
             </div>
           )}
+
           {binders.map(b => (
             <div className="bcard" key={b.id}>
               <div className="bcover" onClick={() => navigate(`/binder/${b.id}`)}>
@@ -144,6 +154,8 @@ export function BinderShelfPage() {
                   ? <img className="bcover-img" src={b.coverImage} alt={b.name} />
                   : <div className="bcover-default-icon">📖</div>}
                 <div className="bcover-overlay" />
+                {/* Three plain shapes styled by CSS to look like a binder's
+                    metal spine rings. */}
                 <div className="bcover-rings">
                   <div className="bcover-ring" /><div className="bcover-ring" /><div className="bcover-ring" />
                 </div>
@@ -153,6 +165,9 @@ export function BinderShelfPage() {
                   <div className="bname">{b.name}</div>
                   <div className="bmeta">
                     {SIZE_NUM[b.pocketSize]}-pocket
+                    {/* The shelf list doesn't include full slot data, so
+                        this card count usually only fills in once you've
+                        actually opened the binder at least once. */}
                     {b.slots.length > 0 ? ` · ${b.slots.filter(s => s.cardId).length} cards` : ''}
                   </div>
                 </div>
@@ -173,7 +188,7 @@ export function BinderShelfPage() {
         </div>
       </div>
 
-      {/* Create modal */}
+      {/* Create modal. Clicking the dark backdrop (not the box itself) closes it. */}
       <div id="modal" className={modalOpen ? 'open' : ''} onClick={e => { if (e.target === e.currentTarget) setModalOpen(false) }}>
         <div id="mbox">
           <div className="mhead">
@@ -190,6 +205,9 @@ export function BinderShelfPage() {
             </div>
             <div className="mfield">
               <label>Cover Photo</label>
+              {/* Clicking this styled box triggers the real, hidden file
+                  input below, so we're not stuck with the browser's plain
+                  default "Choose File" button. */}
               <div className="cover-upload" onClick={() => fileRef.current?.click()}>
                 {!cover && (
                   <div className="cover-upload-placeholder">

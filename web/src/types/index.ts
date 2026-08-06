@@ -1,3 +1,10 @@
+/**
+ * types/index.ts — every data shape exchanged with the backend, in one
+ * file. Mirrors the Scala case classes in
+ * poketracker-v2/src/main/scala/com/poketracker/models/ field-for-field;
+ * keep the two in sync when either side changes.
+ */
+
 // ─── Cards & Sets ────────────────────────────────────────────────────────────
 
 export interface SetImages {
@@ -9,8 +16,8 @@ export interface CardSet {
   id: string
   name: string
   series: string
-  printedTotal: number
-  total: number
+  printedTotal: number   // denominator printed on cards, e.g. 165 for "4/165"
+  total: number           // real count including secret rares — always >= printedTotal
   releaseDate: string
   images: SetImages
   ptcgoCode?: string
@@ -21,6 +28,7 @@ export interface CardImage {
   large: string
 }
 
+/** Every field optional — a card may have no pricing data for a given condition. */
 export interface CardPrices {
   nm?: number
   lp?: number
@@ -29,7 +37,6 @@ export interface CardPrices {
   dmg?: number
 }
 
-/** One price snapshot from GET /api/cards/id/:cardId/price-history. */
 export interface PriceHistoryPoint {
   recordedAt: string
   nm?: number
@@ -39,20 +46,20 @@ export interface PriceHistoryPoint {
   dmg?: number
 }
 
-/** One priced print variant: "Normal", "Holofoil", "Reverse Holofoil",
- *  "Poké Ball Pattern", "Master Ball Pattern" — whichever the backend found
- *  price data for. See lib/conditions.ts for how CardTile uses this. */
+/** One priced print variant ("Holofoil", "Reverse Holofoil", etc.) — see
+ *  lib/conditions.ts for how CardTile picks between these and CardPrices. */
 export interface CardVariant {
   name: string
   prices: CardPrices
 }
 
+/** Leaves out the backend's attacks/abilities block — the UI doesn't show it. */
 export interface Card {
   id: string
   setId: string
   name: string
-  number: string
-  rarity?: string
+  number: string           // text, not numeric — some are letter-prefixed (e.g. "TG01")
+  rarity?: string           // absent on some cards, e.g. plain Energy
   artist?: string
   images: CardImage
   prices?: CardPrices
@@ -69,7 +76,7 @@ export interface User {
   email: string
   role: UserRole
   reputation: number
-  location?: string
+  location?: string     // city-level only, never a precise address
   createdAt: string
 }
 
@@ -78,12 +85,10 @@ export interface User {
 export type Condition = 'NM' | 'LP' | 'MP' | 'HP' | 'DMG'
 
 export interface ConditionCount {
-  condition: string
+  condition: string      // usually a Condition value, but may carry a " 1st Ed" suffix
   quantity: number
-  price?: number
-  /** What the user says they paid for this condition's copies, if logged. */
-  purchasePrice?: number
-  /** ISO date string for when the purchase was logged. */
+  price?: number           // market price at the time this was recorded
+  purchasePrice?: number   // self-reported, what the user says they paid
   purchasedAt?: string
 }
 
@@ -92,7 +97,7 @@ export interface CollectionEntry {
   userId: string
   cardId: string
   conditions: ConditionCount[]
-  selectedCond: string
+  selectedCond: string   // which condition tab the UI last had active, persisted per-card
   updatedAt: string
 }
 
@@ -103,12 +108,44 @@ export interface CollectionStats {
   setsEntered: number
 }
 
+/** CollectionEntry with the full Card attached, so the owned view can
+ *  render every card without a per-card follow-up request. */
 export interface OwnedCard {
   cardId: string
   conditions: ConditionCount[]
   selectedCond: string
   updatedAt: string
   card: Card
+  drawerId?: string
+}
+
+// ─── Physical storage (boxes -> drawers -> cards) ──────────────────────────────
+
+export interface StorageDrawer {
+  id: string
+  boxId: string
+  name: string
+  position: number
+  cardCount: number   // computed by the backend on read, not stored — never stale
+  createdAt: string
+  updatedAt: string
+}
+
+export interface StorageBox {
+  id: string
+  userId: string
+  name: string
+  position: number
+  drawers: StorageDrawer[]
+  createdAt: string
+  updatedAt: string
+}
+
+/** @param warning Informational only, never blocking — e.g. flags that a
+ *  set is now split across boxes, which is a legitimate thing to do. */
+export interface AssignResult {
+  assigned: number
+  warning?: string
 }
 
 // ─── Binders ─────────────────────────────────────────────────────────────────
@@ -116,7 +153,7 @@ export interface OwnedCard {
 export type PocketSize = 'Four' | 'Nine' | 'Twelve'
 
 export interface BinderSlot {
-  slotIndex: number
+  slotIndex: number   // position counting across ALL pages, not per-page
   cardId?: string
   cardName?: string
   imageUrl?: string
@@ -139,6 +176,7 @@ export type TradeStatus = 'Open' | 'Pending' | 'Completed' | 'Cancelled'
 export type OfferStatus = 'Pending' | 'Accepted' | 'Declined' | 'Withdrawn'
 export type RatingValue = 'Positive' | 'Neutral' | 'Negative'
 
+/** A lightweight card snapshot for display/valuation inside a trade — not the full Card. */
 export interface TradeCard {
   cardId: string
   cardName: string
@@ -150,9 +188,9 @@ export interface TradeCard {
 export interface TradeListing {
   id: string
   userId: string
-  game: string
+  game: string             // which card game, e.g. "pokemon" — trades aren't Pokémon-only
   offering: TradeCard[]
-  wants?: TradeCard[]
+  wants?: TradeCard[]       // unset means "make me an offer," not "wants nothing"
   cashOk: boolean
   location: string
   description?: string
@@ -172,7 +210,6 @@ export interface TradeOffer {
   createdAt: string
 }
 
-
 // ─── Convention Mode ─────────────────────────────────────────────────────────
 
 export type PaymentType = 'cash' | 'card' | 'trade' | 'trade_credit' | 'unknown'
@@ -185,7 +222,7 @@ export interface ConventionPriceReport {
   setName?: string
   imageUrl?: string
   condition: Condition
-  askingPrice?: number
+  askingPrice?: number   // set only when it differs from what was actually paid
   paidPrice: number
   paymentType: PaymentType
   eventName?: string

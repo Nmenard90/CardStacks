@@ -1,24 +1,30 @@
 /**
- * FILE: csv.ts — CSV export/import helpers, ported from the old tracker.
- * Export: one row per owned card, quoted cells, same columns as before.
- * Import: needs "Card ID" and "Quantity" columns; "Condition" optional (NM).
+ * CSV export/import for the collection, ported from the old tracker.
+ *
+ * HOW IT WORKS
+ *   Export builds CSV text by hand (quoting/escaping per RFC 4180) and
+ *   triggers a browser download via a Blob object URL. Import hand-parses
+ *   pasted/uploaded text character-by-character rather than splitting on
+ *   commas, so a comma inside a quoted cell doesn't split the cell.
+ *
  * USED BY: CollectionPage
  */
 
-/** Quote a cell the way the old app did: wrap and double inner quotes. */
+/** RFC 4180 quoting: double any embedded quote, wrap the cell in quotes. */
 const q = (v: string | number) => '"' + String(v).replace(/"/g, '""') + '"'
 
 /**
- * Build the CSV text and trigger a browser download.
- * Uses a Blob + object URL rather than a `data:` URI: data URIs have a length
- * cap that large collections silently exceed (the old cause of "export did
- * nothing"), and the link must be in the document for some browsers to click it.
- * A leading BOM makes Excel open the UTF-8 file with correct characters.
+ * Downloads `rows` as a CSV file. Uses a Blob + object URL rather than a
+ * `data:` URI — data URIs silently truncate past a length cap, which was
+ * the old "export did nothing" bug on large collections. The leading BOM
+ * makes Excel detect UTF-8 instead of misreading non-ASCII characters.
  */
 export function downloadCSV(filename: string, rows: (string | number)[][]) {
-  const csv = '\ufeff' + rows.map(r => r.map(q).join(',')).join('\r\n')
+  const csv = '﻿' + rows.map(r => r.map(q).join(',')).join('\r\n')
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
+
+  // Some browsers only fire the download from a link that's actually in the DOM.
   const a = document.createElement('a')
   a.href = url
   a.download = filename
@@ -28,18 +34,20 @@ export function downloadCSV(filename: string, rows: (string | number)[][]) {
   URL.revokeObjectURL(url)
 }
 
-/** One parsed import line. */
 export interface ImportRow { cardId: string; quantity: number; condition: string }
 
 /**
- * Parse pasted/uploaded CSV. Header row optional — detected by the
- * literal "card id". Returns rows plus a count of lines skipped.
+ * Parses pasted/uploaded CSV. Header row is optional — detected by a
+ * "card id" column; absent, columns default to card ID, quantity,
+ * condition in that order. Returns valid rows plus a count of lines
+ * skipped for a malformed card ID or quantity.
  */
 export function parseImport(text: string): { rows: ImportRow[]; skipped: number } {
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
   if (lines.length === 0) return { rows: [], skipped: 0 }
 
-  // Split a CSV line respecting quoted cells.
+  // Hand-rolled instead of split(',') so a comma inside a quoted cell
+  // (e.g. a card name) doesn't get treated as a column boundary.
   const split = (line: string): string[] => {
     const out: string[] = []
     let cur = '', inQ = false
@@ -72,6 +80,7 @@ export function parseImport(text: string): { rows: ImportRow[]; skipped: number 
     const cells = split(lines[i])
     const cardId = cells[idCol] ?? ''
     const quantity = parseInt(cells[qtyCol] ?? '', 10)
+
     if (!/^[\w.]+-[\w.]+$/.test(cardId) || !Number.isFinite(quantity) || quantity < 0) {
       skipped++
       continue

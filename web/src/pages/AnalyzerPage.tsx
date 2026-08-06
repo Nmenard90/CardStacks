@@ -1,26 +1,23 @@
 /**
- * FILE: AnalyzerPage.tsx
- * LOCATION: src/pages/AnalyzerPage.tsx
+ * AnalyzerPage — the Trade Analyzer.
  *
- * PURPOSE:
- *   The Trade Analyzer — a 1:1 port of the old analyzer.html. Two
- *   columns (You Give / You Get), a per-card condition pill row and
- *   1st Edition toggle, the live verdict banner with totals and a
- *   lopsided-trade warning, and the Add-a-Card search modal (name
- *   search across all sets, optional set filter, or browse a whole
- *   set when no name is typed).
+ * HOW IT WORKS
+ *   Two independent card lists (`give`/`get`), each holding TradeItems
+ *   (a card plus a chosen condition and 1st-Edition flag). Totals and the
+ *   verdict banner are derived directly from those lists on every render
+ *   — there's no separate "recalculate" step. Cards are added either via
+ *   the search modal (debounced 350ms, searches by name across all sets
+ *   or browses one set with no name typed) or via the "Quick Add from
+ *   Your Collection" panel below the trade columns.
  *
- *   Pricing: per-condition prices come straight off the card's API
- *   prices; 1st Edition applies the old 1.3× estimate on top.
- *
- * IMPORTS EXPLAINED:
- *   searchCards/getCards/getSets — card lookup endpoints
- *   condPrice                    — condition pricing shared with the tracker
- *   useUser                      — shows the badge + collection hint panel
+ *   Pricing: per-condition prices come straight from the card's API
+ *   prices; 1st Edition applies a flat 1.3× multiplier on top (ported
+ *   from the old app's estimate, not a real market figure).
  *
  * USED BY: App (route "/analyzer")
- * DEPENDS ON: api/cards, api/collection, lib/conditions, styles/analyzer.css
+ * DEPENDS ON: api/cards, api/collection, lib/conditions
  */
+
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getCards, getSets, searchCards } from '../api/cards'
@@ -31,10 +28,8 @@ import { usePreview } from '../components/CardPreview'
 import { CONDS, condPrice, type Cond } from '../lib/conditions'
 import type { Card } from '../types'
 
-/** Which column a card sits in. */
 type Side = 'give' | 'get'
 
-/** One card in the trade, with its chosen condition and edition. */
 interface TradeItem {
   card: Card
   setName: string
@@ -42,10 +37,9 @@ interface TradeItem {
   firstEd: boolean
 }
 
-/** Old page's estimate: 1st Edition copies fetch roughly 1.3× the base. */
+/** Ported from the old app's estimate — not a real market multiplier. */
 const FIRST_ED_MULT = 1.3
 
-/** Dollar value of one trade item under its chosen condition/edition. */
 const itemPrice = (item: TradeItem): number => {
   const base = condPrice(item.card, item.cond)
   return item.firstEd ? +(base * FIRST_ED_MULT).toFixed(2) : base
@@ -55,13 +49,10 @@ export function AnalyzerPage() {
   const { user } = useUser()
   const preview = usePreview()
 
-  // ── Trade state ─────────────────────────────────────────────────────────
   const [give, setGive] = useState<TradeItem[]>([])
   const [get, setGet] = useState<TradeItem[]>([])
-  // Which side the modal is adding to; null = closed.
   const [modalSide, setModalSide] = useState<Side | null>(null)
 
-  // ── Search modal state ──────────────────────────────────────────────────
   const [query, setQuery] = useState('')
   const [filterSetId, setFilterSetId] = useState('')
   const [results, setResults] = useState<Card[]>([])
@@ -72,29 +63,31 @@ export function AnalyzerPage() {
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets })
   const setName = useMemo(() => new Map(sets.map(s => [s.id, s.name])), [sets])
 
-  // Full owned-card list for the Quick Add panel.
   const { data: owned = [] } = useQuery({
-    queryKey: ['owned', user?.id], queryFn: () => getOwnedCards(user!.id), enabled: !!user,
+    queryKey: ['owned', user?.id],
+    queryFn: () => getOwnedCards(user!.id),
+    enabled: !!user,
   })
 
-  // Which side the collection panel's one-click add targets.
   const [collSide, setCollSide] = useState<Side>('give')
-  // Filter string inside the collection panel.
   const [collFilter, setCollFilter] = useState('')
 
-  // ── Search (debounced 350 ms, like the old page) ────────────────────────
+  // Debounced 350ms so we're not firing a search request per keystroke.
   useEffect(() => {
     if (modalSide === null) return
     if (searchTimer.current) clearTimeout(searchTimer.current)
+
     searchTimer.current = setTimeout(async () => {
       const q = query.trim()
       if (!q && !filterSetId) { setResults([]); setSearchMsg('Type a card name to search'); return }
       if (q && q.length < 2) { setResults([]); setSearchMsg('Keep typing…'); return }
+
       setResults([]); setSearchMsg('Searching…')
       try {
-        // Name search across all sets — or browse the chosen set when no name.
         let cards = q ? await searchCards(q) : await getCards(filterSetId)
+        // Name search ignores the set filter server-side, so apply it here.
         if (q && filterSetId) cards = cards.filter(c => c.setId === filterSetId)
+
         if (cards.length === 0) { setSearchMsg('No cards found — try a different name or set'); return }
         setResults(cards.slice(0, 60))
         setSearchMsg('')
@@ -113,14 +106,12 @@ export function AnalyzerPage() {
   }
   const closeModal = () => setModalSide(null)
 
-  // Escape closes the modal — like the old page.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeModal() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // ── Mutations on the two sides ──────────────────────────────────────────
   const addCard = (card: Card) => {
     const item: TradeItem = { card, setName: setName.get(card.setId) ?? card.setId, cond: 'NM', firstEd: false }
     if (modalSide === 'give') setGive(s => [...s, item])
@@ -133,19 +124,20 @@ export function AnalyzerPage() {
     if (side === 'give') setGive(s => [...s, item])
     else setGet(s => [...s, item])
   }
+
   const update = (side: Side, idx: number, patch: Partial<TradeItem>) => {
     const setter = side === 'give' ? setGive : setGet
     setter(items => items.map((it, i) => (i === idx ? { ...it, ...patch } : it)))
   }
+
   const remove = (side: Side, idx: number) => {
     const setter = side === 'give' ? setGive : setGet
     setter(items => items.filter((_, i) => i !== idx))
   }
 
-  // ── Verdict — port of the old updateVerdict() ───────────────────────────
   const giveTotal = give.reduce((s, i) => s + itemPrice(i), 0)
   const getTotal = get.reduce((s, i) => s + itemPrice(i), 0)
-  const diff = getTotal - giveTotal // positive = you receive more
+  const diff = getTotal - giveTotal
   const pct = giveTotal > 0 ? Math.abs((diff / giveTotal) * 100) : 0
   const empty = give.length === 0 && get.length === 0
   const fair = !empty && (Math.abs(diff) < 0.5 || (giveTotal > 0 && pct < 3))
@@ -164,7 +156,6 @@ export function AnalyzerPage() {
     : `You're receiving ${pct.toFixed(0)}% more value. Good deal for you!`
   const showWarn = !empty && !fair && diff < 0 && pct > 15
 
-  // ── One trade column ────────────────────────────────────────────────────
   const renderColumn = (side: Side, items: TradeItem[]) => {
     const total = items.reduce((s, i) => s + itemPrice(i), 0)
     return (
@@ -177,12 +168,14 @@ export function AnalyzerPage() {
           <span className="col-total">{total > 0 ? '$' + total.toFixed(2) : ''}</span>
         </div>
         <div className="col-cards">
+
           {items.length === 0 && (
             <div className="empty-col">
               <div className="ei">{side === 'give' ? '📤' : '📥'}</div>
               {side === 'give' ? "Cards you're offering" : "Cards you're receiving"}
             </div>
           )}
+
           {items.map((item, i) => {
             const price = itemPrice(item)
             return (
@@ -240,7 +233,6 @@ export function AnalyzerPage() {
       </div>
 
       <div id="page">
-        {/* Verdict */}
         <div id="verdict" className={verdictClass}>
           <div className="verdict-icon burst">{verdictIcon}</div>
           <div className="verdict-text">
@@ -270,7 +262,6 @@ export function AnalyzerPage() {
           </div>
         </div>
 
-        {/* Trade columns */}
         <div id="cols">
           {renderColumn('give', give)}
           <div id="vs">
@@ -280,13 +271,11 @@ export function AnalyzerPage() {
           {renderColumn('get', get)}
         </div>
 
-        {/* Lopsided-trade warning */}
         <div className={'warn-banner' + (showWarn ? ' show' : '')}>
           ⚠️ <strong>Heads up:</strong> You're giving significantly more than you're receiving.
           Make sure the other party isn't taking advantage. Always verify card values on TCGPlayer before trading.
         </div>
 
-        {/* Collection panel — shown once the user owns cards */}
         {user && owned.length > 0 && (() => {
           const q = collFilter.trim().toLowerCase()
           const visible = q
@@ -317,6 +306,7 @@ export function AnalyzerPage() {
                 />
               </div>
               <div className="cp-grid">
+                {/* Capped at 48 so a large collection doesn't render thousands of thumbnails at once. */}
                 {visible.slice(0, 48).map(o => (
                   <div
                     key={o.cardId}
@@ -345,7 +335,6 @@ export function AnalyzerPage() {
         })()}
       </div>
 
-      {/* Add-a-card search modal */}
       <div id="modal" className={modalSide !== null ? 'open' : ''} onClick={e => { if (e.target === e.currentTarget) closeModal() }}>
         <div id="mbox">
           <div className="mh">
@@ -386,6 +375,7 @@ export function AnalyzerPage() {
           </div>
         </div>
       </div>
+
       {preview.overlay}
     </div>
   )

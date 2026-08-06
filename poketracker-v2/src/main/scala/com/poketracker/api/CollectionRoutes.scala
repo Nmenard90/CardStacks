@@ -1,34 +1,18 @@
 /**
- * FILE: CollectionRoutes.scala
- * PACKAGE: com.poketracker.api
- * LOCATION: src/main/scala/com/poketracker/api/CollectionRoutes.scala
+ * CollectionRoutes — HTTP endpoints for a user's card collection.
  *
- * PURPOSE:
- *   HTTP endpoints for managing a user's card collection.
- *   All business logic delegated to CollectionService.
+ * HOW IT WORKS
+ *   Pure request/response plumbing over CollectionService. Writes also go
+ *   through CardService.ensureCached first, so a card's catalog row
+ *   (name/number/prices) always exists before a collection entry can
+ *   reference it — the guard against orphaned owned-card rows.
  *
- * ENDPOINTS:
- *   GET  /api/collection/:userId          — get full collection
- *   GET  /api/collection/:userId/stats    — get collection statistics
+ * ENDPOINTS
+ *   GET  /api/collection/:userId          — full collection
+ *   GET  /api/collection/:userId/owned    — owned cards with full card data
+ *   GET  /api/collection/:userId/stats    — collection statistics
  *   POST /api/collection/:userId/:cardId  — update one card entry
  *   POST /api/collection/:userId/bulk     — update many cards at once
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * IMPORTS EXPLAINED:
- *
- *   com.poketracker.models.*
- *     ConditionCount — the per-condition quantity type used in request bodies.
- *
- *   com.poketracker.service.CollectionService
- *     Service this file delegates all logic to.
- *     Also imports CollectionStats from this package.
- *
- *   zio.* / zio.http.* / zio.json.*
- *     Standard ZIO, HTTP, and JSON imports used by all route files.
- * ─────────────────────────────────────────────────────────────────────────────
- *
- * USED BY: Main.scala
- * DEPENDS ON: CollectionService
  */
 
 package com.poketracker.api
@@ -39,31 +23,14 @@ import zio.*
 import zio.http.*
 import zio.json.*
 
-/**
- * OBJECT: CollectionRoutes
- * PURPOSE: All HTTP routes for collection management.
- */
 object CollectionRoutes:
 
-  /**
-   * CASE CLASS: UpdateEntryRequest
-   * PURPOSE: JSON body shape expected by the single-card update endpoint.
-   * @param conditions   New list of condition/quantity pairs for this card
-   * @param selectedCond Which condition tab is active in the UI
-   */
   private case class UpdateEntryRequest(
     conditions:   List[ConditionCount],
     selectedCond: String
   )
   private given JsonDecoder[UpdateEntryRequest] = DeriveJsonDecoder.gen
 
-  /**
-   * CASE CLASS: BulkUpdateItem
-   * PURPOSE: One item in a bulk update request body array.
-   * @param cardId       The card to update
-   * @param conditions   New condition quantities for this card
-   * @param selectedCond Active condition tab for this card in the UI
-   */
   private case class BulkUpdateItem(
     cardId:       String,
     conditions:   List[ConditionCount],
@@ -71,106 +38,50 @@ object CollectionRoutes:
   )
   private given JsonDecoder[BulkUpdateItem] = DeriveJsonDecoder.gen
 
-  /**
-   * VALUE: routes
-   * PURPOSE: All collection HTTP route definitions.
-   *   Saves go through CardService.ensureCached first so a card's catalog row
-   *   (name/number/prices) always exists before an entry referencing it is
-   *   written — this is what prevents orphaned, blank/$0 owned cards.
-   * @return Routes[CollectionService & CardService, Nothing]
-   */
   val routes: Routes[CollectionService & CardService, Nothing] = Routes(
 
-    /**
-     * ROUTE: GET /api/collection/:userId
-     * PURPOSE: Returns a user's entire collection.
-     * @param userId  The user whose collection to fetch
-     * RESPONSE: 200 JSON array of CollectionEntry objects
-     *           500 on database error
-     */
     Method.GET / "api" / "collection" / string("userId") -> handler { (userId: String, _: Request) =>
       ZIO.serviceWithZIO[CollectionService](_.getCollection(userId))
         .map(entries => Response.json(entries.toJson))
         .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
     },
 
-    /**
-     * ROUTE: GET /api/collection/:userId/owned
-     * PURPOSE: Returns all cards owned by a user, each with full card details.
-     *          Used by the My Collection page to avoid N+1 per-card lookups.
-     * @param userId  The user
-     * RESPONSE: 200 JSON array of OwnedCard objects
-     *           500 on database error
-     */
     Method.GET / "api" / "collection" / string("userId") / "owned" -> handler { (userId: String, _: Request) =>
       ZIO.serviceWithZIO[CollectionService](_.getOwnedCards(userId))
         .map(cards => Response.json(cards.toJson))
         .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
     },
 
-    /**
-     * ROUTE: GET /api/collection/:userId/stats
-     * PURPOSE: Returns summary statistics for a user's collection.
-     *          Includes total cards, unique cards, total value, sets entered.
-     * @param userId  The user
-     * RESPONSE: 200 JSON CollectionStats object
-     *           500 on database error
-     */
     Method.GET / "api" / "collection" / string("userId") / "stats" -> handler { (userId: String, _: Request) =>
       ZIO.serviceWithZIO[CollectionService](_.getStats(userId))
         .map(stats => Response.json(stats.toJson))
         .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
     },
 
-    /**
-     * ROUTE: POST /api/collection/:userId/:cardId
-     * PURPOSE: Creates or updates one card entry in a user's collection.
-     *          If all quantities in the body are zero, deletes the entry.
-     * @param userId  The user
-     * @param cardId  The card to update
-     * BODY: UpdateEntryRequest JSON
-     * RESPONSE: 200 JSON updated CollectionEntry
-     *           200 {"deleted": true} if all quantities were zero
-     *           400 if request body is malformed
-     *           500 on database error
-     */
     Method.POST / "api" / "collection" / string("userId") / string("cardId") -> handler {
       (userId: String, cardId: String, req: Request) =>
         (for
           body   <- req.body.asString
           parsed <- ZIO.fromEither(body.fromJson[UpdateEntryRequest])
                       .mapError(e => RuntimeException(s"Bad request: $e"))
-          // Ensure the card exists in the catalog before saving the entry,
-          // so it never becomes a blank/$0 orphan in the owned view or exports.
+          // Must run before updateEntry — see file header.
           _      <- ZIO.serviceWithZIO[CardService](_.ensureCached(List(cardId)))
           result <- ZIO.serviceWithZIO[CollectionService](
                       _.updateEntry(userId, cardId, parsed.conditions, parsed.selectedCond)
                     )
+        // All-zero conditions deletes the entry (see CollectionService.updateEntry).
         yield result match
           case Some(entry) => Response.json(entry.toJson)
           case None        => Response.json("""{"deleted": true}""")
         ).catchAll(e => ZIO.succeed(Response.badRequest(e.getMessage)))
     },
 
-    /**
-     * ROUTE: POST /api/collection/:userId/bulk
-     * PURPOSE: Updates many collection entries at once in a single transaction.
-     *          More efficient than calling the single-card endpoint repeatedly.
-     *          Used when importing a collection from CSV.
-     * @param userId  The user
-     * BODY: JSON array of BulkUpdateItem
-     * RESPONSE: 200 {"ok": true} on success
-     *           400 if request body is malformed
-     *           500 on database error
-     */
     Method.POST / "api" / "collection" / string("userId") / "bulk" -> handler {
       (userId: String, req: Request) =>
         (for
           body  <- req.body.asString
           items <- ZIO.fromEither(body.fromJson[List[BulkUpdateItem]])
                      .mapError(e => RuntimeException(s"Bad request: $e"))
-          // Backfill any uncached cards (e.g. from a CSV import of a set that
-          // was never loaded) before saving, to avoid orphaned blank entries.
           _     <- ZIO.serviceWithZIO[CardService](_.ensureCached(items.map(_.cardId)))
           _     <- ZIO.serviceWithZIO[CollectionService](
                      _.bulkUpdate(userId, items.map(i => (i.cardId, i.conditions, i.selectedCond)))

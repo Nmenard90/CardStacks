@@ -1,42 +1,22 @@
 /**
- * FILE: CardService.scala
- * PACKAGE: com.poketracker.service
- * LOCATION: src/main/scala/com/poketracker/service/CardService.scala
+ * CardService — business logic for cards and sets.
  *
- * PURPOSE:
- *   Business logic for cards and sets.
- *   Sits between CardRoutes and CardRepository.
- *   Handles fetching from the pokemontcg.io API when data is not yet in
- *   the database, caching results, and sorting cards correctly.
+ * HOW IT WORKS
+ *   Sits between CardRoutes (HTTP) and CardRepository (Postgres). On a
+ *   cache miss it fetches from the pokemontcg.io REST API, normalizes the
+ *   response into our own Card/CardSet types (see ApiCard/ApiSet below),
+ *   persists it, and layers in pricing via PriceService. All read paths
+ *   (getSets, getCardsBySet, searchCards) follow the same shape: check the
+ *   DB, and only hit the network on a miss or on stale pricing.
  *
- * WHY A SERVICE LAYER?
- *   The repository only knows how to read and write the database.
- *   The routes only know how to handle HTTP requests.
- *   This service contains the actual rules:
- *     "If a set has no cards in the database, fetch them from the API."
- *     "Sort cards numerically, with secret rares after the main set."
- *   Keeping these rules here means they are tested and changed in one place.
+ *   Network calls go through `get`, which retries with exponential
+ *   backoff — pokemontcg.io is a free third-party API with no SLA and
+ *   fails transiently often enough that a single-shot request would drop
+ *   cards silently on a bad response.
  *
- * IMPORTS EXPLAINED:
- *
- *   com.poketracker.models.*
- *     Card, CardSet, CardImage, SetImages — our internal data types.
- *
- *   com.poketracker.repository.CardRepository
- *     The repository this service delegates all database operations to.
- *
- *   zio.*
- *     ZIO core — Task, ZLayer, ZIO.service, ZIO.foreach, System.env etc.
- *
- *   zio.json.*
- *     JsonDecoder, DeriveJsonDecoder — for parsing API JSON responses.
- *     fromJson[T] extension method on String for safe JSON parsing.
- *
- *   java.time.LocalDate
- *     Standard JVM date type — sets have release dates, no time needed.
- *
- * USED BY: CardRoutes
- * DEPENDS ON: CardRepository, pokemontcg.io API, POKEMONTCG_API_KEY env var
+ * DEPENDS ON: CardRepository, PriceService, pokemontcg.io API,
+ *   POKEMONTCG_API_KEY env var (optional — empty string just means a
+ *   lower rate limit).
  */
 
 package com.poketracker.service
@@ -48,38 +28,15 @@ import zio.*
 import zio.json.*
 import java.time.LocalDate
 
-// ── API response types ────────────────────────────────────────────────────────
-//
-// These case classes mirror the JSON shape returned by pokemontcg.io.
-// They are private to this file — nothing outside CardService knows they exist.
-// We convert them to our internal Card/CardSet types before returning them.
-// This isolates our code from changes in the external API format.
+// ── pokemontcg.io response shapes ───────────────────────────────────────
+// Mirrors the API's JSON exactly so a shape change on their end fails at
+// the decode boundary, not deep in business logic. toCard/toSet convert
+// these into our own types below.
 
 /**
- * CASE CLASS: ApiCard
- * PURPOSE: Represents one card as returned by the pokemontcg.io API — every
- *          field it can return, not just the handful the rest of the app
- *          uses day to day. Converted to our internal Card type (including
- *          the full CardDetails) by toCard() before use.
- *
- *          Fields beyond the original core set are all Option/List-defaulted
- *          because most only appear on some supertypes/eras (a Trainer card
- *          has no `hp`, only a few XY-era cards have `ancientTrait`, etc.) —
- *          a card missing any of them must never fail to decode.
- *
- * @param id      Card ID from the API e.g. "sv1-1"
- * @param name    Card name e.g. "Charizard ex"
- * @param number  Collector number e.g. "4" or "TG01"
- * @param rarity  Rarity string if present e.g. "Special Illustration Rare"
- * @param artist  Illustrator name if listed on the card
- * @param images  URLs to small and large card images
- * @param set     The full embedded set object (same shape as the /sets
- *                endpoint's entries) — reused as-is rather than a separate
- *                id-only type, and stored verbatim as CardDetails.embeddedSet.
- * @param tcgplayer/cardmarket  pokemontcg.io's own bundled pricing — used as
- *                a fallback price source. Decoded straight into the shared
- *                model types (see Card.scala) since these are pure data
- *                pass-through with no transformation needed.
+ * Every field beyond the core set defaults to empty — most only exist on
+ * some card types (Trainer cards have no `hp`; only some old cards have
+ * `ancientTrait`), and a card missing one must not fail to decode.
  */
 private case class ApiCard(
   id:     String,
@@ -112,32 +69,9 @@ private case class ApiCard(
   cardmarket:             Option[CardmarketInfo] = None
 )
 
-/**
- * CASE CLASS: ApiImages
- * @param small  Small card image URL (~245x342px) for grid views
- * @param large  Large card image URL (~745x1040px) for detail views
- */
 private case class ApiImages(small: String, large: String)
 
-/**
- * CASE CLASS: ApiSet
- * PURPOSE: Represents one set as returned by the pokemontcg.io API — both
- *          from the /sets endpoint directly, and as the `set` object
- *          embedded in every card response (identical shape). Converted to
- *          our internal CardSet type by toSet() for the former, and to
- *          CardDetails.embeddedSet for the latter.
- *
- * @param id           Set ID e.g. "sv1", "base1"
- * @param name         Full set name e.g. "Scarlet & Violet"
- * @param series       Series name e.g. "Scarlet & Violet"
- * @param printedTotal Number on cards as denominator e.g. 165 for "4/165"
- * @param total        Actual total including secret rares. Always >= printedTotal.
- * @param releaseDate  Release date string from API — format varies, parsed safely
- * @param images       Symbol and logo image URLs
- * @param ptcgoCode    PTCG Online code e.g. "SVI" — used to match TCGTracking prices
- * @param legalities   Format legality e.g. {"unlimited": "Legal"}
- * @param updatedAt    When pokemontcg.io last updated this set's data
- */
+/** Same shape whether from /sets or embedded in a card response. */
 private case class ApiSet(
   id:           String,
   name:         String,
@@ -151,33 +85,11 @@ private case class ApiSet(
   updatedAt:    Option[String] = None
 )
 
-/**
- * CASE CLASS: ApiSetImages
- * @param symbol  URL to set symbol icon shown in dropdowns
- * @param logo    URL to full set logo shown on set pages
- */
 private case class ApiSetImages(symbol: String, logo: String)
 
-/**
- * CASE CLASS: ApiCardsResp
- * PURPOSE: Wrapper around the API paginated cards response.
- * @param data        Cards on this page (max 250)
- * @param totalCount  Total cards across all pages — used to know how many pages to fetch
- */
 private case class ApiCardsResp(data: List[ApiCard], totalCount: Int)
-
-/**
- * CASE CLASS: ApiSetsResp
- * PURPOSE: Wrapper around the API sets list response.
- * @param data  All sets returned
- */
 private case class ApiSetsResp(data: List[ApiSet])
 
-// Automatically generate JSON decoders for all API response types.
-// DeriveJsonDecoder.gen reads the case class field names and matches them
-// to JSON keys automatically — no manual mapping needed. Nested detail types
-// (CardAbility, CardAttack, TcgplayerInfo, etc.) already have their own
-// JsonDecoder from Card.scala's companion objects, found automatically.
 private given JsonDecoder[ApiImages]    = DeriveJsonDecoder.gen
 private given JsonDecoder[ApiSetImages] = DeriveJsonDecoder.gen
 private given JsonDecoder[ApiSet]       = DeriveJsonDecoder.gen
@@ -185,148 +97,59 @@ private given JsonDecoder[ApiCard]      = DeriveJsonDecoder.gen
 private given JsonDecoder[ApiCardsResp] = DeriveJsonDecoder.gen
 private given JsonDecoder[ApiSetsResp]  = DeriveJsonDecoder.gen
 
-// ── Trait ─────────────────────────────────────────────────────────────────────
-
-/**
- * TRAIT: CardService
- * PURPOSE: Defines the interface for card and set business logic.
- *          CardRoutes depends on this trait, not the Live implementation,
- *          so we can swap in a test implementation without changing routes.
- */
 trait CardService:
 
-  /**
-   * METHOD: getSets
-   * PURPOSE: Returns all sets ordered newest first.
-   *          Serves from database if populated, fetches from API on first run.
-   * @return All sets, newest release date first
-   */
+  /** Newest first. Served from the DB once populated; downloads and caches on first call. */
   def getSets: Task[List[CardSet]]
 
-  /**
-   * METHOD: getCardsBySet
-   * PURPOSE: Returns all cards for a set including prices.
-   *          Serves from database if cached, fetches from API if not.
-   * @param setId  Set ID e.g. "sv1", "me2pt5"
-   * @return       All cards sorted by collector number
-   */
+  /** Sorted by collector number. Triggers a background-equivalent price refresh if stale. */
   def getCardsBySet(setId: String): Task[List[Card]]
 
-  /**
-   * METHOD: getCardById
-   * PURPOSE: Returns a single card with its prices.
-   * @param id  Card ID e.g. "sv1-1"
-   * @return    Some(card) if found, None if not
-   */
   def getCardById(id: String): Task[Option[Card]]
 
-  /**
-   * METHOD: getPriceHistory
-   * PURPOSE: Every price snapshot ever recorded for a card, oldest first.
-   *          There is no backfill — history starts accumulating from whenever
-   *          this card's prices first get fetched after this feature shipped.
-   * @param id  Card ID e.g. "sv1-1"
-   * @return    Snapshots ordered oldest to newest (may be empty)
-   */
+  /** No backfill — only has data from whenever this card's prices started being tracked. */
   def getPriceHistory(id: String): Task[List[PriceHistoryPoint]]
 
   /**
-   * METHOD: searchCards
-   * PURPOSE: Full-text search across all card names.
-   *          Used by the trade analyzer search box.
-   * @param q  Search term e.g. "Charizard" — partial matches work
-   * @param n  Maximum results. Default 60.
-   * @return   Matching cards, newest sets first
+   * @param q Search term (name or collector number).
+   * @param n Max results.
    */
   def searchCards(q: String, n: Int = 60): Task[List[Card]]
 
-  /**
-   * METHOD: refreshSet
-   * PURPOSE: Forces a re-fetch of a set from the API.
-   *          Called by the admin endpoint when a new set releases.
-   * @param setId  The set to refresh
-   * @return       Unit
-   */
+  /** Forces a full re-download, e.g. when a new set releases. */
   def refreshSet(setId: String): Task[Unit]
 
   /**
-   * METHOD: ensureCached
-   * PURPOSE: Guarantees that every given card ID exists in the local catalog
-   *          before a collection entry referencing it is saved. For any ID with
-   *          no cards row, the card's set is refreshed from the API (which loads
-   *          the card and its prices). This is what prevents "orphaned" entries
-   *          that later render blank/$0 in the owned view and exports.
-   *          Best-effort: a set that fails to refresh is logged, not fatal, so a
-   *          save is never blocked by an upstream API hiccup.
-   * @param cardIds  Card IDs about to be saved (duplicates are fine)
-   * @return         Number of distinct sets that were refreshed
+   * Guarantees every given card ID exists in the catalog before something
+   * saves a reference to it, by downloading the owning set for any that's
+   * missing. This is the guard against orphaned owned-card rows rendering
+   * blank/$0. Failures are logged, not propagated — a bad download must
+   * never block the caller's save.
+   * @return Number of distinct sets downloaded.
    */
   def ensureCached(cardIds: List[String]): Task[Int]
 
-  /**
-   * METHOD: refreshPrices
-   * PURPOSE: Re-fetches prices from TCGTracking for a set without re-downloading
-   *          card metadata from pokemontcg.io. Cheaper than refreshSet when only
-   *          price data is stale or was missing. Resets the stale timer so the
-   *          next regular load picks up the new prices from the DB cache.
-   * @param setId  Set to re-price
-   * @return       Unit
-   */
+  /** Cheaper than refreshSet when only pricing, not card data, is stale. */
   def refreshPrices(setId: String): Task[Unit]
 
-  /**
-   * METHOD: refreshOrphans
-   * PURPOSE: One-shot repair. Finds every orphaned card across all collections
-   *          (owned but missing from the catalog) and backfills their sets, so
-   *          existing blank/$0 cards are fixed without refreshing each set by hand.
-   * @return  Number of distinct sets that were refreshed
-   */
+  /** One-shot repair across every user's collection. @return Sets downloaded. */
   def refreshOrphans: Task[Int]
 
-// ── Live implementation ───────────────────────────────────────────────────────
-
-/**
- * OBJECT: CardService
- * PURPOSE: Contains the Live implementation and the ZLayer that provides it.
- */
 object CardService:
 
-  /**
-   * CLASS: Live
-   * PURPOSE: The real CardService that calls pokemontcg.io and caches in the DB.
-   *
-   * @param repo    CardRepository — all database access delegated here
-   * @param apiKey  Pokémon TCG API key from POKEMONTCG_API_KEY env var.
-   *                Empty string = no key, requests will be rate limited.
-   */
   final class Live(repo: CardRepository, priceService: PriceService, apiKey: String) extends CardService:
 
-    /** Base URL for the Pokémon TCG API v2. */
     private val base = "https://api.pokemontcg.io/v2"
 
     /**
-     * METHOD: get
-     * PURPOSE: HTTP GET — returns response body as String.
-     *          Uses Java's built-in HttpURLConnection, no extra dependency.
-     *          15s connection timeout, 60s read timeout, with retry/backoff
-     *          for pokemontcg.io's frequent transient failures (HTTP 500s,
-     *          timeouts, and occasional empty-but-200 response bodies).
-     *
-     * WHY RETRY/BACKOFF MATTERS HERE:
-     *   A single sync makes many sequential calls (one per page, per set), so
-     *   without retry, one transient blip anywhere aborted the whole set's
-     *   fetch — cards silently missing from search/bulk-add, not because they
-     *   don't exist, but because the one page that would have returned them
-     *   failed and was never retried. The previous single-immediate-retry
-     *   wasn't enough headroom for the API's actual failure pattern, which
-     *   often needs a few seconds to recover.
-     *
-     * @param url  The URL to fetch
-     * @return     Response body, or fails with a descriptive error message
-     *             after all attempts are exhausted
+     * GET with retry. pokemontcg.io intermittently times out, 5xxs, or
+     * returns 200 with an empty body — none of which indicate the data
+     * doesn't exist. Retries up to 5 times with exponential backoff
+     * (1s, 2s, 4s, 8s) before failing for real.
      */
     private def get(url: String): Task[String] =
       val maxAttempts = 5
+
       def attempt(n: Int): Task[String] =
         ZIO.attemptBlocking {
           val conn = java.net.URI.create(url).toURL.openConnection()
@@ -336,6 +159,7 @@ object CardService:
           val stream = conn.getInputStream
           try new String(stream.readAllBytes()) finally stream.close()
         }.mapError(e => RuntimeException(s"GET $url failed: ${e.getMessage}"))
+          // Treat empty-but-200 the same as a real failure so it gets retried.
           .flatMap { body =>
             if body.trim.isEmpty
             then ZIO.fail(RuntimeException(s"GET $url returned an empty body"))
@@ -346,33 +170,14 @@ object CardService:
             then ZIO.sleep(zio.Duration.fromSeconds(1L << (n - 1))) *> attempt(n + 1)
             else ZIO.fail(RuntimeException(s"GET $url failed after $maxAttempts attempts: ${e.getMessage}"))
           }
+
       attempt(1)
 
-    /**
-     * METHOD: parse
-     * PURPOSE: Parses a JSON string into a typed Scala value.
-     *          Fails with a clear error if the JSON is malformed
-     *          or missing required fields.
-     *
-     * @tparam A   The type to parse into — must have a JsonDecoder
-     * @param json The JSON string to parse
-     * @return     The parsed value, or fails with a parse error message
-     */
     private def parse[A: JsonDecoder](json: String): Task[A] =
       ZIO.fromEither(json.fromJson[A])
          .mapError(e => RuntimeException(s"JSON parse error: $e"))
 
-    /**
-     * METHOD: toCard
-     * PURPOSE: Converts an ApiCard to our internal Card model, including the
-     *          full CardDetails snapshot (everything pokemontcg.io returned
-     *          beyond the core fields). Prices are always None here —
-     *          fetched from TCGTracking separately (fallbackNm below handles
-     *          pokemontcg.io's own bundled pricing).
-     *
-     * @param c  The API card to convert
-     * @return   Our internal Card
-     */
+    /** Prices are always left None — real prices come from TCGTracking via PriceService. */
     private def toCard(c: ApiCard): Card =
       val details = CardDetails(
         supertype              = c.supertype,
@@ -408,29 +213,14 @@ object CardService:
            CardImage(c.images.small, c.images.large), None, Some(details))
 
     /**
-     * METHOD: fallbackNm
-     * PURPOSE: Derives a Near-Mint-ish fallback price straight from
-     *          pokemontcg.io's own bundled tcgplayer/cardmarket data — no
-     *          extra network call, no TCGTracking set-matching risk. Used to
-     *          fill in cards TCGTracking's matching genuinely can't reach
-     *          (older/promo sets it doesn't track at all).
-     *
-     *          Deliberately NM-only: tcgplayer/cardmarket give per-PRINTING
-     *          data (normal/holofoil/reverseHolofoil/...), not per-CONDITION
-     *          data like TCGTracking does, so there's no honest way to
-     *          derive lp/mp/hp/dmg from them — inventing those would be
-     *          fabricating data we don't actually have.
-     *
-     * @param c  The API card to derive a fallback price from
-     * @return   Some(price) if pokemontcg.io has any usable pricing, else None
+     * Backup NM price pulled from pokemontcg.io's own bundled pricing —
+     * no extra network call, used for cards TCGTracking's own matching
+     * can't reach. Only ever fills `nm`: pokemontcg.io's data is keyed by
+     * print type (Normal/Holofoil/...), not by condition, so lp/mp/hp/dmg
+     * can't be honestly derived from it.
      */
     private def fallbackNm(c: ApiCard): Option[Double] =
-      // Exactly the 5 keys pokemontcg.io's own official SDK declares for
-      // tcgplayer.prices — confirmed against their Python SDK's TCGPrices
-      // dataclass after an earlier guess ("1stEditionHolofoil",
-      // "unlimitedHolofoil") turned out not to match their real key names
-      // ("firstEditionHolofoil"; there is no "unlimited*" key at all, since
-      // unlimited prints are just "normal"/"holofoil" with no prefix).
+      // Preference order confirmed against pokemontcg.io's own SDK key names.
       val variantPreference = List(
         "holofoil", "reverseHolofoil", "normal",
         "firstEditionHolofoil", "firstEditionNormal"
@@ -439,6 +229,7 @@ object CardService:
         val ordered = variantPreference.flatMap(tp.prices.get) ++ tp.prices.values.toList
         ordered.flatMap(v => v.market.orElse(v.mid)).headOption
       }
+      // $0 is treated as "no data," not "worthless," hence the > 0 filters below.
       fromTcgplayer.orElse(
         c.cardmarket.flatMap { cm =>
           cm.prices.averageSellPrice.filter(_ > 0)
@@ -446,14 +237,7 @@ object CardService:
         }
       )
 
-    /**
-     * METHOD: numberLess
-     * PURPOSE: Shared collector-number comparator — numeric numbers sort
-     *          numerically, non-numeric numbers (TG01, SWSH001) sort
-     *          alphabetically after all numerics. Factored out of `sorted`
-     *          so card/fallback-price pairs can be sorted the same way
-     *          without unpacking to a bare List[Card] first.
-     */
+    /** Numeric numbers sort numerically; non-numeric ones (TG01, SWSH001) sort after. */
     private def numberLess(a: String, b: String): Boolean =
       (a.toIntOption, b.toIntOption) match
         case (Some(x), Some(y)) => x < y
@@ -461,31 +245,14 @@ object CardService:
         case (None, Some(_))    => false
         case _                  => a < b
 
-    /**
-     * METHOD: toSet
-     * PURPOSE: Converts an ApiSet to our internal CardSet model.
-     *          Parses the release date safely — defaults to 2000-01-01
-     *          if the date string cannot be parsed (prevents crashes on bad API data).
-     *
-     * @param s  The API set to convert
-     * @return   Our internal CardSet
-     */
     private def toSet(s: ApiSet): CardSet =
+      // Falls back rather than crashing the whole set on one bad date string.
       val date = scala.util.Try(LocalDate.parse(s.releaseDate.replace("/", "-")))
                    .getOrElse(LocalDate.of(2000, 1, 1))
       CardSet(s.id, s.name, s.series, s.printedTotal, s.total,
               date, SetImages(s.images.symbol, s.images.logo), s.ptcgoCode)
 
-    /**
-     * METHOD: fetchPages
-     * PURPOSE: Fetches all pages of cards for a set from the API.
-     *          pokemontcg.io returns max 250 cards per page.
-     *          Fetches page 1 to get the total count, then fetches
-     *          remaining pages if needed.
-     *
-     * @param setId  The set to fetch cards for
-     * @return       All cards from all pages combined into one List
-     */
+    /** pokemontcg.io caps responses at 250 cards/page — large sets need multiple requests. */
     private def fetchPages(setId: String): Task[List[ApiCard]] =
       for
         first <- get(s"$base/cards?q=set.id:$setId&pageSize=250&page=1")
@@ -500,16 +267,6 @@ object CardService:
                    ).map(_.flatten)
       yield first.data ++ rest
 
-    /**
-     * METHOD: sorted
-     * PURPOSE: Sorts cards by collector number.
-     *          Numeric numbers sort numerically (1, 2, 3 ... 251, 252).
-     *          Non-numeric numbers (TG01, SWSH001) sort alphabetically after all numerics.
-     *          This correctly places secret rares after the main set cards.
-     *
-     * @param cards  Cards to sort
-     * @return       Cards in collector number order
-     */
     private def sorted(cards: List[Card]): List[Card] =
       cards.sortWith((a, b) => numberLess(a.number, b.number))
 
@@ -527,21 +284,19 @@ object CardService:
 
     def getCardsBySet(setId: String): Task[List[Card]] =
       repo.findCardsBySet(setId).flatMap {
-        // All prices present — serve directly from the cache.
         case cards if cards.nonEmpty && cards.forall(_.prices.nonEmpty) =>
           ZIO.succeed(cards)
 
-        // Cards cached but some prices missing. Only hit TCGTracking when stale (> 6 h since last
-        // attempt) so cards that genuinely have no TCGTracking data don't cause a retry every load.
+        // Cached but under-priced: refresh only if stale (>6h), so cards
+        // TCGTracking genuinely has no data for don't retry every load.
         case cards if cards.nonEmpty =>
           for
             stale  <- repo.isPricesFetchStale(setId)
-                        // If the stale-check itself fails (column not yet migrated), default to stale
-                        // so the app keeps working and prices are fetched normally.
-                        .catchAll(_ => ZIO.succeed(true))
+                        .catchAll(_ => ZIO.succeed(true))  // fail open on the check itself
             _      <- ZIO.when(stale)(
                         repo.findSetById(setId).flatMap {
                           case Some(set) =>
+                            // Price fetch failures are logged, never block the page load.
                             priceService.fetchAndStorePrices(set, cards)
                               .catchAll(e => ZIO.logWarning(s"Price fetch failed for cached $setId: ${e.getMessage}"))
                               *> repo.markPricesFetched(setId)
@@ -568,8 +323,8 @@ object CardService:
                               *> repo.applyFallbackPrices(setId)
                                    .catchAll(e => ZIO.logWarning(s"applyFallbackPrices failed for $setId: ${e.getMessage}"))
                           case None => ZIO.unit
-            // Re-read from DB so prices stored above are included in the response.
-            // Without this, first-time loads always show "no price" even when prices were just stored.
+            // Re-read so the prices just written are actually in the response —
+            // otherwise a first-time load always shows "no price."
             withPrices <- repo.findCardsBySet(setId)
           yield withPrices
       }
@@ -581,35 +336,19 @@ object CardService:
       repo.findPriceHistory(id)
 
     /**
-     * METHOD: searchCards
-     * PURPOSE: Search cards by name or collector number.
-     *   Strategy:
-     *     1. Query the local PostgreSQL DB (fast, covers every set the app has
-     *        ever loaded).
-     *     2. If the DB has no matches — most likely because this card's set has
-     *        never been loaded — fall back to the pokemontcg.io API.
-     *        We upsert any API results into the DB so the next search is instant.
-     *     3. If the API call also fails, log and return an empty list rather than
-     *        surfacing a 500 to the user.
-     *
-     * NOTE: The PokéTCG API wildcard query (`name:*query*`) returns cards whose
-     *   names contain the search term.  We sanitize the query to letters, digits,
-     *   spaces, hyphens and apostrophes before embedding it in the URL.
-     *
-     * @param q  Search term e.g. "Charizard" or "SWSH158"
-     * @param n  Max results (default 60)
+     * DB first; on a miss, falls back to the live API and caches the
+     * result so the next search is local. API failures are logged and
+     * degrade to an empty result rather than a 500.
      */
     def searchCards(q: String, n: Int = 60): Task[List[Card]] =
       repo.searchCards(q, n).flatMap {
         case cards if cards.nonEmpty => ZIO.succeed(cards)
         case _ =>
-          // Strip characters that would break the pokemontcg.io query syntax,
-          // then search by name with wildcard matching.
           val safe = q.replaceAll("[^a-zA-Z0-9 '\\-]", "").trim
           if safe.isEmpty then ZIO.succeed(Nil)
           else
-            // If query looks like a collector number (digits, optionally /total), search by number.
-            // Otherwise search by name with wildcard. This fixes "119/202" returning nothing.
+            // A bare/slashed number is treated as a collector-number search
+            // instead of a name search — otherwise e.g. "119/202" matches nothing.
             val numericQ = "^(\\d+)(?:/\\d*)?$".r
             val apiQuery = numericQ.findFirstMatchIn(q.trim) match
               case Some(m) => s"number:${m.group(1)}"
@@ -618,9 +357,6 @@ object CardService:
               .flatMap(parse[ApiCardsResp])
               .flatMap { resp =>
                 val pairs = resp.data.map(ac => (toCard(ac), fallbackNm(ac)))
-                // Upsert into the DB so subsequent searches are served locally.
-                // fallback_price_nm is stored now even though it isn't applied to
-                // card_prices here — the next refresh of this card's set applies it.
                 ZIO.foreach(pairs)((c, fb) => repo.upsertCard(c, fb)).as(pairs.map(_._1))
               }
               .catchAll { e =>
@@ -655,21 +391,12 @@ object CardService:
                         .catchAll(e => ZIO.logWarning(s"refreshPrices: price fetch failed for $setId: ${e.getMessage}"))
                     case None =>
                       ZIO.logWarning(s"refreshPrices: set '$setId' not found in DB")
-        // Mark as fetched so the 6-hour stale timer resets — next regular load uses DB cache
-        _ <- repo.markPricesFetched(setId).catchAll(_ => ZIO.unit)
+        _ <- repo.markPricesFetched(setId).catchAll(_ => ZIO.unit)  // reset the 6h staleness timer regardless
         _ <- repo.applyFallbackPrices(setId)
                .catchAll(e => ZIO.logWarning(s"applyFallbackPrices failed for $setId: ${e.getMessage}"))
       yield ()
 
-    /**
-     * METHOD: setIdOf
-     * PURPOSE: Derives a set ID from a card ID. pokemontcg.io card IDs are
-     *          "<setId>-<number>" (e.g. "sv6-66" → "sv6", "swsh12pt5gg-GG01"
-     *          → "swsh12pt5gg"), so the set ID is everything before the last
-     *          hyphen. Returns None for IDs with no hyphen, which can't be mapped.
-     * @param cardId  A card ID
-     * @return        Some(setId), or None if the ID has no derivable set
-     */
+    /** pokemontcg.io card IDs are "<setId>-<number>"; splits on the last hyphen. */
     private def setIdOf(cardId: String): Option[String] =
       cardId.lastIndexOf('-') match
         case i if i > 0 => Some(cardId.substring(0, i))
@@ -677,11 +404,9 @@ object CardService:
 
     def ensureCached(cardIds: List[String]): Task[Int] =
       for
-        // Keep only IDs that have no catalog row yet — these are the ones at
-        // risk of becoming orphans once their collection entry is saved.
         missing <- ZIO.filter(cardIds.distinct)(id => repo.findCardById(id).map(_.isEmpty))
-        // Group the missing cards by set; one refresh loads the whole set.
         setIds   = missing.flatMap(setIdOf).distinct
+        // One set failing doesn't stop the others from being repaired.
         _       <- ZIO.foreachDiscard(setIds) { sid =>
                      refreshSet(sid).catchAll { e =>
                        ZIO.logWarning(s"ensureCached: failed to refresh set '$sid': ${e.getMessage}")
@@ -692,16 +417,6 @@ object CardService:
     def refreshOrphans: Task[Int] =
       repo.findOrphanedCardIds.flatMap(ensureCached)
 
-  /**
-   * VALUE: layer
-   * PURPOSE: ZLayer that provides a CardService to the rest of the app.
-   *          Reads POKEMONTCG_API_KEY from environment at startup.
-   *
-   * @return ZLayer[CardRepository, Throwable, CardService]
-   *         Needs:    CardRepository (provided by CardRepository.layer)
-   *         Fails:    Throwable (very unlikely — only if env reading fails)
-   *         Provides: CardService ready to use
-   */
   val layer: ZLayer[CardRepository & PriceService, Throwable, CardService] =
     ZLayer.fromZIO {
       for

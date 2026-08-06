@@ -1,12 +1,12 @@
 /**
- * FILE: CollectionService.scala
- * PACKAGE: com.poketracker.service
- * LOCATION: src/main/scala/com/poketracker/service/CollectionService.scala
+ * CollectionService — adding/removing owned cards, per-condition
+ * quantities, collection statistics.
  *
- * PURPOSE:
- *   Business logic for managing a user's card collection.
- *   Handles adding/removing cards, updating quantities per condition,
- *   and calculating collection statistics.
+ * HOW IT WORKS
+ *   Thin rules layer over two repositories: CollectionRepository for the
+ *   owned-card rows, CardRepository for card/price lookups used in
+ *   getStats. updateEntry auto-deletes a row once every condition hits
+ *   zero, so "owns zero copies" is represented by absence, not a zero row.
  *
  * USED BY: CollectionRoutes
  * DEPENDS ON: CollectionRepository, CardRepository
@@ -20,31 +20,14 @@ import zio.*
 import java.time.Instant
 import java.util.UUID
 
-/**
- * TRAIT: CollectionService
- * PURPOSE: Interface for all collection business logic.
- */
 trait CollectionService:
 
-  /**
-   * METHOD: getCollection
-   * PURPOSE: Returns a user's entire collection.
-   * @param userId  The user
-   * @return        All collection entries for this user
-   */
   def getCollection(userId: String): Task[List[CollectionEntry]]
 
   /**
-   * METHOD: updateEntry
-   * PURPOSE: Updates the quantities for a specific card in a user's collection.
-   *          Creates the entry if it does not exist yet.
-   *          Deletes the entry if all quantities are set to zero.
-   *
-   * @param userId      The user
-   * @param cardId      The card
-   * @param conditions  New list of condition/quantity pairs
-   * @param selCond     Which condition is currently selected in the UI
-   * @return            The updated entry, or None if it was deleted (all zero)
+   * Creates the entry if missing, deletes it if every condition's
+   * quantity is now zero.
+   * @return The updated entry, or None if it was deleted.
    */
   def updateEntry(
     userId:     String,
@@ -53,49 +36,20 @@ trait CollectionService:
     selCond:    String
   ): Task[Option[CollectionEntry]]
 
-  /**
-   * METHOD: bulkUpdate
-   * PURPOSE: Updates multiple collection entries at once.
-   *          Used when importing a collection from CSV.
-   *          More efficient than calling updateEntry repeatedly.
-   *
-   * @param userId   The user
-   * @param updates  List of (cardId, conditions, selectedCond) tuples
-   * @return         Unit
-   */
+  /** Bulk equivalent of updateEntry — used by CSV import, one transaction instead of N. */
   def bulkUpdate(
     userId:  String,
     updates: List[(String, List[ConditionCount], String)]
   ): Task[Unit]
 
-  /**
-   * METHOD: getStats
-   * PURPOSE: Calculates summary statistics for a user's collection.
-   *          Used for the stats bar at the top of the collection page.
-   *
-   * @param userId  The user
-   * @return        CollectionStats with totals
-   */
   def getStats(userId: String): Task[CollectionStats]
 
-  /**
-   * METHOD: getOwnedCards
-   * PURPOSE: Returns all cards a user owns, each enriched with full card details.
-   *          Used by the My Collection page to show every owned card in one request.
-   * @param userId  The user
-   * @return        List of OwnedCard (collection entry + card data + prices)
-   */
+  /** Every owned card, enriched with card/price data, for the My Collection page. */
   def getOwnedCards(userId: String): Task[List[OwnedCard]]
 
 /**
- * CASE CLASS: CollectionStats
- * PURPOSE: Summary statistics for a user's collection.
- *          Returned by getStats and displayed in the UI stats bar.
- *
- * @param totalCards   Total number of individual cards owned (all conditions summed)
- * @param uniqueCards  Number of unique card IDs owned (ignoring quantity)
- * @param totalValue   Estimated total value in USD based on current prices
- * @param setsEntered  How many different sets the user has at least one card from
+ * Computed summary, not a stored entity — lives here rather than in
+ * models/ since nothing persists it.
  */
 final case class CollectionStats(
   totalCards:  Int,
@@ -105,6 +59,7 @@ final case class CollectionStats(
 )
 
 object CollectionStats:
+  // Encoder only — this type is only ever sent to the frontend, never read back.
   given zio.json.JsonEncoder[CollectionStats] = zio.json.DeriveJsonEncoder.gen
 
 object CollectionService:
@@ -123,14 +78,14 @@ object CollectionService:
       conditions: List[ConditionCount],
       selCond:    String
     ): Task[Option[CollectionEntry]] =
-      // If all conditions have zero quantity, remove from collection entirely
       val hasQuantity = conditions.exists(_.quantity > 0)
+
       if !hasQuantity then
         collectionRepo.deleteEntry(userId, cardId).as(None)
       else
         for
-          // Check if entry already exists to preserve its ID
           existing <- collectionRepo.findEntry(userId, cardId)
+          // Reuse the existing row's ID so this is an update, not a duplicate.
           id        = existing.map(_.id).getOrElse(UUID.randomUUID().toString)
           entry     = CollectionEntry(
                         id         = id,
@@ -156,7 +111,7 @@ object CollectionService:
           selectedCond = selCond,
           updatedAt    = Instant.now()
         )
-      }.filter(_.conditions.nonEmpty) // Only save entries with at least one card
+      }.filter(_.conditions.nonEmpty)
       collectionRepo.bulkUpsert(entries)
 
     def getOwnedCards(userId: String): Task[List[OwnedCard]] =
@@ -167,14 +122,14 @@ object CollectionService:
         val totalCards  = entries.map(_.totalQuantity).sum
         val uniqueCards = entries.size
         val totalValue  = entries.map(_.totalValue).sum
-        // Count distinct set IDs by extracting the set part of each card ID.
-        // Card IDs are in format "setId-number" e.g. "sv1-1", "base1-4"
-        // We split on the last "-" to get the set ID.
-        // Note: some set IDs contain "-" so we split on last occurrence only.
+
+        // Card IDs are "setId-number" and setId itself can contain dashes,
+        // so this takes everything before the LAST dash rather than the first.
         val setsEntered = entries
           .map(e => e.cardId.reverse.dropWhile(_ != '-').drop(1).reverse)
           .toSet
           .size
+
         CollectionStats(totalCards, uniqueCards, totalValue, setsEntered)
       }
 
