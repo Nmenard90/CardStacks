@@ -22,6 +22,7 @@
  */
 
 import { useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import {
   createBox, createDrawer, deleteBox, deleteDrawer,
@@ -44,8 +45,21 @@ const ITEMS_PER_ROW = 3
 const SIZE_NUM: Record<PocketSize, number> = { Four: 4, Nine: 9, Twelve: 12 }
 const SIZE_OPTIONS: PocketSize[] = ['Nine', 'Four', 'Twelve']
 
+interface BoxPreset { id: string; name: string; capacity: number; sections: number; material: string }
+const BOX_PRESETS: BoxPreset[] = [
+  { id: 'deck-75', name: 'Artwork Deck Box', capacity: 75, sections: 1, material: 'Rigid plastic · divider included' },
+  { id: 'deck-100', name: '100+ Deck Box', capacity: 100, sections: 1, material: 'Sleeved cards · divider included' },
+  { id: 'long-800', name: 'Long Card Box', capacity: 800, sections: 1, material: 'Corrugated cardboard' },
+  { id: 'row-1600', name: '2-Row Storage Box', capacity: 1600, sections: 2, material: 'Cardboard · removable lid' },
+  { id: 'row-3200', name: '4-Row Monster Box', capacity: 3200, sections: 4, material: 'Cardboard · removable lid' },
+  { id: 'row-5000', name: '5-Row Monster Box', capacity: 5000, sections: 5, material: 'Cardboard · removable lid' },
+  { id: 'display-drawer', name: '3-Drawer Display Organizer', capacity: 1000, sections: 3, material: 'Rigid plastic · card windows' },
+  { id: 'custom', name: 'Custom Box', capacity: 0, sections: 1, material: 'Set your own capacity and sections' },
+]
+
 interface Entry { conds: CondMap; selCond: string }
 interface RenameState { kind: 'box' | 'drawer' | 'binder'; id: string }
+interface HoverPreview { card: Card; x: number; y: number }
 type UnassignedSort = 'name' | 'set'
 type PendingDelete =
   | { kind: 'box'; box: StorageBox }
@@ -80,6 +94,7 @@ export function CollectionShelf({
   const [search, setSearch] = useState('')
   const [editMode, setEditMode] = useState(false)
   const [openBoxId, setOpenBoxId] = useState<string | null>(null)
+  const [hoverPreview, setHoverPreview] = useState<HoverPreview | null>(null)
 
   // Which drop target is currently under a drag, for hover styling.
   const [dropHover, setDropHover] = useState<string | null>(null)
@@ -87,7 +102,10 @@ export function CollectionShelf({
 
   const [creatingBox, setCreatingBox] = useState(false)
   const [newBoxName, setNewBoxName] = useState('')
-  const [newBoxDrawers, setNewBoxDrawers] = useState('3')
+  const [newBoxType, setNewBoxType] = useState('long-800')
+  const [newBoxDrawers, setNewBoxDrawers] = useState('1')
+  const [newBoxCapacity, setNewBoxCapacity] = useState('800')
+  const [newBoxColor, setNewBoxColor] = useState('#B99B67')
 
   const [creatingBinder, setCreatingBinder] = useState(false)
   const [newBinderName, setNewBinderName] = useState('')
@@ -119,6 +137,7 @@ export function CollectionShelf({
   const filteredSidebar = boxes.filter(b => b.name.toLowerCase().includes(search.toLowerCase()))
 
   const sortedItems = [...items].sort((a, b) => a.position - b.position)
+  const binderItems = sortedItems.filter((i): i is Extract<ShelfEntry, { kind: 'binder' }> => i.kind === 'binder')
   const rows: ShelfEntry[][] = []
   for (let i = 0; i < sortedItems.length; i += ITEMS_PER_ROW) rows.push(sortedItems.slice(i, i + ITEMS_PER_ROW))
 
@@ -133,20 +152,23 @@ export function CollectionShelf({
     .sort((a, b) => (unassignedSort === 'name' ? a.name.localeCompare(b.name) : a.setId.localeCompare(b.setId)))
 
   const qtyOf = (cardId: string) => totalQty(coll[cardId]?.conds ?? {})
+  const showPreview = (card: Card, e: React.MouseEvent) => setHoverPreview({ card, x: e.clientX, y: e.clientY })
+  const movePreview = (e: React.MouseEvent) => setHoverPreview(current => current ? { ...current, x: e.clientX, y: e.clientY } : null)
 
   const openBox = boxes.find(b => b.id === openBoxId) ?? null
 
   const submitNewBox = async () => {
     const name = newBoxName.trim()
     const drawerCount = Math.max(0, Math.min(20, parseInt(newBoxDrawers, 10) || 0))
+    const capacity = Math.max(0, parseInt(newBoxCapacity, 10) || 0)
 
     setCreatingBox(false)
     if (!name) return
     try {
-      const box = await createBox(userId, name)
-      for (let i = 0; i < drawerCount; i++) await createDrawer(box.id, `Drawer ${i + 1}`)
+      const box = await createBox(userId, name, newBoxType, capacity, newBoxColor)
+      for (let i = 0; i < drawerCount; i++) await createDrawer(box.id, drawerCount === 1 ? 'Cards' : `Row ${i + 1}`)
 
-      setNewBoxName(''); setNewBoxDrawers('3')
+      setNewBoxName(''); setNewBoxType('long-800'); setNewBoxDrawers('1'); setNewBoxCapacity('800'); setNewBoxColor('#B99B67')
       onReloadShelf()
     } catch { toast('Could not create box.') }
   }
@@ -337,6 +359,123 @@ export function CollectionShelf({
         </aside>
 
         <section className="stage">
+          <div className="collection-room">
+            <section className="room-zone bulk-zone" aria-labelledby="bulk-storage-title">
+              <div className="zone-heading">
+                <div><span className="zone-kicker">Card storage</span><h2 id="bulk-storage-title">Bulk boxes</h2></div>
+                <div className="box-shelf-tools">
+                  <label className="box-search"><span>Find a box</span><input value={search} onChange={e => setSearch(e.target.value)} placeholder={`Search ${boxes.length} boxes`} /></label>
+                  <button className="zone-add" onClick={() => setCreatingBox(true)}>+ New box</button>
+                </div>
+              </div>
+              <div className="physical-shelf bulk-shelf">
+                <div className="shelf-items">
+                  {filteredSidebar.map(box => (
+                    <button
+                      key={box.id}
+                      id={`shelf-slot-${box.id}`}
+                      className={'physical-box box-model-' + (box.boxType || 'custom') + ' ' + boxTheme(box.id) + (openBoxId === box.id ? ' is-open' : '')}
+                      style={{ '--chosen-box-color': box.color || '#B99B67' } as React.CSSProperties}
+                      onClick={() => setOpenBoxId(openBoxId === box.id ? null : box.id)}
+                      onDragOver={e => { if (e.dataTransfer.types.includes(CARD_MIME)) { e.preventDefault(); setDropHover(`box:${box.id}`) } }}
+                      onDragLeave={() => setDropHover(null)}
+                      onDrop={e => { e.preventDefault(); setDropHover(null); const cardId = e.dataTransfer.getData(CARD_MIME); if (cardId) dropCardOnBox(cardId, box) }}
+                    >
+                      <span className="box-lid" />
+                      <span className="box-handles" aria-hidden><i /><i /></span>
+                      {(box.boxType === 'display-drawer') && <span className="drawer-display-windows" aria-hidden><i /><i /><i /></span>}
+                      <span className="box-label"><strong>{box.name}</strong><small>{box.drawers.reduce((sum, drawer) => sum + drawer.cardCount, 0)} / {box.capacity || '∞'} cards</small></span>
+                      <span className="box-open-hint">{openBoxId === box.id ? 'Close box' : 'Open box'}</span>
+                    </button>
+                  ))}
+                  {boxes.length === 0 && <button className="empty-object" onClick={() => setCreatingBox(true)}>Build your first storage box</button>}
+                  {boxes.length > 0 && filteredSidebar.length === 0 && <p className="no-box-match">No boxes match “{search}”.</p>}
+                </div>
+                <div className="wood-plank" aria-hidden />
+              </div>
+              {openBox && (
+                <section className="opened-card-box" aria-label={`${openBox.name} contents`}>
+                  <div className="opened-box-lid" aria-hidden><span>{openBox.name}</span></div>
+                  <div className="opened-box-rim">
+                    <div className="opened-box-title"><span><strong>{openBox.name}</strong><small>{openBox.drawers.reduce((sum, drawer) => sum + drawer.cardCount, 0)} cards</small></span><button onClick={() => setOpenBoxId(null)} aria-label="Close box">Close box</button></div>
+                    <div className="card-row-scroll">
+                    {[...openBox.drawers].sort((a, b) => a.position - b.position).map(drawer => {
+                      const inDrawer = cardsByDrawer[drawer.id] ?? []
+                      return (
+                        <div key={drawer.id} className={'card-divider-section' + (dropHover === drawer.id ? ' drop-hover' : '')}
+                          onDragOver={e => { e.preventDefault(); setDropHover(drawer.id) }} onDragLeave={() => setDropHover(null)}
+                          onDrop={e => { e.preventDefault(); setDropHover(null); const cardId = e.dataTransfer.getData(CARD_MIME); if (cardId) dropCardOnDrawer(cardId, drawer.id) }}>
+                          <div className="card-divider"><strong>{drawer.name}</strong><span>{drawer.cardCount}</span></div>
+                          <div className="cards-in-box">
+                            {inDrawer.map(card => <button key={card.id} className="boxed-card" title={`${card.name} — inspect`} onClick={() => setHoverPreview({ card, x: window.innerWidth / 2, y: window.innerHeight / 2 })}
+                              onMouseEnter={e => showPreview(card, e)} onMouseMove={movePreview} onMouseLeave={() => setHoverPreview(null)}
+                              onTouchStart={e => { const touch = e.touches[0]; setHoverPreview({ card, x: touch.clientX, y: touch.clientY }) }}><img src={card.images.small} alt={card.name} /><span>{qtyOf(card.id)}</span></button>)}
+                            {inDrawer.length === 0 && <button className="empty-box-row" onClick={() => setMovingCardIds(unassignedCards.length ? [unassignedCards[0].id] : null)}>Drop cards behind this divider</button>}
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {openBox.drawers.length === 0 && <p className="empty-open-box">This box needs a divider. Turn on Edit to add one.</p>}
+                    </div>
+                  </div>
+                </section>
+              )}
+            </section>
+
+            <section className="room-zone binder-zone" aria-labelledby="binders-title">
+              <div className="zone-heading">
+                <div><span className="zone-kicker">Curated collections</span><h2 id="binders-title">Binders</h2></div>
+                <button className="zone-add" onClick={() => setCreatingBinder(true)}>+ New binder</button>
+              </div>
+              <div className="physical-shelf binder-shelf">
+                <div className="shelf-items">
+                  {binderItems.map((item, index) => (
+                    <button
+                      key={item.binder.id}
+                      className={'upright-binder ' + boxTheme(item.binder.id)}
+                      style={{ '--binder-lean': `${index % 3 === 1 ? -2 : index % 3 === 2 ? 1.5 : 0}deg` } as React.CSSProperties}
+                      onClick={() => navigate(`/binder/${item.binder.id}`)}
+                    >
+                      {item.binder.coverImage && <img src={item.binder.coverImage} alt="" />}
+                      <span className="binder-rings" aria-hidden>•••</span>
+                      <span className="binder-spine-title">{item.binder.name}</span>
+                      <span className="binder-pocket">{SIZE_NUM[item.binder.pocketSize]} pocket</span>
+                    </button>
+                  ))}
+                  {binderItems.length === 0 && <button className="empty-object" onClick={() => setCreatingBinder(true)}>Put your first binder on the shelf</button>}
+                </div>
+                <div className="wood-plank" aria-hidden />
+              </div>
+            </section>
+
+            <section className="room-zone display-zone" aria-labelledby="display-title">
+              <div className="zone-heading">
+                <div><span className="zone-kicker">Featured collection</span><h2 id="display-title">Collector cabinet</h2></div>
+                <span className="coming-label">4 on display</span>
+              </div>
+              <div className="glass-case">
+                <div className="case-light" aria-hidden />
+                <div className="case-doors" aria-hidden><i /><i /></div>
+                <div className="display-cards">
+                  {cards.slice(0, 4).map((card, index) => (
+                    <div className={'display-piece piece-' + index} key={card.id}
+                      onMouseEnter={e => showPreview(card, e)} onMouseMove={movePreview} onMouseLeave={() => setHoverPreview(null)}
+                      onTouchStart={e => { const touch = e.touches[0]; setHoverPreview({ card, x: touch.clientX, y: touch.clientY }) }}>
+                      <div className={index % 2 === 0 ? 'slab-frame' : 'toploader-frame'}>
+                        {index % 2 === 0 && <span className="grade-label">COLLECTION <b>{qtyOf(card.id)}</b></span>}
+                        <img src={card.images.small} alt={card.name} />
+                      </div>
+                      <span>{card.name}</span>
+                    </div>
+                  ))}
+                  {cards.length === 0 && <p className="case-empty">Your favorite cards will look right at home here.</p>}
+                </div>
+                <div className="case-reflection" aria-hidden />
+                <div className="cabinet-base" aria-hidden><i /><i /></div>
+              </div>
+            </section>
+          </div>
+
           <div className="cabinet">
             {rows.length === 0 && <p className="empty-shelf">Nothing on the shelf yet — click ⊕ above to add your first box, or add a binder below.</p>}
             {rows.map((row, i) => (
@@ -522,7 +661,8 @@ export function CollectionShelf({
                   // Drag works for a mouse; tapping opens the same "move to…" picker
                   // used everywhere else so touch users have a real way to file cards.
                   // In select mode, tapping toggles the checkbox instead.
-                  onClick={() => (selectMode ? toggleSelected(c.id) : setMovingCardIds([c.id]))}
+                  onClick={() => (selectMode ? toggleSelected(c.id) : setHoverPreview({ card: c, x: window.innerWidth / 2, y: window.innerHeight / 2 }))}
+                  onMouseEnter={e => showPreview(c, e)} onMouseMove={movePreview} onMouseLeave={() => setHoverPreview(null)}
                 >
                   {selectMode && <span className={'select-check' + (selectedIds.has(c.id) ? ' checked' : '')} aria-hidden>{selectedIds.has(c.id) ? '✓' : ''}</span>}
                   <img src={c.images.small} alt={c.name} />
@@ -536,16 +676,29 @@ export function CollectionShelf({
 
       {creatingBox && (
         <div className="shelf-app-modal-overlay" onClick={e => { if (e.target === e.currentTarget) setCreatingBox(false) }}>
-          <div className="shelf-app-modal" style={{ width: 340 }}>
-            <div className="shelf-app-modal-head"><h3>New Box</h3></div>
+          <div className="shelf-app-modal box-builder-modal">
+            <div className="shelf-app-modal-head"><div><span className="modal-kicker">Match your real storage</span><h3>Choose a box</h3></div></div>
             <div className="shelf-app-modal-body">
+              <div className="box-preset-grid">
+                {BOX_PRESETS.map(preset => (
+                  <button key={preset.id} className={'box-preset' + (newBoxType === preset.id ? ' selected' : '')}
+                    onClick={() => { setNewBoxType(preset.id); if (preset.id !== 'custom') { setNewBoxCapacity(String(preset.capacity)); setNewBoxDrawers(String(preset.sections)) } }}>
+                    <span className={'preset-model model-' + preset.id} aria-hidden>
+                      {preset.id === 'display-drawer' && <i className="preset-windows"><b /><b /><b /></i>}
+                      {preset.id.startsWith('row-') && <i className="preset-rows">{Array.from({ length: preset.sections }, (_, i) => <b key={i} />)}</i>}
+                    </span>
+                    <span><strong>{preset.name}</strong><small>{preset.capacity ? `${preset.capacity.toLocaleString()} cards` : 'Your dimensions'}</small><em>{preset.material}</em></span>
+                  </button>
+                ))}
+              </div>
               <input autoFocus className="shelf-app-input" placeholder="Box name" value={newBoxName}
                 onChange={e => setNewBoxName(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') submitNewBox(); if (e.key === 'Escape') setCreatingBox(false) }} />
-              <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                Drawers
-                <input type="number" min={0} max={20} className="shelf-app-input" style={{ width: 60 }} value={newBoxDrawers} onChange={e => setNewBoxDrawers(e.target.value)} />
-              </label>
+              <div className="box-spec-fields">
+                <label>Capacity<input type="number" min={0} className="shelf-app-input" value={newBoxCapacity} disabled={newBoxType !== 'custom'} onChange={e => setNewBoxCapacity(e.target.value)} /></label>
+                <label>Rows / sections<input type="number" min={1} max={20} className="shelf-app-input" value={newBoxDrawers} disabled={newBoxType !== 'custom'} onChange={e => setNewBoxDrawers(e.target.value)} /></label>
+              </div>
+              <fieldset className="box-color-picker"><legend>Box color</legend><div>{['#E8E0CF','#B99B67','#24282D','#C94845','#346B9A','#4F7A57','#75558A','#E0A33A'].map(color => <button key={color} className={newBoxColor === color ? 'selected' : ''} style={{ background: color }} onClick={() => setNewBoxColor(color)} aria-label={`Choose ${color}`} />)}<label className="custom-color">Custom<input type="color" value={newBoxColor} onChange={e => setNewBoxColor(e.target.value)} /></label></div></fieldset>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button className="shelf-app-btn primary" onClick={submitNewBox}>Create</button>
                 <button className="shelf-app-btn" onClick={() => setCreatingBox(false)}>Cancel</button>
@@ -597,9 +750,10 @@ export function CollectionShelf({
 
       {/* Box detail popup — where drawers live and cards get filed. */}
       {openBox && (
-        <div className="shelf-app-modal-overlay" onClick={e => { if (e.target === e.currentTarget) setOpenBoxId(null) }}>
-          <div className="shelf-app-modal">
-            <div className="shelf-app-modal-head">
+        <section className="open-box-workbench" aria-label={`${openBox.name} open box`}>
+          <div className="open-box-lid" aria-hidden><span>{openBox.name}</span></div>
+          <div className="open-box-shell">
+            <div className="open-box-head">
               {renaming?.kind === 'box' && renaming.id === openBox.id ? (
                 <input autoFocus className="shelf-app-input" style={{ flex: 1 }} value={renameValue}
                   onChange={e => setRenameValue(e.target.value)}
@@ -614,7 +768,7 @@ export function CollectionShelf({
               {editMode && <button className="shelf-app-btn danger" onClick={() => handleDeleteBox(openBox)}>Remove box</button>}
               <button className="shelf-app-modal-close" onClick={() => setOpenBoxId(null)} aria-label="Close">×</button>
             </div>
-            <div className="shelf-app-modal-body">
+            <div className="open-box-body">
               {openBox.drawers.length === 0 && <p className="shelf-app-empty-note">No drawers yet.</p>}
               {(() => {
                 const sortedDrawers = [...openBox.drawers].sort((a, b) => a.position - b.position)
@@ -690,7 +844,7 @@ export function CollectionShelf({
               )}
             </div>
           </div>
-        </div>
+        </section>
       )}
 
       {/* Replaces window.confirm() for box/drawer/binder deletion — same wording, in-app UI. */}
@@ -758,6 +912,15 @@ export function CollectionShelf({
             </div>
           </div>
         </div>
+      )}
+      {hoverPreview && createPortal(
+        <div className="hover-card-preview" style={{
+          left: Math.max(12, Math.min(hoverPreview.x + 24, window.innerWidth - 300)),
+          top: Math.max(12, Math.min(hoverPreview.y - 170, window.innerHeight - 430)),
+        }} role="tooltip">
+          <img src={hoverPreview.card.images.large || hoverPreview.card.images.small} alt={hoverPreview.card.name} />
+          <div><span><strong>{hoverPreview.card.name}</strong><small>#{hoverPreview.card.number} · {hoverPreview.card.setId}</small></span><span className="hover-card-actions"><button onClick={() => { setMovingCardIds([hoverPreview.card.id]); setHoverPreview(null) }}>Move / file</button><button onClick={() => setHoverPreview(null)}>Close</button></span></div>
+        </div>, document.body,
       )}
     </div>
   )

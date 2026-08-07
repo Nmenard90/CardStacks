@@ -10,8 +10,8 @@ import type { AssignResult, OwnedCard, StorageBox, StorageDrawer } from '../type
 export const listBoxes = (userId: string) =>
   api.get<StorageBox[]>(`/api/storage/${userId}/boxes`).then(r => r.data)
 
-export const createBox = (userId: string, name: string) =>
-  api.post<StorageBox>(`/api/storage/${userId}/boxes`, { name }).then(r => r.data)
+export const createBox = (userId: string, name: string, boxType = 'custom', capacity = 0, color = '#B99B67') =>
+  api.post<StorageBox>(`/api/storage/${userId}/boxes`, { name, boxType, capacity, color }).then(r => r.data)
 
 /** Partial update — only fields present in `patch` change. */
 export const updateBox = (boxId: string, patch: { name?: string; position?: number }) =>

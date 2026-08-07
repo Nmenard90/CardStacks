@@ -98,6 +98,7 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
               className="thumb" src={card.images.small} alt={card.name} loading="lazy"
               onMouseEnter={() => onPreview(card.images.large || card.images.small, { holo: isHolo(card.rarity), price })}
               onMouseLeave={() => onPreview(null)}
+              onClick={() => onPreview(card.images.large || card.images.small, { holo: isHolo(card.rarity), price })}
             />
             {price > 0 && <span className="price-ribbon">${price.toFixed(2)}</span>}
           </div>

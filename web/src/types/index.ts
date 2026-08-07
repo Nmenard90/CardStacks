@@ -135,6 +135,10 @@ export interface StorageBox {
   id: string
   userId: string
   name: string
+  kind?: 'box' | 'display_case'
+  boxType?: string
+  capacity?: number
+  color?: string
   position: number
   drawers: StorageDrawer[]
   createdAt: string
