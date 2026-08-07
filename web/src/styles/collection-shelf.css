@@ -161,6 +161,11 @@
   font-size:12px;font-weight:800;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.8);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
+.shelf-app .binder-name.editable{cursor:pointer;text-decoration:underline dotted rgba(255,255,255,.8);}
+.shelf-app .binder-name-input{
+  position:absolute;left:6px;right:6px;bottom:6px;z-index:1;text-align:center;
+  font-size:12px;font-weight:800;
+}
 
 /* ── Unassigned tray ───────────────────────────────────────────────────── */
 .shelf-app .unassigned{

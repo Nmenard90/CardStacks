@@ -400,7 +400,20 @@ export function CollectionShelf({
                           {binder.coverImage
                             ? <img className="binder-cover-img" src={binder.coverImage} alt="" />
                             : (<><div className="binder-lid" /><div className="binder-base" /></>)}
-                          <span className="binder-name">{binder.name}</span>
+                          {renaming?.kind === 'binder' && renaming.id === binder.id ? (
+                            <input
+                              autoFocus className="shelf-app-input binder-name-input" value={renameValue}
+                              onClick={e => e.stopPropagation()}
+                              onChange={e => setRenameValue(e.target.value)}
+                              onBlur={submitRename}
+                              onKeyDown={e => { if (e.key === 'Enter') submitRename(); if (e.key === 'Escape') setRenaming(null) }}
+                            />
+                          ) : (
+                            <span
+                              className={'binder-name' + (editMode ? ' editable' : '')}
+                              onClick={e => { if (editMode) { e.stopPropagation(); startRename({ kind: 'binder', id: binder.id }, binder.name) } }}
+                            >{binder.name}</span>
+                          )}
                         </div>
                       </article>
                     )
