@@ -170,6 +170,24 @@ export interface Binder {
   updatedAt: string
 }
 
+// ─── Shelf ───────────────────────────────────────────────────────────────────
+// Unifies storage boxes and binders into one ordered list — see api/shelf.ts.
+
+/** A binder's cover info only, no slots — all a shelf tile needs. */
+export interface BinderSummary {
+  id: string
+  userId: string
+  name: string
+  pocketSize: PocketSize
+  coverImage?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type ShelfEntry =
+  | { kind: 'box'; position: number; box: StorageBox }
+  | { kind: 'binder'; position: number; binder: BinderSummary }
+
 // ─── Trades ──────────────────────────────────────────────────────────────────
 
 export type TradeStatus = 'Open' | 'Pending' | 'Completed' | 'Cancelled'

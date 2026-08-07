@@ -1,7 +1,7 @@
 /**
  * API calls for binders and their slots.
  * ENDPOINTS: /api/binders/:userId[/:binderId[/slot/:slotIdx]]
- * USED BY: BinderShelfPage, BinderViewPage, RecentSidebar
+ * USED BY: ShelfPage, BinderViewPage, RecentSidebar
  */
 import { api } from './client'
 import type { Binder, PocketSize } from '../types'

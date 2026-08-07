@@ -271,7 +271,7 @@ export function BinderViewPage() {
   return (
     <div className="page-binder">
       <div id="bar">
-        <Link className="back" to="/shelf">← Binders</Link>
+        <Link className="back" to="/shelf">← Shelf</Link>
         <input id="bname" value={name} onChange={e => rename(e.target.value)} />
         <div className="sp" />
 

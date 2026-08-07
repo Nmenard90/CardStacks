@@ -17,7 +17,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { UserProvider } from './context/UserContext'
 import { ToastProvider } from './components/Toast'
 import { CollectionPage } from './pages/CollectionPage'
-import { BinderShelfPage } from './pages/BinderShelfPage'
+import { ShelfPage } from './pages/ShelfPage'
 import { BinderViewPage } from './pages/BinderViewPage'
 import { AnalyzerPage } from './pages/AnalyzerPage'
 import { ConventionModePage } from './pages/ConventionModePage'
@@ -43,7 +43,7 @@ export default function App() {
           <BrowserRouter>
             <Routes>
               <Route path="/"                  element={<CollectionPage />} />
-              <Route path="/shelf"             element={<BinderShelfPage />} />
+              <Route path="/shelf"             element={<ShelfPage />} />
               <Route path="/binder/:binderId"  element={<BinderViewPage />} />
               <Route path="/analyzer"          element={<AnalyzerPage />} />
               <Route path="/convention"        element={<ConventionModePage />} />

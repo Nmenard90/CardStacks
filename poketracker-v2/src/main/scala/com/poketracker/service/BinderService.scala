@@ -6,15 +6,17 @@
  *   Thin rules layer over BinderRepository: validates slot index range,
  *   rejects blank names, and builds new Binder objects client-side so a
  *   create doesn't need a round-trip read to know what it just saved.
+ *   createBinder/deleteBinder also keep ShelfRepository's ordering table
+ *   in sync.
  *
  * USED BY: BinderRoutes
- * DEPENDS ON: BinderRepository
+ * DEPENDS ON: BinderRepository, ShelfRepository
  */
 
 package com.poketracker.service
 
 import com.poketracker.models.*
-import com.poketracker.repository.BinderRepository
+import com.poketracker.repository.{BinderRepository, ShelfRepository}
 import zio.*
 import java.time.Instant
 import java.util.UUID
@@ -52,7 +54,7 @@ object BinderService:
   // Sanity cap, not a real limit — a 9-pocket binder with 100 pages is 900 slots.
   private val MaxSlots = 2000
 
-  final class Live(repo: BinderRepository) extends BinderService:
+  final class Live(repo: BinderRepository, shelf: ShelfRepository) extends BinderService:
 
     def getBinders(userId: String): Task[List[Binder]] =
       repo.findByUser(userId)
@@ -71,7 +73,7 @@ object BinderService:
         createdAt  = Instant.now(),
         updatedAt  = Instant.now()
       )
-      repo.create(binder).as(binder)
+      repo.create(binder) *> shelf.ensureExists(userId, "binder", binder.id) *> ZIO.succeed(binder)
 
     def placeCard(binderId: String, slotIndex: Int, card: Card): Task[Unit] =
       ZIO.when(slotIndex < 0 || slotIndex >= MaxSlots)(
@@ -107,7 +109,7 @@ object BinderService:
       repo.updatePocketSize(id, pocketSize)
 
     def deleteBinder(id: String): Task[Unit] =
-      repo.delete(id)
+      repo.delete(id) *> shelf.remove("binder", id)
 
-  val layer: ZLayer[BinderRepository, Nothing, BinderService] =
-    ZLayer.fromFunction(new Live(_))
+  val layer: ZLayer[BinderRepository & ShelfRepository, Nothing, BinderService] =
+    ZLayer.fromFunction(new Live(_, _))

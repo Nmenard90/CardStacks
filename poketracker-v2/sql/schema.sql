@@ -596,3 +596,37 @@ CREATE INDEX IF NOT EXISTS idx_storage_drawers_box_id ON storage_drawers(box_id)
 ALTER TABLE collection_entries
   ADD COLUMN IF NOT EXISTS drawer_id TEXT REFERENCES storage_drawers(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_collection_entries_drawer_id ON collection_entries(drawer_id);
+
+-- Migration 007: unified shelf ordering across storage boxes and binders.
+-- Deliberately a thin join table rather than columns on storage_boxes/
+-- binders directly -- it's the only thing that needs to know both kinds
+-- exist, so neither of those tables has to know about the other. No FK on
+-- (kind, ref_id) since it points at two different tables; app code keeps
+-- rows in sync on create/delete, and ShelfService self-heals any gap by
+-- appending a row the first time an orphaned box/binder is seen. position
+-- is deliberately not DB-unique, same as storage_boxes/storage_drawers --
+-- the client sends a full reordered list and the server just writes positions.
+CREATE TABLE IF NOT EXISTS shelf_items (
+  id         TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  user_id    TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind       TEXT        NOT NULL CHECK (kind IN ('box', 'binder')),
+  ref_id     TEXT        NOT NULL,
+  position   INTEGER     NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (kind, ref_id)
+);
+CREATE INDEX IF NOT EXISTS idx_shelf_items_user_id ON shelf_items(user_id);
+
+-- Backfill existing boxes and binders so they appear on the shelf
+-- immediately: boxes keep their current order, binders are appended after,
+-- ordered by when they were last touched.
+INSERT INTO shelf_items (user_id, kind, ref_id, position)
+SELECT user_id, 'box', id, position FROM storage_boxes
+ON CONFLICT (kind, ref_id) DO NOTHING;
+
+INSERT INTO shelf_items (user_id, kind, ref_id, position)
+SELECT b.user_id, 'binder', b.id,
+       ROW_NUMBER() OVER (PARTITION BY b.user_id ORDER BY b.updated_at)
+         + COALESCE((SELECT MAX(s.position) FROM storage_boxes s WHERE s.user_id = b.user_id), -1)
+FROM binders b
+ON CONFLICT (kind, ref_id) DO NOTHING;

@@ -39,7 +39,8 @@ object Main extends ZIOAppDefault:
                        UserRepository.layer ++
                        BinderRepository.layer ++
                        RipTrackerRepository.layer ++
-                       StorageRepository.layer)
+                       StorageRepository.layer ++
+                       ShelfRepository.layer)
 
         // Built separately so CardService.layer can depend on it directly below.
         priceLayer  = repoLayer >>> PriceService.layer
@@ -55,7 +56,11 @@ object Main extends ZIOAppDefault:
         // services above (not just their repositories), so it can't join the batch.
         ripLayer    = (repoLayer ++ coreServices) >>> RipTrackerService.layer
 
-        appLayer    = coreServices ++ ripLayer
+        // Same reason as ripLayer: ShelfService reads through the already-built
+        // StorageService/BinderService rather than their raw repositories.
+        shelfLayer  = (repoLayer ++ coreServices) >>> ShelfService.layer
+
+        appLayer    = coreServices ++ ripLayer ++ shelfLayer
 
         allRoutes   = Routes(Method.GET / "health" -> Handler.ok) ++
                       CardRoutes.routes ++
@@ -63,7 +68,8 @@ object Main extends ZIOAppDefault:
                       UserRoutes.routes ++
                       BinderRoutes.routes ++
                       RipRoutes.routes ++
-                      StorageRoutes.routes
+                      StorageRoutes.routes ++
+                      ShelfRoutes.routes
 
         // Required so the frontend (served from a different origin) isn't
         // blocked by browser CORS checks.

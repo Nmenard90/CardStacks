@@ -4,20 +4,18 @@
  * HOW IT WORKS
  *   Cards are loaded from GET /api/collection/:userId/owned, which fetches
  *   card details on the backend so there are no per-card requests.
- *   Supports local search (name/number/set), sort (name/qty/value/set),
- *   the same +/- quantity adjustments as CollectionPage, plus a Shelf view
- *   for browsing by physical storage location (see CollectionShelf).
+ *   Supports local search (name/number/set) and sort (name/qty/value/set),
+ *   plus the same +/- quantity adjustments as CollectionPage. Browsing by
+ *   physical storage location lives on ShelfPage now, not here.
  *
  * USED BY: App.tsx (route "/owned")
- * DEPENDS ON: api/collection, api/storage, components/CollectionShelf
+ * DEPENDS ON: api/collection
  */
 
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getOwnedCards, saveEntry } from '../api/collection'
-import { assignCards, listBoxes, unassignCard } from '../api/storage'
 import { CardTile } from '../components/CardTile'
-import { CollectionShelf } from '../components/CollectionShelf'
 import { usePreview } from '../components/CardPreview'
 import { LoginScreen } from '../components/LoginScreen'
 import { Mascot } from '../components/Mascot'
@@ -25,12 +23,11 @@ import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
 import { HeaderNav } from '../components/HeaderNav'
 import { basePrice, cardValue, fromCondList, fromPurchaseList, toCondList, totalQty, type CondMap, type PurchaseMap } from '../lib/conditions'
-import type { Card, OwnedCard, StorageBox } from '../types'
+import type { Card, OwnedCard } from '../types'
 
 /** Local per-card editing state: the condition/quantity map, plus which condition tab is active. */
 interface Entry { conds: CondMap; selCond: string }
 type SortMode = 'name' | 'qty' | 'value' | 'set'
-type ViewMode = 'list' | 'shelf'
 
 export function OwnedPage() {
   const { user } = useUser()
@@ -43,13 +40,9 @@ export function OwnedPage() {
   const [coll, setColl] = useState<Record<string, Entry>>({})
   const [purchases, setPurchases] = useState<Record<string, PurchaseMap>>({})
 
-  // Card ID -> which drawer it's assigned to. Only assigned cards appear as keys.
-  const [drawerOf, setDrawerOf] = useState<Record<string, string>>({})
-  const [boxes, setBoxes] = useState<StorageBox[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortMode>('name')
-  const [view, setView] = useState<ViewMode>('list')
 
   const userId = user?.id ?? ''
 
@@ -62,43 +55,16 @@ export function OwnedPage() {
 
         const m: Record<string, Entry> = {}
         const p: Record<string, PurchaseMap> = {}
-        const d: Record<string, string> = {}
         for (const o of owned) {
           m[o.cardId] = { conds: fromCondList(o.conditions), selCond: o.selectedCond || 'NM' }
           p[o.cardId] = fromPurchaseList(o.conditions)
-          if (o.drawerId) d[o.cardId] = o.drawerId
         }
         setColl(m)
         setPurchases(p)
-        setDrawerOf(d)
         setLoading(false)
       })
       .catch(() => { toast('Could not load your collection.'); setLoading(false) })
   }, [userId]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const reloadBoxes = () => { if (userId) listBoxes(userId).then(setBoxes).catch(() => {}) }
-  useEffect(reloadBoxes, [userId]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  /** Reassigns (or unassigns, when drawerId is "") one card's storage location. */
-  const setCardDrawer = async (cardId: string, drawerId: string) => {
-    // Remembered in case the save fails and needs rolling back.
-    const prev = drawerOf[cardId]
-
-    // Updates the screen right away, before the server confirms.
-    setDrawerOf(d => ({ ...d, [cardId]: drawerId }))
-    try {
-      if (drawerId) {
-        const result = await assignCards(userId, [cardId], drawerId)
-        if (result.warning) toast(result.warning)
-      } else {
-        await unassignCard(userId, cardId)
-      }
-      reloadBoxes()
-    } catch {
-      toast('Could not update storage location.')
-      setDrawerOf(d => ({ ...d, [cardId]: prev ?? '' }))
-    }
-  }
 
   const persist = (card: Card, entry: Entry) => {
     saveEntry(userId, card.id, toCondList(entry.conds, card, purchases[card.id]), entry.selCond)
@@ -227,74 +193,46 @@ export function OwnedPage() {
         </div>
 
         <div className="toolbar">
-          <span className="sort-label">View:</span>
-          <button className={'tb-btn' + (view === 'list' ? ' active' : '')} onClick={() => setView('list')}>List</button>
-          <button className={'tb-btn' + (view === 'shelf' ? ' active' : '')} onClick={() => setView('shelf')}>Shelf</button>
-
-          {/* Sort buttons only make sense in list view. */}
-          {view === 'list' && (
-            <>
-              <span className="sort-label" style={{ marginLeft: 12 }}>Sort:</span>
-              {(['name', 'qty', 'value', 'set'] as SortMode[]).map(m => (
-                <button key={m} className={'tb-btn' + (sort === m ? ' active' : '')} onClick={() => setSort(m)}>
-                  {m === 'name' ? 'Name' : m === 'qty' ? 'Qty ↓' : m === 'value' ? 'Value ↓' : 'Set'}
-                </button>
-              ))}
-            </>
-          )}
+          <span className="sort-label">Sort:</span>
+          {(['name', 'qty', 'value', 'set'] as SortMode[]).map(m => (
+            <button key={m} className={'tb-btn' + (sort === m ? ' active' : '')} onClick={() => setSort(m)}>
+              {m === 'name' ? 'Name' : m === 'qty' ? 'Qty ↓' : m === 'value' ? 'Value ↓' : 'Set'}
+            </button>
+          ))}
         </div>
 
-        {view === 'list' && (
-          <div id="app-wrap">
-            <div id="main">
-              {loading && <div className="loading">Loading your collection…</div>}
-              {!loading && cards.length === 0 && (
-                <div className="empty">
-                  <Mascot size={80} mood="sleepy" caption={<>You don't own any cards yet. Use <Link to="/bulk">Bulk Add</Link> to get started.</>} />
-                </div>
-              )}
-              {!loading && cards.length > 0 && displayed.length === 0 && (
-                <div className="empty">No cards match "{search}".</div>
-              )}
-              {!loading && displayed.length > 0 && (
-                <div className="card-grid">
-                  {displayed.map(c => {
-                    const entry = coll[c.id] ?? { conds: {}, selCond: 'NM' }
-                    return (
-                      <CardTile
-                        key={c.id} card={c} conds={entry.conds} selCond={entry.selCond}
-                        onAdj={d => adj(c, d)}
-                        onSetQty={q => setQty(c, q)}
-                        onSelectCond={cond => selectCond(c, cond)}
-                        onAdjCond={(cond, d) => adjCond(c, cond, d)}
-                        onPreview={(src, opts) => (src ? preview.show(src, opts) : preview.hide())}
-                        purchases={purchases[c.id]}
-                        onSetPurchase={(cond, price) => setPurchase(c, cond, price)}
-                      />
-                    )
-                  })}
-                </div>
-              )}
-            </div>
+        <div id="app-wrap">
+          <div id="main">
+            {loading && <div className="loading">Loading your collection…</div>}
+            {!loading && cards.length === 0 && (
+              <div className="empty">
+                <Mascot size={80} mood="sleepy" caption={<>You don't own any cards yet. Use <Link to="/bulk">Bulk Add</Link> to get started.</>} />
+              </div>
+            )}
+            {!loading && cards.length > 0 && displayed.length === 0 && (
+              <div className="empty">No cards match "{search}".</div>
+            )}
+            {!loading && displayed.length > 0 && (
+              <div className="card-grid">
+                {displayed.map(c => {
+                  const entry = coll[c.id] ?? { conds: {}, selCond: 'NM' }
+                  return (
+                    <CardTile
+                      key={c.id} card={c} conds={entry.conds} selCond={entry.selCond}
+                      onAdj={d => adj(c, d)}
+                      onSetQty={q => setQty(c, q)}
+                      onSelectCond={cond => selectCond(c, cond)}
+                      onAdjCond={(cond, d) => adjCond(c, cond, d)}
+                      onPreview={(src, opts) => (src ? preview.show(src, opts) : preview.hide())}
+                      purchases={purchases[c.id]}
+                      onSetPurchase={(cond, price) => setPurchase(c, cond, price)}
+                    />
+                  )
+                })}
+              </div>
+            )}
           </div>
-        )}
-
-        {view === 'shelf' && !loading && (
-          <div style={{ padding: '16px 20px' }}>
-            <CollectionShelf
-              userId={userId}
-              cards={cards}
-              coll={coll}
-              boxes={boxes}
-              drawerOf={drawerOf}
-              // Always empty — binder integration was never wired into
-              // this page, so no card is ever reported as "in a binder."
-              binderLocationOf={{}}
-              onReloadBoxes={reloadBoxes}
-              onSetCardDrawer={setCardDrawer}
-            />
-          </div>
-        )}
+        </div>
       </div>
       {preview.overlay}
     </div>

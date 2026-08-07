@@ -6,7 +6,7 @@
  * auto-highlighted from the router location.
  *
  * USED BY: every page (CollectionPage, OwnedPage, BulkAddPage,
- *   BinderShelfPage, BinderViewPage, AnalyzerPage, ConventionModePage)
+ *   ShelfPage, BinderViewPage, AnalyzerPage, ConventionModePage)
  */
 
 import { Link, useLocation } from 'react-router-dom'
@@ -18,7 +18,7 @@ const ITEMS: NavItem[] = [
   { to: '/',           label: '🗂 Sets' },
   { to: '/owned',      label: '📦 My Collection' },
   { to: '/bulk',       label: '⚡ Bulk Add' },
-  { to: '/shelf',      label: '📒 Binders' },
+  { to: '/shelf',      label: '🗄 Shelf' },
   { to: '/analyzer',   label: '⚖️ Analyzer' },
   { to: '/convention', label: '🎪 Convention' },
 ]
