@@ -80,7 +80,7 @@ export function BinderPickerModal({ card, userId, onClose }: Props) {
 
         {binders !== null && binders.length === 0 && (
           <p style={{ color: 'var(--muted)', marginBottom: 16 }}>
-            No binders yet — create one on the <b>Binders</b> page.
+            No binders yet — create one on the <b>Shelf</b> page.
           </p>
         )}
 
