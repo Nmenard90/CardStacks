@@ -31,16 +31,16 @@ import { LoginScreen } from '../components/LoginScreen'
 import { useUser } from '../context/UserContext'
 import { useToast } from '../components/Toast'
 import { usePreview } from '../components/CardPreview'
-import { createBinder, listBinders, updateBinder } from '../api/binders'
+import { createBinder, getBinder, listBinders, updateBinder } from '../api/binders'
 import { getOwnedCards } from '../api/collection'
 import {
   createDisplayCase, createSpace, createStorageUnit, getCaseAllocations,
   getDrawerPlacements, getSpaceInventory, listSpaces, placeBinder, placeBox,
-  placeCopies, removePlacement, setDisplayLights,
+  placeCopies, placeInBinderSlot, removePlacement, setDisplayLights,
 } from '../api/rooms'
 import { createBox, createDrawer, listBoxes, updateBox } from '../api/storage'
 import type {
-  Binder, Card, CardAllocation, CollectionSpace, DisplayCaseType,
+  Binder, Card, CardAllocation, CollectionSpace, DisplayCase, DisplayCaseType,
   DisplaySlot, InventoryLot, OwnedCard, PocketSize, SpaceType, StorageBox,
   StorageDrawer, StorageUnit, StorageUnitType,
 } from '../types'
@@ -281,7 +281,7 @@ export function SpacesLivePage() {
           <Home space={space} spaces={spaces} boxes={roomBoxes} binders={roomBinders} onView={setView} onSelect={setSpaceId} onAdd={() => setAddSpaceOpen(true)} />
         ) : view === 'storage' ? (
           <Storage
-            userId={user?.id || ''} space={space} boxes={roomBoxes} reload={load}
+            userId={user?.id || ''} space={space} boxes={roomBoxes} binders={roomBinders} reload={load}
             focusBoxId={focusBoxId} clearFocus={() => setFocusBoxId('')}
           />
         ) : view === 'binders' ? (
@@ -399,8 +399,8 @@ function Home({ space, spaces, boxes, binders, onView, onSelect, onAdd }: {
 
 // ─── Storage ────────────────────────────────────────────────────────────────
 
-function Storage({ userId, space, boxes, reload, focusBoxId, clearFocus }: {
-  userId: string; space: CollectionSpace; boxes: StorageBox[]; reload: () => Promise<void>
+function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus }: {
+  userId: string; space: CollectionSpace; boxes: StorageBox[]; binders: Binder[]; reload: () => Promise<void>
   focusBoxId: string; clearFocus: () => void
 }) {
   const [unitId, setUnitId] = useState(space.storageUnits[0]?.id || '')
@@ -502,6 +502,7 @@ function Storage({ userId, space, boxes, reload, focusBoxId, clearFocus }: {
       <BoxInventory
         userId={userId} box={selected.box} drawer={selected.drawer}
         otherBoxes={boxes.filter(b => b.id !== selected.box.id)}
+        binders={binders} displayCases={space.displayCases}
         close={() => setSelected(null)} onRenamed={reload}
       />
     )
@@ -654,8 +655,9 @@ function ShelfUnitPicker({ cancel, choose }: { cancel: () => void; choose: (pres
 
 // ─── Box inventory workspace ────────────────────────────────────────────────
 
-function BoxInventory({ userId, box, drawer, otherBoxes, close, onRenamed }: {
+function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, close, onRenamed }: {
   userId: string; box: StorageBox; drawer: StorageDrawer; otherBoxes: StorageBox[]
+  binders: Binder[]; displayCases: DisplayCase[]
   close: () => void; onRenamed: () => Promise<void>
 }) {
   const [lots, setLots] = useState<InventoryLot[]>([])
@@ -702,24 +704,59 @@ function BoxInventory({ userId, box, drawer, otherBoxes, close, onRenamed }: {
     try { await removePlacement(userId, allocation.id); await load() }
     catch (e) { setMessage(e instanceof Error ? e.message : 'Could not remove this copy.') }
   }
-  const moveTo = async (allocation: CardAllocation, target: StorageBox) => {
+  // Every move below shares the same shape: remove first, then place, so the
+  // in-flight total never briefly double-counts this copy as over-allocated.
+  // If the placement step fails, the copy is left unplaced (with a clear
+  // message) rather than silently duplicated or lost.
+  const moveToBox = async (allocation: CardAllocation, target: StorageBox) => {
     setMovingAllocation(null)
     setMessage(`Moving to ${target.name}…`)
     try {
-      // No atomic "move" endpoint exists — remove first, then place, so the
-      // in-flight total never reads as over-allocated. If the second step
-      // fails the copy is left unplaced rather than silently duplicated.
       await removePlacement(userId, allocation.id)
       const targetDrawer = target.drawers[0] || await createDrawer(target.id, 'Main compartment')
       await placeCopies(userId, { lotId: allocation.lotId, drawerId: targetDrawer.id, quantity: allocation.quantity, protection: allocation.protection })
-      // load() ends by clearing the message on success, so set the final
-      // message AFTER it settles, not before — otherwise load() immediately
-      // wipes out whatever we just told the user.
       await load()
       setMessage(`Moved to ${target.name}.`)
     } catch (e) {
       await load()
       setMessage(e instanceof Error ? `Removed from this box, but could not place it in ${target.name}: ${e.message}` : 'Could not move this copy.')
+    }
+  }
+  const moveToBinder = async (allocation: CardAllocation, binder: Binder) => {
+    setMovingAllocation(null)
+    if (allocation.quantity !== 1) { setMessage('Only single-copy stacks can move into a binder slot.'); return }
+    setMessage(`Moving to ${binder.name}…`)
+    try {
+      const fresh = await getBinder(userId, binder.id)
+      const occupied = new Set(fresh.slots.filter(s => s.cardId).map(s => s.slotIndex))
+      let slotIndex = -1
+      for (let i = 0; i < 2000; i++) { if (!occupied.has(i)) { slotIndex = i; break } }
+      if (slotIndex < 0) throw new Error(`${binder.name} is full.`)
+      await removePlacement(userId, allocation.id)
+      await placeInBinderSlot(userId, binder.id, slotIndex, { lotId: allocation.lotId, quantity: 1, protection: allocation.protection })
+      await load()
+      setMessage(`Moved to ${binder.name}.`)
+    } catch (e) {
+      await load()
+      setMessage(e instanceof Error ? e.message : 'Could not move this copy.')
+    }
+  }
+  const moveToDisplay = async (allocation: CardAllocation, displayCase: DisplayCase) => {
+    setMovingAllocation(null)
+    if (allocation.quantity !== 1) { setMessage('Only single-copy stacks can move into a display slot.'); return }
+    setMessage(`Moving to ${displayCase.name}…`)
+    try {
+      const existing = await getCaseAllocations(userId, displayCase.id)
+      const occupiedSlotIds = new Set(existing.map(a => a.displaySlotId))
+      const openSlot = displayCase.slots.find(s => !occupiedSlotIds.has(s.id))
+      if (!openSlot) throw new Error(`${displayCase.name} is full.`)
+      await removePlacement(userId, allocation.id)
+      await placeCopies(userId, { lotId: allocation.lotId, displaySlotId: openSlot.id, quantity: 1, protection: allocation.protection })
+      await load()
+      setMessage(`Moved to ${displayCase.name}.`)
+    } catch (e) {
+      await load()
+      setMessage(e instanceof Error ? e.message : 'Could not move this copy.')
     }
   }
   const saveName = async () => {
@@ -828,7 +865,11 @@ function BoxInventory({ userId, box, drawer, otherBoxes, close, onRenamed }: {
                 {card && <ZoomableCardImage card={card} preview={preview} />}
                 <span><b>{card?.name || lot?.cardId || 'Card'}</b><small>{lot?.condition} · {lot?.variantKey} · {lot?.edition} · {allocation.quantity} copy</small></span>
                 <span className="box-copy-actions">
-                  <button onClick={() => setMovingAllocation(allocation)} disabled={!otherBoxes.length} title={otherBoxes.length ? 'Move to another box' : 'No other boxes in this space yet'}>Move</button>
+                  <button
+                    onClick={() => setMovingAllocation(allocation)}
+                    disabled={!otherBoxes.length && !binders.length && !displayCases.length}
+                    title="Move to another box, binder, or display case"
+                  >Move</button>
                   <button onClick={() => void remove(allocation)}>Remove</button>
                 </span>
               </div>
@@ -854,13 +895,46 @@ function BoxInventory({ userId, box, drawer, otherBoxes, close, onRenamed }: {
       {movingAllocation && (
         <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setMovingAllocation(null) }}>
           <div className="modal">
-            <h3>Move to another box</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, margin: '12px 0' }}>
-              {otherBoxes.map(b => (
-                <button key={b.id} className="tb-btn" style={{ justifyContent: 'flex-start' }} onClick={() => void moveTo(movingAllocation, b)}>{b.name}</button>
-              ))}
-            </div>
-            <p style={{ fontSize: 12, color: 'var(--muted)' }}>Moving to a binder or display slot isn't supported yet — the backend has no way to list a binder's open slots for this system.</p>
+            <h3>Move this copy</h3>
+            {movingAllocation.quantity !== 1 && (
+              <p style={{ fontSize: 12, color: 'var(--muted)' }}>This is a stack of {movingAllocation.quantity} — only another box can take the whole stack. Binder and display slots hold exactly one copy.</p>
+            )}
+
+            {otherBoxes.length > 0 && (
+              <>
+                <p className="move-target-heading">Boxes</p>
+                <div className="move-target-list">
+                  {otherBoxes.map(b => (
+                    <button key={b.id} className="tb-btn" onClick={() => void moveToBox(movingAllocation, b)}>{b.name}</button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {movingAllocation.quantity === 1 && binders.length > 0 && (
+              <>
+                <p className="move-target-heading">Binders</p>
+                <div className="move-target-list">
+                  {binders.map(b => (
+                    <button key={b.id} className="tb-btn" onClick={() => void moveToBinder(movingAllocation, b)}>{b.name}</button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {movingAllocation.quantity === 1 && displayCases.length > 0 && (
+              <>
+                <p className="move-target-heading">Display cases</p>
+                <div className="move-target-list">
+                  {displayCases.map(c => (
+                    <button key={c.id} className="tb-btn" onClick={() => void moveToDisplay(movingAllocation, c)}>{c.name}</button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {!otherBoxes.length && !binders.length && !displayCases.length && <p>Nothing else in this space to move it to yet.</p>}
+
             <div className="modal-btns"><button className="tb-btn" onClick={() => setMovingAllocation(null)}>Cancel</button></div>
           </div>
         </div>

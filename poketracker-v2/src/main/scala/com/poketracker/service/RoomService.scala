@@ -17,8 +17,11 @@ trait RoomService:
   def getInventory(userId:String): Task[List[InventoryLot]]
   def getDrawerAllocations(userId:String,drawerId:String): Task[List[CardAllocation]]
   def getCaseAllocations(userId:String,caseId:String): Task[List[CardAllocation]]
+  def getBinderAllocations(userId:String,binderId:String): Task[List[CardAllocation]]
   def allocate(userId:String,lotId:String,drawerId:Option[String],binderSlotId:Option[String],
     displaySlotId:Option[String],quantity:Int,protection:Option[String],notes:Option[String]): Task[CardAllocation]
+  def placeInBinder(userId:String,binderId:String,slotIndex:Int,lotId:String,
+    quantity:Int,protection:Option[String],notes:Option[String]): Task[CardAllocation]
   def removeAllocation(userId:String,id:String): Task[Unit]
 
 object RoomService:
@@ -52,6 +55,7 @@ object RoomService:
     def getInventory(userId:String)=repo.listLots(userId)
     def getDrawerAllocations(userId:String,drawerId:String)=repo.listDrawerAllocations(userId,drawerId)
     def getCaseAllocations(userId:String,caseId:String)=repo.listCaseAllocations(userId,caseId)
+    def getBinderAllocations(userId:String,binderId:String)=repo.listBinderAllocations(userId,binderId)
     def allocate(userId:String,lotId:String,drawerId:Option[String],binderSlotId:Option[String],displaySlotId:Option[String],
       quantity:Int,protection:Option[String],notes:Option[String])=
       ZIO.fail(IllegalArgumentException("Choose exactly one destination")).unless(List(drawerId,binderSlotId,displaySlotId).count(_.isDefined)==1) *>
@@ -59,5 +63,11 @@ object RoomService:
       ZIO.fail(IllegalArgumentException("Binder and display slots hold one copy")).when((binderSlotId.isDefined||displaySlotId.isDefined)&&quantity!=1) *>
       ZIO.fail(IllegalArgumentException("Invalid protection type")).when(protection.exists(p => !protections.contains(p))) *>
       repo.allocate(userId,lotId,drawerId,binderSlotId,displaySlotId,quantity,protection,notes.map(_.trim).filter(_.nonEmpty))
+    def placeInBinder(userId:String,binderId:String,slotIndex:Int,lotId:String,
+      quantity:Int,protection:Option[String],notes:Option[String])=
+      ZIO.fail(IllegalArgumentException("A binder slot holds exactly one copy")).when(quantity!=1) *>
+      ZIO.fail(IllegalArgumentException("Slot index cannot be negative")).when(slotIndex<0) *>
+      ZIO.fail(IllegalArgumentException("Invalid protection type")).when(protection.exists(p => !protections.contains(p))) *>
+      repo.placeInBinderSlot(userId,binderId,slotIndex,lotId,quantity,protection,notes.map(_.trim).filter(_.nonEmpty))
     def removeAllocation(userId:String,id:String)=repo.removeAllocation(userId,id)
   val layer:ZLayer[RoomRepository,Nothing,RoomService]=ZLayer.fromFunction(new Live(_))

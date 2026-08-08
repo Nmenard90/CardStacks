@@ -23,6 +23,8 @@ object RoomRoutes:
   private case class AllocationRequest(lotId:String,drawerId:Option[String],binderSlotId:Option[String],
     displaySlotId:Option[String],quantity:Int,protection:Option[String],notes:Option[String])
   private given JsonDecoder[AllocationRequest]=DeriveJsonDecoder.gen
+  private case class BinderPlaceRequest(lotId:String,quantity:Int,protection:Option[String],notes:Option[String])
+  private given JsonDecoder[BinderPlaceRequest]=DeriveJsonDecoder.gen
 
   private def bodyAs[A:JsonDecoder](req:Request):Task[A]=for
     body<-req.body.asString
@@ -66,6 +68,13 @@ object RoomRoutes:
     },
     Method.GET / "api" / "spaces" / string("userId") / "display-cases" / string("caseId") / "allocations" -> handler { (userId:String,caseId:String,_:Request) =>
       ZIO.serviceWithZIO[RoomService](_.getCaseAllocations(userId,caseId)).map(v=>Response.json(v.toJson)).catchAll(e=>ZIO.succeed(bad(e)))
+    },
+    Method.GET / "api" / "spaces" / string("userId") / "binders" / string("binderId") / "allocations" -> handler { (userId:String,binderId:String,_:Request) =>
+      ZIO.serviceWithZIO[RoomService](_.getBinderAllocations(userId,binderId)).map(v=>Response.json(v.toJson)).catchAll(e=>ZIO.succeed(bad(e)))
+    },
+    Method.POST / "api" / "spaces" / string("userId") / "binders" / string("binderId") / "slots" / int("slotIndex") / "place" -> handler { (userId:String,binderId:String,slotIndex:Int,req:Request) =>
+      (for p<-bodyAs[BinderPlaceRequest](req); v<-ZIO.serviceWithZIO[RoomService](_.placeInBinder(userId,binderId,slotIndex,p.lotId,p.quantity,p.protection,p.notes))
+      yield Response.json(v.toJson).status(Status.Created)).catchAll(e=>ZIO.succeed(bad(e)))
     },
     Method.POST / "api" / "spaces" / string("userId") / "allocations" -> handler { (userId:String,req:Request) =>
       (for p<-bodyAs[AllocationRequest](req); v<-ZIO.serviceWithZIO[RoomService](_.allocate(userId,p.lotId,p.drawerId,p.binderSlotId,p.displaySlotId,p.quantity,p.protection,p.notes))

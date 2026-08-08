@@ -27,9 +27,18 @@ trait RoomRepository:
   def listLots(userId: String): Task[List[InventoryLot]]
   def listDrawerAllocations(userId: String, drawerId: String): Task[List[CardAllocation]]
   def listCaseAllocations(userId: String, caseId: String): Task[List[CardAllocation]]
+  def listBinderAllocations(userId: String, binderId: String): Task[List[CardAllocation]]
   def allocate(userId: String, lotId: String, drawerId: Option[String],
     binderSlotId: Option[String], displaySlotId: Option[String], quantity: Int,
     protection: Option[String], notes: Option[String]): Task[CardAllocation]
+  /** Binder slots are lazily created (unlike display slots, which are all
+   *  pre-created with the case) — the first placement at a given index
+   *  creates its `binder_slots` row. Also mirrors the placed card into that
+   *  row's card_id/card_name/image_url so BinderViewPage's direct read of
+   *  binder_slots — the older, simpler binder feature — shows the same
+   *  thing this system does, instead of two disagreeing views of one binder. */
+  def placeInBinderSlot(userId: String, binderId: String, slotIndex: Int, lotId: String,
+    quantity: Int, protection: Option[String], notes: Option[String]): Task[CardAllocation]
   def removeAllocation(userId: String, allocationId: String): Task[Unit]
 
 object RoomRepository:
@@ -183,6 +192,17 @@ object RoomRepository:
         .query[(String,String,Option[String],Option[String],Option[String],Int,Option[String],Option[String],Instant,Instant)]
         .to[List].map(_.map(CardAllocation.apply.tupled)).transact(xa)
 
+    def listBinderAllocations(userId: String, binderId: String): Task[List[CardAllocation]] =
+      sql"""SELECT a.id,a.lot_id,a.drawer_id,a.binder_slot_id,a.display_slot_id,a.quantity,
+        a.protection,a.notes,a.created_at,a.updated_at FROM card_allocations a
+        JOIN inventory_lots l ON l.id=a.lot_id
+        JOIN binder_slots bs ON bs.id=a.binder_slot_id
+        JOIN binders b ON b.id=bs.binder_id
+        WHERE l.user_id=$userId AND b.user_id=$userId AND b.id=$binderId
+        ORDER BY a.created_at DESC"""
+        .query[(String,String,Option[String],Option[String],Option[String],Int,Option[String],Option[String],Instant,Instant)]
+        .to[List].map(_.map(CardAllocation.apply.tupled)).transact(xa)
+
     def allocate(userId: String, lotId: String, drawerId: Option[String],
       binderSlotId: Option[String], displaySlotId: Option[String], quantity: Int,
       protection: Option[String], notes: Option[String]): Task[CardAllocation] =
@@ -223,8 +243,57 @@ object RoomRepository:
           VALUES($id,$lotId,$drawerId,$binderSlotId,$displaySlotId,$quantity,$protection,$notes,$now,$now)""".update.run
       yield CardAllocation(id,lotId,drawerId,binderSlotId,displaySlotId,quantity,protection,notes,now,now)).transact(xa)
 
+    def placeInBinderSlot(userId: String, binderId: String, slotIndex: Int, lotId: String,
+      quantity: Int, protection: Option[String], notes: Option[String]): Task[CardAllocation] =
+      val id = java.util.UUID.randomUUID().toString
+      val slotId = java.util.UUID.randomUUID().toString
+      val now = Instant.now()
+      (for
+        _ <- if quantity == 1 then ().pure[ConnectionIO] else FC.raiseError(RuntimeException("A binder slot holds exactly one copy"))
+        ownsBinder <- sql"SELECT COUNT(*) FROM binders WHERE id=$binderId AND user_id=$userId".query[Int].unique
+        _ <- if ownsBinder == 1 then ().pure[ConnectionIO] else FC.raiseError(RuntimeException("Binder not found"))
+        owned <- sql"SELECT quantity FROM inventory_lots WHERE id=$lotId AND user_id=$userId FOR UPDATE".query[Int].option
+        total <- owned match
+          case None => FC.raiseError[Int](RuntimeException("Inventory lot not found"))
+          case Some(q) => q.pure[ConnectionIO]
+        allocated <- sql"SELECT COALESCE(SUM(quantity),0) FROM card_allocations WHERE lot_id=$lotId".query[Int].unique
+        _ <- if allocated + quantity <= total then ().pure[ConnectionIO]
+             else FC.raiseError(RuntimeException(s"Only ${total - allocated} of this card are available to place"))
+        // Slots are lazily created — INSERT the row the first time anything
+        // (old direct-cardId system or this one) touches this position.
+        _ <- sql"""INSERT INTO binder_slots(id,binder_id,slot_index) VALUES ($slotId,$binderId,$slotIndex)
+          ON CONFLICT (binder_id,slot_index) DO NOTHING""".update.run
+        resolved <- sql"SELECT id,card_id FROM binder_slots WHERE binder_id=$binderId AND slot_index=$slotIndex"
+          .query[(String,Option[String])].unique
+        occupiedByAllocation <- sql"SELECT COUNT(*) FROM card_allocations WHERE binder_slot_id=${resolved._1}".query[Int].unique
+        _ <- if resolved._2.isEmpty && occupiedByAllocation == 0 then ().pure[ConnectionIO]
+             else FC.raiseError(RuntimeException("That binder slot is already occupied"))
+        card <- sql"""SELECT c.name,c.image_small,c.id FROM cards c
+          JOIN inventory_lots l ON l.card_id=c.id WHERE l.id=$lotId""".query[(String,String,String)].option
+        _ <- sql"""INSERT INTO card_allocations(id,lot_id,drawer_id,binder_slot_id,display_slot_id,
+          quantity,protection,notes,created_at,updated_at)
+          VALUES($id,$lotId,NULL,${resolved._1},NULL,$quantity,$protection,$notes,$now,$now)""".update.run
+        _ <- card match
+          case None => ().pure[ConnectionIO]
+          case Some((cardName, imageUrl, cardId)) =>
+            sql"""UPDATE binder_slots SET card_id=$cardId,card_name=$cardName,image_url=$imageUrl
+              WHERE id=${resolved._1}""".update.run.void
+        _ <- sql"UPDATE binders SET updated_at=NOW() WHERE id=$binderId".update.run.void
+      yield CardAllocation(id,lotId,None,Some(resolved._1),None,quantity,protection,notes,now,now)).transact(xa)
+
     def removeAllocation(userId: String, allocationId: String): Task[Unit] =
-      sql"""DELETE FROM card_allocations a USING inventory_lots l
-        WHERE a.id=$allocationId AND a.lot_id=l.id AND l.user_id=$userId""".update.run.void.transact(xa)
+      (for
+        slot <- sql"""SELECT a.binder_slot_id FROM card_allocations a JOIN inventory_lots l ON l.id=a.lot_id
+          WHERE a.id=$allocationId AND l.user_id=$userId""".query[Option[String]].option
+        _ <- sql"""DELETE FROM card_allocations a USING inventory_lots l
+          WHERE a.id=$allocationId AND a.lot_id=l.id AND l.user_id=$userId""".update.run
+        // Keep BinderViewPage's direct read of binder_slots in sync — it
+        // doesn't know about card_allocations at all, so a removal here has
+        // to clear the cached card_id/card_name/image_url itself.
+        _ <- slot.flatten match
+          case None => ().pure[ConnectionIO]
+          case Some(slotId) =>
+            sql"UPDATE binder_slots SET card_id=NULL,card_name=NULL,image_url=NULL WHERE id=$slotId".update.run.void
+      yield ()).transact(xa)
 
   val layer: ZLayer[Transactor[Task], Nothing, RoomRepository] = ZLayer.fromFunction(new Live(_))
