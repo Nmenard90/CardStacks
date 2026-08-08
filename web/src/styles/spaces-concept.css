@@ -11,3 +11,4 @@
 .spaces-live-status{margin:80px auto;padding:36px;max-width:720px;text-align:center;background:var(--surface,#30264b);border:3px solid var(--ink,#171225);border-radius:18px;box-shadow:8px 8px 0 var(--ink,#171225);color:#fff}
 .spaces-live-status button,.spaces-live-error button{background:var(--accent,#ffcb05);border:2px solid #171225;border-radius:10px;padding:10px 16px;font-weight:900;cursor:pointer}
 .spaces-live-error{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:16px auto;padding:12px 16px;max-width:1100px;color:#fff;background:#7b3440;border:2px solid #171225;border-radius:12px}
+.spaces-action-message{margin:12px auto;max-width:1100px;padding:10px 14px;background:#fff3b0;color:#2a203c;border:2px solid #171225;border-radius:10px;font-weight:800}
