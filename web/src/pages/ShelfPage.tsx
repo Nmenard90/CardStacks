@@ -101,7 +101,7 @@ export function ShelfPage() {
     <div className="page-tracker">
       <div id="app" style={{ display: 'block' }}>
         <header>
-          <div className="logo">MY <span>SHELF</span></div>
+          <div className="logo">COLLECTION ROOM · <span>STORAGE</span></div>
           <div className="user-badge">👤 <b>{user.username}</b></div>
           <HeaderNav />
         </header>

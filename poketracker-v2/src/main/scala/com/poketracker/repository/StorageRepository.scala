@@ -25,7 +25,7 @@ import java.time.Instant
 
 trait StorageRepository:
   def findBoxesByUser(userId: String): Task[List[StorageBox]]
-  def createBox(userId: String, name: String): Task[StorageBox]
+  def createBox(userId: String, name: String, kind: String, boxType: String, capacity: Int, color: String): Task[StorageBox]
   def renameBox(id: String, name: String): Task[Unit]
   def reorderBox(id: String, position: Int): Task[Unit]
 
@@ -62,12 +62,15 @@ object StorageRepository:
     def findBoxesByUser(userId: String): Task[List[StorageBox]] =
       val boxesQuery =
         sql"""
-          SELECT id, user_id, name, position, created_at, updated_at
+          SELECT id, user_id, name, kind, box_type, capacity, color, position,
+                 space_id, storage_unit_id, shelf_index, stack_index, stack_level,
+                 created_at, updated_at
           FROM storage_boxes
           WHERE user_id = $userId
           ORDER BY position, created_at
         """
-          .query[(String, String, String, Int, Instant, Instant)]
+          .query[(String, String, String, String, String, Int, String, Int,
+                  Option[String], Option[String], Option[Int], Option[Int], Option[Int], Instant, Instant)]
           .to[List]
 
       val drawersQuery =
@@ -93,22 +96,22 @@ object StorageRepository:
           }
           .groupBy(_.boxId)
 
-        boxes.map { case (id, uid, name, pos, createdAt, updatedAt) =>
-          StorageBox(id, uid, name, pos, drawersByBox.getOrElse(id, Nil), createdAt, updatedAt)
+        boxes.map { case (id, uid, name, kind, boxType, capacity, color, pos, spaceId, unitId, shelf, stack, level, createdAt, updatedAt) =>
+          StorageBox(id, uid, name, kind, boxType, capacity, color, pos, spaceId, unitId, shelf, stack, level, drawersByBox.getOrElse(id, Nil), createdAt, updatedAt)
         }
       ).transact(xa)
 
-    def createBox(userId: String, name: String): Task[StorageBox] =
+    def createBox(userId: String, name: String, kind: String, boxType: String, capacity: Int, color: String): Task[StorageBox] =
       for
         nextPos <- sql"SELECT COALESCE(MAX(position) + 1, 0) FROM storage_boxes WHERE user_id = $userId"
                      .query[Int].unique.transact(xa)
         id       = java.util.UUID.randomUUID().toString
         now      = Instant.now()
         _       <- sql"""
-                     INSERT INTO storage_boxes (id, user_id, name, position, created_at, updated_at)
-                     VALUES ($id, $userId, $name, $nextPos, $now, $now)
+                     INSERT INTO storage_boxes (id, user_id, name, kind, box_type, capacity, color, position, created_at, updated_at)
+                     VALUES ($id, $userId, $name, $kind, $boxType, $capacity, $color, $nextPos, $now, $now)
                    """.update.run.void.transact(xa)
-      yield StorageBox(id, userId, name, nextPos, Nil, now, now)
+      yield StorageBox(id, userId, name, kind, boxType, capacity, color, nextPos, None, None, None, None, None, Nil, now, now)
 
     def renameBox(id: String, name: String): Task[Unit] =
       sql"UPDATE storage_boxes SET name = $name, updated_at = NOW() WHERE id = $id"

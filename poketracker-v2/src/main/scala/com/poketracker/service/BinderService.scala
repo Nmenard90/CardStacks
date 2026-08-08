@@ -69,6 +69,10 @@ object BinderService:
         name       = name.trim,
         pocketSize = pocketSize,
         coverImage = None,
+        spaceId = None,
+        storageUnitId = None,
+        shelfIndex = None,
+        shelfPosition = None,
         slots      = Nil,
         createdAt  = Instant.now(),
         updatedAt  = Instant.now()

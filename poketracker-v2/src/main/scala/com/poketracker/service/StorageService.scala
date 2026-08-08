@@ -21,7 +21,11 @@ import zio.*
 trait StorageService:
 
   def getBoxes(userId: String): Task[List[StorageBox]]
-  def createBox(userId: String, name: String): Task[StorageBox]
+
+  /** kind "display_case" gets exactly one drawer created for it automatically —
+   *  see the class doc. Plain boxes ("box") start with none; the caller adds
+   *  as many as they want via createDrawer. */
+  def createBox(userId: String, name: String, kind: String, boxType: String, capacity: Int, color: String): Task[StorageBox]
   def renameBox(id: String, name: String): Task[Unit]
   def reorderBox(id: String, position: Int): Task[Unit]
   def deleteBox(id: String): Task[Unit]
@@ -57,12 +61,14 @@ object StorageService:
 
     def getBoxes(userId: String): Task[List[StorageBox]] = repo.findBoxesByUser(userId)
 
-    def createBox(userId: String, name: String): Task[StorageBox] =
+    def createBox(userId: String, name: String, kind: String, boxType: String, capacity: Int, color: String): Task[StorageBox] =
       for
-        _   <- ZIO.when(name.trim.isEmpty)(ZIO.fail(new IllegalArgumentException("Box name cannot be empty")))
-        box <- repo.createBox(userId, name.trim)
-        _   <- shelf.ensureExists(userId, "box", box.id)
-      yield box
+        _      <- ZIO.when(name.trim.isEmpty)(ZIO.fail(new IllegalArgumentException("Box name cannot be empty")))
+        _      <- ZIO.when(capacity < 0)(ZIO.fail(new IllegalArgumentException("Capacity cannot be negative")))
+        box    <- repo.createBox(userId, name.trim, kind, boxType, capacity, color)
+        _      <- shelf.ensureExists(userId, "box", box.id)
+        drawer <- ZIO.when(kind == "display_case")(repo.createDrawer(box.id, "Display"))
+      yield box.copy(drawers = drawer.toList)
 
     def renameBox(id: String, name: String): Task[Unit] =
       ZIO.when(name.trim.isEmpty)(ZIO.fail(new IllegalArgumentException("Box name cannot be empty")))

@@ -51,6 +51,10 @@ final case class Binder(
   name:        String,
   pocketSize:  PocketSize,
   coverImage:  Option[String],
+  spaceId:     Option[String],
+  storageUnitId: Option[String],
+  shelfIndex:  Option[Int],
+  shelfPosition: Option[Int],
   slots:       List[BinderSlot],
   createdAt:   Instant,
   updatedAt:   Instant

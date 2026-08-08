@@ -56,25 +56,27 @@ object BinderRepository:
 
     def findByUser(userId: String): Task[List[Binder]] =
       sql"""
-        SELECT id, user_id, name, pocket_size, cover_image, created_at, updated_at
+        SELECT id, user_id, name, pocket_size, cover_image, space_id, storage_unit_id,
+               shelf_index, shelf_position, created_at, updated_at
         FROM binders
         WHERE user_id = $userId
         ORDER BY updated_at DESC
       """
-        .query[(String, String, String, String, Option[String], Instant, Instant)]
+        .query[(String, String, String, String, Option[String], Option[String], Option[String], Option[Int], Option[Int], Instant, Instant)]
         .to[List]
-        .map(_.map { case (id, uid, name, size, cover, createdAt, updatedAt) =>
-          Binder(id, uid, name, PocketSize.valueOf(size), cover, Nil, createdAt, updatedAt)
+        .map(_.map { case (id, uid, name, size, cover, spaceId, unitId, shelf, position, createdAt, updatedAt) =>
+          Binder(id, uid, name, PocketSize.valueOf(size), cover, spaceId, unitId, shelf, position, Nil, createdAt, updatedAt)
         })
         .transact(xa)
 
     def findById(id: String): Task[Option[Binder]] =
       val binderQuery =
         sql"""
-          SELECT id, user_id, name, pocket_size, cover_image, created_at, updated_at
+          SELECT id, user_id, name, pocket_size, cover_image, space_id, storage_unit_id,
+                 shelf_index, shelf_position, created_at, updated_at
           FROM binders WHERE id = $id
         """
-          .query[(String, String, String, String, Option[String], Instant, Instant)]
+          .query[(String, String, String, String, Option[String], Option[String], Option[String], Option[Int], Option[Int], Instant, Instant)]
           .option
 
       val slotsQuery =
@@ -92,11 +94,11 @@ object BinderRepository:
       (for
         binderOpt <- binderQuery
         slots     <- slotsQuery
-      yield binderOpt.map { case (bid, uid, name, size, cover, createdAt, updatedAt) =>
+      yield binderOpt.map { case (bid, uid, name, size, cover, spaceId, unitId, shelf, position, createdAt, updatedAt) =>
         val binderSlots = slots.map { case (idx, cardId, cardName, imgUrl) =>
           BinderSlot(idx, cardId, cardName, imgUrl)
         }
-        Binder(bid, uid, name, PocketSize.valueOf(size), cover, binderSlots, createdAt, updatedAt)
+        Binder(bid, uid, name, PocketSize.valueOf(size), cover, spaceId, unitId, shelf, position, binderSlots, createdAt, updatedAt)
       }).transact(xa)
 
     def create(binder: Binder): Task[Unit] =

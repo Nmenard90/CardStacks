@@ -630,3 +630,144 @@ SELECT b.user_id, 'binder', b.id,
          + COALESCE((SELECT MAX(s.position) FROM storage_boxes s WHERE s.user_id = b.user_id), -1)
 FROM binders b
 ON CONFLICT (kind, ref_id) DO NOTHING;
+
+-- Migration 008: display cases. A display case IS a storage_box (same
+-- table, same drawer/assign plumbing) -- the only difference is this flag
+-- and, client-side, that its shelf tile renders the actual cards instead
+-- of a crate face. Every existing box defaults to 'box' so nothing already
+-- on a shelf changes appearance.
+ALTER TABLE storage_boxes
+  ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'box' CHECK (kind IN ('box', 'display_case'));
+
+-- Migration 009: persist the real-world storage format selected by the user.
+-- Apply this migration in Railway before deploying code that reads these columns.
+ALTER TABLE storage_boxes
+  ADD COLUMN IF NOT EXISTS box_type TEXT NOT NULL DEFAULT 'custom',
+  ADD COLUMN IF NOT EXISTS capacity INTEGER NOT NULL DEFAULT 0 CHECK (capacity >= 0),
+  ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT '#B99B67';
+
+/* LEGACY MIGRATION 010 (DISABLED)
+-- This abandoned one-room/x-y draft is retained only for historical review.
+-- The authoritative, production-tested migration is:
+--   sql/migration_010_spaces_inventory.sql
+-- Do not re-enable this block.
+-- Migration 010: collection rooms and per-copy inventory allocation.
+-- This is additive: legacy collection_entries, binders, and storage remain
+-- readable while clients migrate to the normalized room API.
+CREATE TABLE IF NOT EXISTS collection_rooms (
+  id         TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  user_id    TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL DEFAULT 'My Collection Room',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS room_objects (
+  id          TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  room_id     TEXT NOT NULL REFERENCES collection_rooms(id) ON DELETE CASCADE,
+  object_type TEXT NOT NULL CHECK (object_type IN ('storage_box','binder','shelf','display_case','cabinet','vitrine','pedestal')),
+  preset      TEXT NOT NULL DEFAULT 'custom',
+  name        TEXT NOT NULL,
+  color       TEXT NOT NULL DEFAULT '#8B6A47',
+  accent      TEXT NOT NULL DEFAULT '#E8D9BD',
+  position_x  INTEGER NOT NULL DEFAULT 0,
+  position_y  INTEGER NOT NULL DEFAULT 0,
+  width       INTEGER NOT NULL DEFAULT 1 CHECK (width > 0),
+  height      INTEGER NOT NULL DEFAULT 1 CHECK (height > 0),
+  capacity    INTEGER NOT NULL DEFAULT 0 CHECK (capacity >= 0),
+  config      JSONB NOT NULL DEFAULT '{}'::jsonb,
+  legacy_ref  TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (object_type, legacy_ref)
+);
+CREATE INDEX IF NOT EXISTS idx_room_objects_room ON room_objects(room_id);
+
+CREATE TABLE IF NOT EXISTS room_slots (
+  id          TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  object_id   TEXT NOT NULL REFERENCES room_objects(id) ON DELETE CASCADE,
+  slot_index  INTEGER NOT NULL,
+  label       TEXT,
+  capacity    INTEGER NOT NULL DEFAULT 1 CHECK (capacity > 0),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (object_id, slot_index)
+);
+
+CREATE TABLE IF NOT EXISTS inventory_lots (
+  id          TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  card_id     TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+  variant_key TEXT NOT NULL DEFAULT 'standard',
+  edition     TEXT NOT NULL DEFAULT 'unlimited',
+  condition   TEXT NOT NULL,
+  quantity    INTEGER NOT NULL CHECK (quantity >= 0),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, card_id, variant_key, edition, condition)
+);
+CREATE INDEX IF NOT EXISTS idx_inventory_lots_user ON inventory_lots(user_id);
+
+CREATE TABLE IF NOT EXISTS card_allocations (
+  id          TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  lot_id      TEXT NOT NULL REFERENCES inventory_lots(id) ON DELETE CASCADE,
+  object_id   TEXT REFERENCES room_objects(id) ON DELETE SET NULL,
+  slot_id     TEXT REFERENCES room_slots(id) ON DELETE SET NULL,
+  quantity    INTEGER NOT NULL CHECK (quantity > 0),
+  protection  TEXT CHECK (protection IS NULL OR protection IN ('raw','sleeved','double_sleeved','toploader','magnetic_holder','graded_slab')),
+  notes       TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (slot_id IS NULL OR object_id IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_card_allocations_lot ON card_allocations(lot_id);
+CREATE INDEX IF NOT EXISTS idx_card_allocations_object ON card_allocations(object_id);
+
+-- Prevent two concurrent placement requests from allocating more copies than
+-- the user owns. The service also validates this for a friendly API error;
+-- the trigger is the final database-level guarantee.
+CREATE OR REPLACE FUNCTION enforce_allocation_quantity() RETURNS TRIGGER AS $$
+DECLARE
+  owned_qty INTEGER;
+  used_qty INTEGER;
+BEGIN
+  SELECT quantity INTO owned_qty FROM inventory_lots WHERE id = NEW.lot_id FOR UPDATE;
+  SELECT COALESCE(SUM(quantity), 0) INTO used_qty
+    FROM card_allocations WHERE lot_id = NEW.lot_id AND id <> NEW.id;
+  IF used_qty + NEW.quantity > owned_qty THEN
+    RAISE EXCEPTION 'Allocation exceeds owned quantity';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_enforce_allocation_quantity ON card_allocations;
+CREATE TRIGGER trg_enforce_allocation_quantity
+  BEFORE INSERT OR UPDATE ON card_allocations
+  FOR EACH ROW EXECUTE FUNCTION enforce_allocation_quantity();
+
+CREATE OR REPLACE FUNCTION prevent_inventory_underallocation() RETURNS TRIGGER AS $$
+DECLARE used_qty INTEGER;
+BEGIN
+  SELECT COALESCE(SUM(quantity),0) INTO used_qty FROM card_allocations WHERE lot_id=NEW.id;
+  IF NEW.quantity < used_qty THEN
+    RAISE EXCEPTION 'Cannot reduce owned quantity below % allocated copies', used_qty;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trg_prevent_inventory_underallocation ON inventory_lots;
+CREATE TRIGGER trg_prevent_inventory_underallocation BEFORE UPDATE OF quantity ON inventory_lots
+  FOR EACH ROW EXECUTE FUNCTION prevent_inventory_underallocation();
+
+-- Backfill one normalized lot per existing condition. Variant remains
+-- 'standard' because legacy ownership never persisted a selected variant.
+INSERT INTO inventory_lots (user_id, card_id, variant_key, edition, condition, quantity)
+SELECT ce.user_id, ce.card_id, 'standard',
+       CASE WHEN item->>'condition' LIKE '%1st Ed' THEN 'first_edition' ELSE 'unlimited' END,
+       REPLACE(item->>'condition', ' 1st Ed', ''),
+       GREATEST(0, COALESCE((item->>'quantity')::INTEGER, 0))
+FROM collection_entries ce
+CROSS JOIN LATERAL jsonb_array_elements(ce.conditions::jsonb) item
+ON CONFLICT (user_id, card_id, variant_key, edition, condition)
+DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = NOW();
+*/

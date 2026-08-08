@@ -518,7 +518,7 @@ export function BulkAddPage() {
       <style>{STYLE}</style>
       <div id="app" style={{ display: 'block' }}>
         <header>
-          <div className="logo">⚡ BULK <span>ADD</span></div>
+          <div className="logo">⚡ ADD <span>&amp; FILE</span></div>
           <div className="user-badge">👤 <b>{user.username}</b></div>
           <div className="header-right">
             {tiles.length > 0 && <span className="unsaved">{totalCards} unsaved · saved locally</span>}

@@ -12,7 +12,7 @@
  * DEPENDS ON: pages/*, context/UserContext, components/Toast
  */
 
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { UserProvider } from './context/UserContext'
 import { ToastProvider } from './components/Toast'
@@ -22,7 +22,7 @@ import { BinderViewPage } from './pages/BinderViewPage'
 import { AnalyzerPage } from './pages/AnalyzerPage'
 import { ConventionModePage } from './pages/ConventionModePage'
 import { BulkAddPage } from './pages/BulkAddPage'
-import { OwnedPage } from './pages/OwnedPage'
+import { SpacesLivePage } from './pages/SpacesLivePage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,13 +42,17 @@ export default function App() {
         <ToastProvider>
           <BrowserRouter>
             <Routes>
-              <Route path="/"                  element={<CollectionPage />} />
-              <Route path="/shelf"             element={<ShelfPage />} />
+              <Route path="/"                  element={<SpacesLivePage />} />
+              <Route path="/explore"           element={<CollectionPage />} />
+              <Route path="/spaces/default/storage" element={<ShelfPage />} />
+              <Route path="/spaces/default/add" element={<BulkAddPage />} />
               <Route path="/binder/:binderId"  element={<BinderViewPage />} />
+              <Route path="/spaces/default/binders/:binderId" element={<BinderViewPage />} />
               <Route path="/analyzer"          element={<AnalyzerPage />} />
               <Route path="/convention"        element={<ConventionModePage />} />
-              <Route path="/bulk"              element={<BulkAddPage />} />
-              <Route path="/owned"             element={<OwnedPage />} />
+              <Route path="/shelf"             element={<Navigate to="/spaces/default/storage" replace />} />
+              <Route path="/bulk"              element={<Navigate to="/spaces/default/add" replace />} />
+              <Route path="/owned"             element={<Navigate to="/" replace />} />
             </Routes>
           </BrowserRouter>
         </ToastProvider>

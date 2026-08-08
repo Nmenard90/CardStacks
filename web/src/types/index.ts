@@ -140,6 +140,11 @@ export interface StorageBox {
   capacity?: number
   color?: string
   position: number
+  spaceId?: string
+  storageUnitId?: string
+  shelfIndex?: number
+  stackIndex?: number
+  stackLevel?: number
   drawers: StorageDrawer[]
   createdAt: string
   updatedAt: string
@@ -151,6 +156,17 @@ export interface AssignResult {
   assigned: number
   warning?: string
 }
+
+export type ProtectionType = 'raw' | 'sleeved' | 'double_sleeved' | 'toploader' | 'magnetic_holder' | 'graded_slab'
+export type SpaceType = 'collection_room' | 'archive' | 'trade_station' | 'showcase' | 'custom'
+export type StorageUnitType = 'shelf' | 'rack' | 'cabinet' | 'closet' | 'custom'
+export type DisplayCaseType = 'wall_case' | 'lit_cabinet' | 'museum_vitrine' | 'floating_shelf' | 'pedestal' | 'custom'
+export interface StorageUnit { id:string; spaceId:string; name:string; unitType:StorageUnitType; preset:string; color:string; shelfCount:number; positionsPerShelf:number; maxStackHeight:number; position:number; config:string; createdAt:string; updatedAt:string }
+export interface DisplaySlot { id:string; displayCaseId:string; shelfIndex:number; slotIndex:number; label?:string }
+export interface DisplayCase { id:string; spaceId:string; name:string; caseType:DisplayCaseType; preset:string; frameColor:string; lightColor:string; lightEnabled:boolean; shelfCount:number; slotsPerShelf:number; position:number; config:string; slots:DisplaySlot[]; createdAt:string; updatedAt:string }
+export interface CollectionSpace { id:string; userId:string; name:string; spaceType:SpaceType; isDefault:boolean; position:number; storageUnits:StorageUnit[]; displayCases:DisplayCase[]; createdAt:string; updatedAt:string }
+export interface InventoryLot { id:string; userId:string; cardId:string; variantKey:string; edition:string; language:string; condition:string; quantity:number; allocated:number; createdAt:string; updatedAt:string }
+export interface CardAllocation { id:string; lotId:string; drawerId?:string; binderSlotId?:string; displaySlotId?:string; quantity:number; protection?:ProtectionType; notes?:string; createdAt:string; updatedAt:string }
 
 // ─── Binders ─────────────────────────────────────────────────────────────────
 
@@ -169,6 +185,10 @@ export interface Binder {
   name: string
   pocketSize: PocketSize
   coverImage?: string
+  spaceId?: string
+  storageUnitId?: string
+  shelfIndex?: number
+  shelfPosition?: number
   slots: BinderSlot[]
   createdAt: string
   updatedAt: string

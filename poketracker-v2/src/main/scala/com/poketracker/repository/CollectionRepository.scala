@@ -38,8 +38,36 @@ object CollectionRepository:
 
   final class Live(xa: Transactor[Task]) extends CollectionRepository:
 
+    /** Keeps the normalized allocation inventory aligned with the legacy
+      * condition JSON. Legacy data has no owned variant, so it remains
+      * "standard" until the user explicitly splits it in the room UI. */
+    private def syncInventoryLots(entry: CollectionEntry): ConnectionIO[Unit] =
+      val active = entry.conditions.filter(_.quantity > 0)
+      for
+        _ <- active.traverse_ { conditionCount =>
+          val firstEdition = conditionCount.condition.endsWith(" 1st Ed")
+          val edition = if firstEdition then "first_edition" else "unlimited"
+          val condition = conditionCount.condition.stripSuffix(" 1st Ed")
+          sql"""INSERT INTO inventory_lots
+            (user_id,card_id,variant_key,edition,language,condition,quantity)
+            VALUES (${entry.userId},${entry.cardId},'standard',$edition,'en',$condition,${conditionCount.quantity})
+            ON CONFLICT (user_id,card_id,variant_key,edition,language,condition)
+            DO UPDATE SET quantity=EXCLUDED.quantity,updated_at=NOW()""".update.run.void
+        }
+        keepKeys = active.map { cc =>
+          val edition = if cc.condition.endsWith(" 1st Ed") then "first_edition" else "unlimited"
+          (edition, cc.condition.stripSuffix(" 1st Ed"))
+        }.toSet
+        existing <- sql"""SELECT id,edition,condition FROM inventory_lots
+          WHERE user_id=${entry.userId} AND card_id=${entry.cardId} AND variant_key='standard' AND language='en'"""
+          .query[(String,String,String)].to[List]
+        _ <- existing.filterNot { case (_,edition,condition) => keepKeys((edition,condition)) }.traverse_ {
+          case (id,_,_) => sql"UPDATE inventory_lots SET quantity=0,updated_at=NOW() WHERE id=$id".update.run.void
+        }
+      yield ()
+
     def findByUser(userId: String): Task[List[CollectionEntry]] =
-      sql"""
+      (sql"""
         SELECT id, user_id, card_id, conditions, selected_cond, updated_at
         FROM collection_entries
         WHERE user_id = $userId
@@ -53,7 +81,7 @@ object CollectionRepository:
             CollectionEntry(id, uid, cardId, conditions, selCond, updatedAt)
           }
         })
-        .transact(xa)
+        .transact(xa))
 
     def findEntry(userId: String, cardId: String): Task[Option[CollectionEntry]] =
       sql"""
@@ -73,7 +101,7 @@ object CollectionRepository:
     def upsertEntry(entry: CollectionEntry): Task[Unit] =
       val condJson = entry.conditions.toJson
 
-      sql"""
+      (sql"""
         INSERT INTO collection_entries
           (id, user_id, card_id, conditions, selected_cond, updated_at)
         VALUES
@@ -83,20 +111,23 @@ object CollectionRepository:
           conditions    = EXCLUDED.conditions,
           selected_cond = EXCLUDED.selected_cond,
           updated_at    = NOW()
-      """
-        .update.run.void.transact(xa)
+      """.update.run.void *> syncInventoryLots(entry)).transact(xa)
 
     def deleteEntry(userId: String, cardId: String): Task[Unit] =
-      sql"""
-        DELETE FROM collection_entries
-        WHERE user_id = $userId AND card_id = $cardId
-      """
-        .update.run.void.transact(xa)
+      (for
+        allocated <- sql"""SELECT COALESCE(SUM(a.quantity),0) FROM card_allocations a
+          JOIN inventory_lots l ON l.id=a.lot_id WHERE l.user_id=$userId AND l.card_id=$cardId"""
+          .query[Int].unique
+        _ <- if allocated == 0 then ().pure[ConnectionIO]
+             else FC.raiseError(RuntimeException(s"Move or remove $allocated allocated copies before deleting this card"))
+        _ <- sql"DELETE FROM inventory_lots WHERE user_id=$userId AND card_id=$cardId".update.run
+        _ <- sql"DELETE FROM collection_entries WHERE user_id=$userId AND card_id=$cardId".update.run
+      yield ()).transact(xa)
 
     def bulkUpsert(entries: List[CollectionEntry]): Task[Unit] =
       entries.traverse_ { entry =>
         val condJson = entry.conditions.toJson
-        sql"""
+        (sql"""
           INSERT INTO collection_entries
             (id, user_id, card_id, conditions, selected_cond, updated_at)
           VALUES
@@ -106,8 +137,7 @@ object CollectionRepository:
             conditions    = EXCLUDED.conditions,
             selected_cond = EXCLUDED.selected_cond,
             updated_at    = NOW()
-        """
-          .update.run.void
+        """.update.run.void *> syncInventoryLots(entry))
       }.transact(xa)
 
     def findByUserWithCards(userId: String): Task[List[OwnedCard]] =

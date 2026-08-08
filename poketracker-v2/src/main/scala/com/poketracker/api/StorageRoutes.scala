@@ -28,7 +28,8 @@ import zio.json.*
 
 object StorageRoutes:
 
-  private case class CreateBoxRequest(name: String)
+  /** kind absent -> "box", same as it always was before display cases existed. */
+  private case class CreateBoxRequest(name: String, kind: Option[String], boxType: Option[String], capacity: Option[Int], color: Option[String])
   private given JsonDecoder[CreateBoxRequest] = DeriveJsonDecoder.gen
 
   private case class CreateDrawerRequest(name: String)
@@ -56,7 +57,7 @@ object StorageRoutes:
           body   <- req.body.asString
           parsed <- ZIO.fromEither(body.fromJson[CreateBoxRequest])
                       .mapError(e => RuntimeException(s"Bad request: $e"))
-          box    <- ZIO.serviceWithZIO[StorageService](_.createBox(userId, parsed.name))
+          box    <- ZIO.serviceWithZIO[StorageService](_.createBox(userId, parsed.name, parsed.kind.getOrElse("box"), parsed.boxType.getOrElse("custom"), parsed.capacity.getOrElse(0), parsed.color.getOrElse("#B99B67")))
         yield Response.json(box.toJson).status(Status.Created)
         ).catchAll(e => ZIO.succeed(Response.badRequest(e.getMessage)))
     },

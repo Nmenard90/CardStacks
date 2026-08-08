@@ -40,6 +40,7 @@ object Main extends ZIOAppDefault:
                        BinderRepository.layer ++
                        RipTrackerRepository.layer ++
                        StorageRepository.layer ++
+                       RoomRepository.layer ++
                        ShelfRepository.layer)
 
         // Built separately so CardService.layer can depend on it directly below.
@@ -50,7 +51,8 @@ object Main extends ZIOAppDefault:
                        CollectionService.layer ++
                        UserService.layer ++
                        BinderService.layer ++
-                       StorageService.layer)
+                       StorageService.layer ++
+                       RoomService.layer)
 
         // Needs both the raw repositories AND the already-built core
         // services above (not just their repositories), so it can't join the batch.
@@ -69,7 +71,8 @@ object Main extends ZIOAppDefault:
                       BinderRoutes.routes ++
                       RipRoutes.routes ++
                       StorageRoutes.routes ++
-                      ShelfRoutes.routes
+                      ShelfRoutes.routes ++
+                      RoomRoutes.routes
 
         // Required so the frontend (served from a different origin) isn't
         // blocked by browser CORS checks.
