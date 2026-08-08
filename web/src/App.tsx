@@ -17,7 +17,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { UserProvider } from './context/UserContext'
 import { ToastProvider } from './components/Toast'
 import { CollectionPage } from './pages/CollectionPage'
-import { ShelfPage } from './pages/ShelfPage'
 import { BinderViewPage } from './pages/BinderViewPage'
 import { AnalyzerPage } from './pages/AnalyzerPage'
 import { ConventionModePage } from './pages/ConventionModePage'
@@ -44,13 +43,14 @@ export default function App() {
             <Routes>
               <Route path="/"                  element={<SpacesLivePage />} />
               <Route path="/explore"           element={<CollectionPage />} />
-              <Route path="/spaces/default/storage" element={<ShelfPage />} />
+              <Route path="/spaces/default/storage" element={<Navigate to="/" replace />} />
               <Route path="/spaces/default/add" element={<BulkAddPage />} />
               <Route path="/binder/:binderId"  element={<BinderViewPage />} />
               <Route path="/spaces/default/binders/:binderId" element={<BinderViewPage />} />
+              <Route path="/spaces/:spaceId/binders/:binderId" element={<BinderViewPage />} />
               <Route path="/analyzer"          element={<AnalyzerPage />} />
               <Route path="/convention"        element={<ConventionModePage />} />
-              <Route path="/shelf"             element={<Navigate to="/spaces/default/storage" replace />} />
+              <Route path="/shelf"             element={<Navigate to="/" replace />} />
               <Route path="/bulk"              element={<Navigate to="/spaces/default/add" replace />} />
               <Route path="/owned"             element={<Navigate to="/" replace />} />
             </Routes>
