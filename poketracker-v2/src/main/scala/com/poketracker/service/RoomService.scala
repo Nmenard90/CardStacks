@@ -15,6 +15,8 @@ trait RoomService:
     lightColor:String,shelfCount:Int,slotsPerShelf:Int,config:String): Task[DisplayCase]
   def setDisplayLights(userId:String,caseId:String,enabled:Boolean): Task[Unit]
   def getInventory(userId:String): Task[List[InventoryLot]]
+  def getDrawerAllocations(userId:String,drawerId:String): Task[List[CardAllocation]]
+  def getCaseAllocations(userId:String,caseId:String): Task[List[CardAllocation]]
   def allocate(userId:String,lotId:String,drawerId:Option[String],binderSlotId:Option[String],
     displaySlotId:Option[String],quantity:Int,protection:Option[String],notes:Option[String]): Task[CardAllocation]
   def removeAllocation(userId:String,id:String): Task[Unit]
@@ -48,6 +50,8 @@ object RoomService:
       repo.createDisplayCase(userId,spaceId,name.trim,caseType,preset,frameColor,lightColor,shelfCount,slotsPerShelf,config)
     def setDisplayLights(userId:String,caseId:String,enabled:Boolean)=repo.setDisplayLights(userId,caseId,enabled)
     def getInventory(userId:String)=repo.listLots(userId)
+    def getDrawerAllocations(userId:String,drawerId:String)=repo.listDrawerAllocations(userId,drawerId)
+    def getCaseAllocations(userId:String,caseId:String)=repo.listCaseAllocations(userId,caseId)
     def allocate(userId:String,lotId:String,drawerId:Option[String],binderSlotId:Option[String],displaySlotId:Option[String],
       quantity:Int,protection:Option[String],notes:Option[String])=
       ZIO.fail(IllegalArgumentException("Choose exactly one destination")).unless(List(drawerId,binderSlotId,displaySlotId).count(_.isDefined)==1) *>

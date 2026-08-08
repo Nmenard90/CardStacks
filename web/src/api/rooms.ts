@@ -17,6 +17,8 @@ export const createDisplayCase=(userId:string,value:NewDisplayCase)=>api.post<Di
 export const setDisplayLights=(userId:string,caseId:string,enabled:boolean)=>api.put(`/api/spaces/${userId}/display-cases/${caseId}/lights`,{enabled}).then(r=>r.data)
 
 export const getSpaceInventory=(userId:string)=>api.get<InventoryLot[]>(`/api/spaces/${userId}/inventory`).then(r=>r.data)
+export const getDrawerPlacements=(userId:string,drawerId:string)=>api.get<CardAllocation[]>(`/api/spaces/${userId}/drawers/${drawerId}/allocations`).then(r=>r.data)
+export const getCaseAllocations=(userId:string,caseId:string)=>api.get<CardAllocation[]>(`/api/spaces/${userId}/display-cases/${caseId}/allocations`).then(r=>r.data)
 export interface PlaceCopies { lotId:string;drawerId?:string;binderSlotId?:string;displaySlotId?:string;quantity:number;protection?:ProtectionType;notes?:string }
 export const placeCopies=(userId:string,value:PlaceCopies)=>api.post<CardAllocation>(`/api/spaces/${userId}/allocations`,value).then(r=>r.data)
 export const removePlacement=(userId:string,id:string)=>api.delete(`/api/spaces/${userId}/allocations/${id}`).then(r=>r.data)

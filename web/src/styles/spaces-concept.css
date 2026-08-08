@@ -12,3 +12,303 @@
 .spaces-live-status button,.spaces-live-error button{background:var(--accent,#ffcb05);border:2px solid #171225;border-radius:10px;padding:10px 16px;font-weight:900;cursor:pointer}
 .spaces-live-error{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:16px auto;padding:12px 16px;max-width:1100px;color:#fff;background:#7b3440;border:2px solid #171225;border-radius:12px}
 .spaces-action-message{margin:12px auto;max-width:1100px;padding:10px 14px;background:#fff3b0;color:#2a203c;border:2px solid #171225;border-radius:10px;font-weight:800}
+.box-copy-row{display:grid;grid-template-columns:42px 1fr auto;align-items:center;gap:10px;padding:8px;margin:6px 0;background:#fff;border:2px solid #211a31;border-radius:9px;color:#211a31}.box-copy-row img{width:38px;height:52px;object-fit:cover;border-radius:4px}.box-copy-row span{display:flex;flex-direction:column;min-width:0}.box-copy-row small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.box-copy-row button{padding:7px 9px;background:#ffcb05;border:2px solid #211a31;border-radius:7px;font-weight:900}.box-picker-live{padding:28px;min-height:calc(100vh - 90px)}.box-preset-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:18px;max-width:1180px;margin:24px auto}.box-preset-grid>button{display:flex;align-items:center;gap:16px;padding:18px;text-align:left;background:#f8f0dc;border:3px solid #211a31;border-radius:14px;box-shadow:6px 6px 0 #211a31;cursor:pointer}.box-preset-grid>button:hover{transform:translateY(-4px);box-shadow:8px 10px 0 #211a31}.box-preset-grid>button>span{display:flex;flex-direction:column;color:#211a31}.box-preset-grid strong{color:#7a3e65}.preset-box{display:block;position:relative;width:78px;height:58px;flex:none;background:var(--preset-color,#b78a43);border:3px solid #211a31;border-radius:6px;box-shadow:inset 0 9px rgba(255,255,255,.25)}.preset-box span{position:absolute;left:19px;right:19px;top:21px;height:19px;background:#f4ead2;border:2px solid #211a31}.custom-box-builder{max-width:560px;margin:20px auto;padding:22px;background:#382d55;border:3px solid #171225;border-radius:14px;color:#fff}.custom-box-builder label{display:grid;grid-template-columns:110px 1fr;align-items:center;margin:10px 0}.custom-box-builder input{padding:9px;border:2px solid #171225;border-radius:7px}.custom-box-builder button{padding:10px 16px;background:#ffcb05;border:2px solid #171225;border-radius:8px;font-weight:900}
+
+.box-copy-actions { display: flex; gap: 6px; }
+.inventory-duplicates-toggle {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted, #8d9798);
+  cursor: pointer;
+}
+
+/* ── Header search ──────────────────────────────────────────────────────── */
+
+.header-search-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.search-results {
+  position: absolute;
+  left: 0; right: 0; top: calc(100% + 6px);
+  z-index: 250;
+  display: flex;
+  flex-direction: column;
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--surface, #1c2126);
+  border: 2px solid var(--border, #211a31);
+  border-radius: 10px;
+  box-shadow: 0 14px 30px #0008;
+}
+.search-results button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid #ffffff12;
+  color: var(--text, #fff);
+  cursor: pointer;
+}
+.search-results button:last-child { border-bottom: 0; }
+.search-results button:hover, .search-results button:focus-visible { background: #ffffff12; }
+.search-results small { color: var(--muted, #899394); font-size: 11px; white-space: nowrap; }
+
+/* ── Add Space / Add Binder modals (reuse the site-wide .modal shell) ────── */
+
+.modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted, #899394);
+}
+.modal-field input, .modal-field select {
+  font-weight: 400;
+  color: var(--text, #fff);
+}
+.modal-error {
+  margin: -8px 0 12px;
+  color: #e97878;
+  font-size: 12px;
+}
+
+/* ── Move-box (drag-and-drop keyboard/tap alternative) ────────────────────── */
+
+.moving-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.moving-banner button {
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 7px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.box-move-btn {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  background: #0b0f11cc;
+  color: #edc477;
+  border: 0;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.box-move-btn:focus-visible { outline: 2px solid var(--gold, #d6a958); outline-offset: 1px; }
+.box-move-btn.inline {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: 5px 8px;
+  margin-left: auto;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+.unplaced-boxes {
+  max-width: 1250px;
+  margin: 0 auto 40px;
+  padding: 14px 28px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.unplaced-boxes > b { font-size: 10px; letter-spacing: 0.12em; color: var(--gold, #d6a958); margin-right: 6px; }
+.unplaced-box-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #171d20;
+  border: 1px solid #ffffff18;
+  border-radius: 9px;
+  padding: 8px 10px;
+  cursor: grab;
+}
+.unplaced-box-row i { width: 16px; height: 16px; border-radius: 3px; flex: none; }
+.unplaced-box-row span { display: flex; flex-direction: column; color: #fff; font-size: 12px; font-weight: 700; }
+.unplaced-box-row small { color: #849092; font-weight: 400; font-size: 10px; }
+
+/* ── Box capacity warnings ─────────────────────────────────────────────────── */
+
+.physical-box.box-near .box-label small { color: #f0c34d; }
+.physical-box.box-over .box-label small { color: #f0704d; font-weight: 800; }
+
+/* ── Box inventory: rename + search ────────────────────────────────────────── */
+
+.edit-box-name {
+  font: 27px Georgia;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid var(--gold, #d6a958);
+  color: var(--text, #fff);
+  margin: 3px 0;
+  padding: 0 2px;
+}
+.inventory-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #171d20;
+  border: 1px solid #ffffff18;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+}
+.inventory-search input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #fff;
+  font-size: 12px;
+}
+
+/* ── Display Gallery: dynamic slot grid ────────────────────────────────────── */
+/* Replaces the old fixed two-row hardcoded layout so it can hold any
+   preset's shelfCount/slotsPerShelf instead of always exactly two shelves
+   of two cards. */
+
+.display-case-tabs { margin: 0 0 18px; }
+.cabinet-shelves {
+  position: absolute;
+  inset: 8% 6% 4%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  gap: 18px;
+  z-index: 5;
+}
+.cabinet-shelf-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 14px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #bfd8dd8c;
+  box-shadow: 0 0 11px #ffe0a566;
+}
+.cabinet-shelf-row:last-child { border-bottom: 0; box-shadow: none; }
+.display-slot-btn {
+  position: relative;
+  width: 100px;
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  background: transparent;
+  border: 0;
+  color: #fff;
+  padding: 0 0 8px;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+.display-slot-btn:hover, .display-slot-btn.selected { transform: translateY(-6px) scale(1.05); }
+.display-slot-btn.selected:after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border: 1px solid #d6a95877;
+  border-radius: 7px;
+}
+.display-slot-btn img { width: 82px; border-radius: 5px; box-shadow: 0 9px 20px #000; }
+.display-slot-btn span { display: flex; flex-direction: column; text-align: center; white-space: nowrap; }
+.display-slot-btn span b { font-size: 7px; text-transform: capitalize; }
+.display-slot-btn span small { font-size: 5px; color: #899395; }
+.display-slot-btn.empty {
+  border: 1px dashed #ffffff28;
+  border-radius: 8px;
+  background: #ffffff05;
+  min-height: 90px;
+}
+.display-slot-btn.empty:hover { border-color: #d6a95877; }
+.slot-empty-hint { font-size: 9px; color: #849092; letter-spacing: 0.06em; }
+
+.display-slot-inspector {
+  position: absolute;
+  right: 3%;
+  top: 8%;
+  width: 280px;
+  max-height: 78%;
+  overflow-y: auto;
+  background: #0d1214ed;
+  border: 1px solid #ffffff1d;
+  border-radius: 12px;
+  padding: 14px;
+  z-index: 9;
+}
+.display-slot-inspector > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  font-size: 11px;
+  color: var(--gold, #d6a958);
+}
+.display-slot-inspector > header button { background: transparent; border: 0; color: #fff; font-size: 16px; cursor: pointer; }
+.display-slot-inspector p { font-size: 12px; color: #899394; }
+
+@media (max-width: 850px) {
+  .display-slot-inspector { left: 4%; right: 4%; width: auto; top: auto; bottom: 4%; max-height: 45%; }
+  .cabinet-shelves { gap: 10px; }
+  .display-slot-btn { width: 78px; min-height: 120px; }
+  .display-slot-btn img { width: 62px; }
+}
+
+/* ── Unit/case tabs (Storage shelf units, Display Gallery cases) ──────────── */
+
+.live-unit-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 1250px;
+  margin: 0 auto 18px;
+  padding: 0 28px;
+}
+.live-unit-tabs button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  background: #171d20;
+  border: 1px solid #ffffff18;
+  border-radius: 9px;
+  color: #fff;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.live-unit-tabs button.active { border-color: var(--gold, #d6a958); background: #ffffff08; }
+.live-unit-tabs button small { color: #849092; font-weight: 400; font-size: 10px; }
+
+/* ── Shelf-unit / display-case preset icons ────────────────────────────────── */
+
+.preset-box.shelf-preset-icon { background: var(--preset-color, #5c4b3a); }
+.preset-box.shelf-preset-icon span { background: repeating-linear-gradient(to bottom, #f4ead2 0 4px, transparent 4px 8px); }
+.preset-box.case-preset-icon { background: var(--preset-color, #17141F); box-shadow: inset 0 9px rgba(255,255,255,.08); }
+.preset-box.case-preset-icon span { background: #ffe1a5; box-shadow: 0 0 10px currentColor; }

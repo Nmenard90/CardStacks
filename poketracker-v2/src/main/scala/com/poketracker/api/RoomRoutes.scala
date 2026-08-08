@@ -61,6 +61,12 @@ object RoomRoutes:
     Method.GET / "api" / "spaces" / string("userId") / "inventory" -> handler { (userId:String,_:Request) =>
       ZIO.serviceWithZIO[RoomService](_.getInventory(userId)).map(v=>Response.json(v.toJson)).catchAll(e=>ZIO.succeed(bad(e)))
     },
+    Method.GET / "api" / "spaces" / string("userId") / "drawers" / string("drawerId") / "allocations" -> handler { (userId:String,drawerId:String,_:Request) =>
+      ZIO.serviceWithZIO[RoomService](_.getDrawerAllocations(userId,drawerId)).map(v=>Response.json(v.toJson)).catchAll(e=>ZIO.succeed(bad(e)))
+    },
+    Method.GET / "api" / "spaces" / string("userId") / "display-cases" / string("caseId") / "allocations" -> handler { (userId:String,caseId:String,_:Request) =>
+      ZIO.serviceWithZIO[RoomService](_.getCaseAllocations(userId,caseId)).map(v=>Response.json(v.toJson)).catchAll(e=>ZIO.succeed(bad(e)))
+    },
     Method.POST / "api" / "spaces" / string("userId") / "allocations" -> handler { (userId:String,req:Request) =>
       (for p<-bodyAs[AllocationRequest](req); v<-ZIO.serviceWithZIO[RoomService](_.allocate(userId,p.lotId,p.drawerId,p.binderSlotId,p.displaySlotId,p.quantity,p.protection,p.notes))
       yield Response.json(v.toJson).status(Status.Created)).catchAll(e=>ZIO.succeed(bad(e)))

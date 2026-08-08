@@ -29,7 +29,8 @@ export function usePreview() {
     overlay: (
       <div className={'card-preview-overlay' + (state ? ' active' : '')} onClick={() => setState(null)}>
         <div className={'card-preview-wrap' + (state ? ' visible' : '') + (state?.holo ? ' holo' : '')}>
-          <img className="card-preview-img" src={state?.src ?? ''} alt="" />
+          {/* omit src entirely while hidden — an empty string still triggers a network request */}
+          <img className="card-preview-img" src={state?.src} alt="" />
           {state?.price != null && state.price > 0 && (
             <span className="card-preview-ribbon">${state.price.toFixed(2)}</span>
           )}

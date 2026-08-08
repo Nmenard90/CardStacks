@@ -44,14 +44,15 @@ export default function App() {
               <Route path="/"                  element={<SpacesLivePage />} />
               <Route path="/explore"           element={<CollectionPage />} />
               <Route path="/spaces/default/storage" element={<Navigate to="/" replace />} />
-              <Route path="/spaces/default/add" element={<BulkAddPage />} />
+              <Route path="/add"               element={<BulkAddPage />} />
               <Route path="/binder/:binderId"  element={<BinderViewPage />} />
               <Route path="/spaces/default/binders/:binderId" element={<BinderViewPage />} />
               <Route path="/spaces/:spaceId/binders/:binderId" element={<BinderViewPage />} />
               <Route path="/analyzer"          element={<AnalyzerPage />} />
               <Route path="/convention"        element={<ConventionModePage />} />
               <Route path="/shelf"             element={<Navigate to="/" replace />} />
-              <Route path="/bulk"              element={<Navigate to="/spaces/default/add" replace />} />
+              <Route path="/bulk"              element={<Navigate to="/add" replace />} />
+              <Route path="/spaces/default/add" element={<Navigate to="/add" replace />} />
               <Route path="/owned"             element={<Navigate to="/" replace />} />
             </Routes>
           </BrowserRouter>

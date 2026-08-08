@@ -25,6 +25,8 @@ trait RoomRepository:
     slotsPerShelf: Int, config: String): Task[DisplayCase]
   def setDisplayLights(userId: String, caseId: String, enabled: Boolean): Task[Unit]
   def listLots(userId: String): Task[List[InventoryLot]]
+  def listDrawerAllocations(userId: String, drawerId: String): Task[List[CardAllocation]]
+  def listCaseAllocations(userId: String, caseId: String): Task[List[CardAllocation]]
   def allocate(userId: String, lotId: String, drawerId: Option[String],
     binderSlotId: Option[String], displaySlotId: Option[String], quantity: Int,
     protection: Option[String], notes: Option[String]): Task[CardAllocation]
@@ -93,25 +95,39 @@ object RoomRepository:
 
     def placeBox(userId: String, boxId: String, spaceId: String, unitId: String,
       shelfIndex: Int, stackIndex: Int, stackLevel: Int): Task[Unit] =
-      sql"""UPDATE storage_boxes b SET space_id=$spaceId,storage_unit_id=$unitId,shelf_index=$shelfIndex,
-        stack_index=$stackIndex,stack_level=$stackLevel,updated_at=NOW()
-        WHERE b.id=$boxId AND b.user_id=$userId
-          AND EXISTS(SELECT 1 FROM storage_units su JOIN collection_spaces s ON s.id=su.space_id
-            WHERE su.id=$unitId AND su.space_id=$spaceId AND s.user_id=$userId
-              AND $shelfIndex < su.shelf_count AND $stackIndex < su.positions_per_shelf
-              AND $stackLevel < su.max_stack_height)""".update.run.flatMap { n =>
-          if n == 1 then ().pure[ConnectionIO] else FC.raiseError(RuntimeException("Invalid box placement"))
-        }.transact(xa)
+      (for
+        valid <- sql"""SELECT COUNT(*) FROM storage_units su JOIN collection_spaces s ON s.id=su.space_id
+          WHERE su.id=$unitId AND su.space_id=$spaceId AND s.user_id=$userId
+            AND $shelfIndex < su.shelf_count AND $stackIndex < su.positions_per_shelf
+            AND $stackLevel < su.max_stack_height""".query[Int].unique
+        _ <- if valid == 1 then ().pure[ConnectionIO] else FC.raiseError(RuntimeException("Invalid box placement"))
+        // Stack level alone isn't enough — a box already resting at this
+        // shelf/stack but a different level would silently block the real
+        // conflict this is meant to catch (two boxes on the same level).
+        collision <- sql"""SELECT COUNT(*) FROM storage_boxes
+          WHERE storage_unit_id=$unitId AND shelf_index=$shelfIndex
+            AND stack_index=$stackIndex AND stack_level=$stackLevel AND id<>$boxId""".query[Int].unique
+        _ <- if collision == 0 then ().pure[ConnectionIO] else FC.raiseError(RuntimeException("That stack position is already occupied"))
+        n <- sql"""UPDATE storage_boxes SET space_id=$spaceId,storage_unit_id=$unitId,shelf_index=$shelfIndex,
+          stack_index=$stackIndex,stack_level=$stackLevel,updated_at=NOW() WHERE id=$boxId AND user_id=$userId""".update.run
+        _ <- if n == 1 then ().pure[ConnectionIO] else FC.raiseError(RuntimeException("Box not found"))
+      yield ()).transact(xa)
 
     def placeBinder(userId: String, binderId: String, spaceId: String, unitId: String,
       shelfIndex: Int, shelfPosition: Int): Task[Unit] =
-      sql"""UPDATE binders b SET space_id=$spaceId,storage_unit_id=$unitId,shelf_index=$shelfIndex,
-        shelf_position=$shelfPosition,updated_at=NOW() WHERE b.id=$binderId AND b.user_id=$userId
-        AND EXISTS(SELECT 1 FROM storage_units su JOIN collection_spaces s ON s.id=su.space_id
+      (for
+        valid <- sql"""SELECT COUNT(*) FROM storage_units su JOIN collection_spaces s ON s.id=su.space_id
           WHERE su.id=$unitId AND su.space_id=$spaceId AND s.user_id=$userId
-            AND $shelfIndex < su.shelf_count AND $shelfPosition < su.positions_per_shelf)""".update.run.flatMap { n =>
-          if n == 1 then ().pure[ConnectionIO] else FC.raiseError(RuntimeException("Invalid binder placement"))
-        }.transact(xa)
+            AND $shelfIndex < su.shelf_count AND $shelfPosition < su.positions_per_shelf""".query[Int].unique
+        _ <- if valid == 1 then ().pure[ConnectionIO] else FC.raiseError(RuntimeException("Invalid binder placement"))
+        collision <- sql"""SELECT COUNT(*) FROM binders
+          WHERE storage_unit_id=$unitId AND shelf_index=$shelfIndex AND shelf_position=$shelfPosition
+            AND id<>$binderId""".query[Int].unique
+        _ <- if collision == 0 then ().pure[ConnectionIO] else FC.raiseError(RuntimeException("That shelf position is already occupied"))
+        n <- sql"""UPDATE binders SET space_id=$spaceId,storage_unit_id=$unitId,shelf_index=$shelfIndex,
+          shelf_position=$shelfPosition,updated_at=NOW() WHERE id=$binderId AND user_id=$userId""".update.run
+        _ <- if n == 1 then ().pure[ConnectionIO] else FC.raiseError(RuntimeException("Binder not found"))
+      yield ()).transact(xa)
 
     def createDisplayCase(userId: String, spaceId: String, name: String, caseType: String,
       preset: String, frameColor: String, lightColor: String, shelfCount: Int,
@@ -144,14 +160,64 @@ object RoomRepository:
         .query[(String,String,String,String,String,String,String,Int,Int,Instant,Instant)]
         .to[List].map(_.map(InventoryLot.apply.tupled)).transact(xa)
 
+    def listDrawerAllocations(userId: String, drawerId: String): Task[List[CardAllocation]] =
+      sql"""SELECT a.id,a.lot_id,a.drawer_id,a.binder_slot_id,a.display_slot_id,a.quantity,
+        a.protection,a.notes,a.created_at,a.updated_at FROM card_allocations a
+        JOIN inventory_lots l ON l.id=a.lot_id
+        JOIN storage_drawers d ON d.id=a.drawer_id
+        JOIN storage_boxes b ON b.id=d.box_id
+        WHERE l.user_id=$userId AND b.user_id=$userId AND a.drawer_id=$drawerId
+        ORDER BY a.created_at DESC"""
+        .query[(String,String,Option[String],Option[String],Option[String],Int,Option[String],Option[String],Instant,Instant)]
+        .to[List].map(_.map(CardAllocation.apply.tupled)).transact(xa)
+
+    def listCaseAllocations(userId: String, caseId: String): Task[List[CardAllocation]] =
+      sql"""SELECT a.id,a.lot_id,a.drawer_id,a.binder_slot_id,a.display_slot_id,a.quantity,
+        a.protection,a.notes,a.created_at,a.updated_at FROM card_allocations a
+        JOIN inventory_lots l ON l.id=a.lot_id
+        JOIN display_slots ds ON ds.id=a.display_slot_id
+        JOIN display_cases dc ON dc.id=ds.display_case_id
+        JOIN collection_spaces s ON s.id=dc.space_id
+        WHERE l.user_id=$userId AND s.user_id=$userId AND dc.id=$caseId
+        ORDER BY a.created_at DESC"""
+        .query[(String,String,Option[String],Option[String],Option[String],Int,Option[String],Option[String],Instant,Instant)]
+        .to[List].map(_.map(CardAllocation.apply.tupled)).transact(xa)
+
     def allocate(userId: String, lotId: String, drawerId: Option[String],
       binderSlotId: Option[String], displaySlotId: Option[String], quantity: Int,
       protection: Option[String], notes: Option[String]): Task[CardAllocation] =
       val id = java.util.UUID.randomUUID().toString
       val now = Instant.now()
       (for
-        owner <- sql"SELECT COUNT(*) FROM inventory_lots WHERE id=$lotId AND user_id=$userId".query[Int].unique
-        _ <- if owner == 1 then ().pure[ConnectionIO] else FC.raiseError(RuntimeException("Inventory lot not found"))
+        _ <- if quantity > 0 then ().pure[ConnectionIO] else FC.raiseError(RuntimeException("Quantity must be positive"))
+        // FOR UPDATE locks the lot row for the rest of this transaction, so two
+        // concurrent allocations of the same lot can't both read the same
+        // "available" count and both pass the check below.
+        owned <- sql"SELECT quantity FROM inventory_lots WHERE id=$lotId AND user_id=$userId FOR UPDATE".query[Int].option
+        total <- owned match
+          case None => FC.raiseError[Int](RuntimeException("Inventory lot not found"))
+          case Some(q) => q.pure[ConnectionIO]
+        allocated <- sql"SELECT COALESCE(SUM(quantity),0) FROM card_allocations WHERE lot_id=$lotId".query[Int].unique
+        _ <- if allocated + quantity <= total then ().pure[ConnectionIO]
+             else FC.raiseError(RuntimeException(s"Only ${total - allocated} of this card are available to place"))
+        _ <- drawerId match
+          case None => ().pure[ConnectionIO]
+          case Some(d) =>
+            sql"""SELECT COUNT(*) FROM storage_drawers dr JOIN storage_boxes b ON b.id=dr.box_id
+              WHERE dr.id=$d AND b.user_id=$userId""".query[Int].unique.flatMap(n =>
+              if n == 1 then ().pure[ConnectionIO] else FC.raiseError(RuntimeException("Box drawer not found")))
+        _ <- displaySlotId match
+          case None => ().pure[ConnectionIO]
+          case Some(ds) =>
+            for
+              belongs <- sql"""SELECT COUNT(*) FROM display_slots s
+                JOIN display_cases dc ON dc.id=s.display_case_id
+                JOIN collection_spaces sp ON sp.id=dc.space_id
+                WHERE s.id=$ds AND sp.user_id=$userId""".query[Int].unique
+              _ <- if belongs == 1 then ().pure[ConnectionIO] else FC.raiseError(RuntimeException("Display slot not found"))
+              occupied <- sql"SELECT COUNT(*) FROM card_allocations WHERE display_slot_id=$ds".query[Int].unique
+              _ <- if occupied == 0 then ().pure[ConnectionIO] else FC.raiseError(RuntimeException("That display slot is already occupied"))
+            yield ()
         _ <- sql"""INSERT INTO card_allocations(id,lot_id,drawer_id,binder_slot_id,display_slot_id,
           quantity,protection,notes,created_at,updated_at)
           VALUES($id,$lotId,$drawerId,$binderSlotId,$displaySlotId,$quantity,$protection,$notes,$now,$now)""".update.run

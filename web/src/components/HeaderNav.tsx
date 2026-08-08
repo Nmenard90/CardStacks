@@ -17,7 +17,7 @@ interface NavItem { to: string; label: string }
 const ITEMS: NavItem[] = [
   { to: '/',                   label: '🏠 Spaces' },
   { to: '/explore',            label: '🗂 Explore' },
-  { to: '/spaces/default/add', label: '⚡ Add Cards' },
+  { to: '/add',                label: '⚡ Add Cards' },
   { to: '/analyzer',           label: '🧪 Tools' },
   { to: '/convention',         label: '🎪 Convention' },
 ]
@@ -33,7 +33,7 @@ export function HeaderNav() {
           <Link
             key={item.to}
             to={item.to}
-            className={'nav-link' + (pathname === item.to || (item.to === '/' && pathname.startsWith('/spaces/') && pathname !== '/spaces/default/add') ? ' active' : '')}
+            className={'nav-link' + (pathname === item.to || (item.to === '/' && pathname.startsWith('/spaces/')) ? ' active' : '')}
           >
             {item.label}
           </Link>
@@ -52,7 +52,7 @@ export function HeaderNav() {
             <Link
               key={item.to}
               to={item.to}
-              className={'bottom-nav-link' + (pathname === item.to || (item.to === '/' && pathname.startsWith('/spaces/') && pathname !== '/spaces/default/add') ? ' active' : '')}
+              className={'bottom-nav-link' + (pathname === item.to || (item.to === '/' && pathname.startsWith('/spaces/')) ? ' active' : '')}
             >
               <span className="bnl-icon">{icon}</span>
               <span className="bnl-label">{rest.join(' ')}</span>
