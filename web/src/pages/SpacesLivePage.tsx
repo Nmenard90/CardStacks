@@ -39,6 +39,7 @@ import {
   placeCopies, placeInBinderSlot, removePlacement, setDisplayLights,
 } from '../api/rooms'
 import { createBox, createDrawer, listBoxes, updateBox } from '../api/storage'
+import { isHolo } from '../lib/rarity'
 import type {
   Binder, Card, CardAllocation, CollectionSpace, DisplayCase, DisplayCaseType,
   DisplaySlot, InventoryLot, OwnedCard, PocketSize, SpaceType, StorageBox,
@@ -46,19 +47,22 @@ import type {
 } from '../types'
 import '../styles/spaces-concept.css'
 
-/** Every card thumbnail on this page zooms the same way: hover, click, or
- *  keyboard focus opens the site-wide CardPreview overlay (non-negotiable
- *  rule #10 — every card image needs a zoom/detail interaction). */
+/** Every card thumbnail on this page zooms and shimmers the same way
+ *  CardTile does everywhere else in the app (CollectionPage, BulkAddPage,
+ *  BinderViewPage): the same .thumb-wrap/.thumb classes and holo-foil
+ *  treatment, and hover/click/keyboard-focus opens the site-wide
+ *  CardPreview overlay (non-negotiable rule #10 — every card image needs
+ *  a zoom/detail interaction). */
 function ZoomableCardImage({ card, preview }: { card: Card; preview: ReturnType<typeof usePreview> }) {
+  const holo = isHolo(card.rarity)
+  const show = () => preview.show(card.images.large || card.images.small, { holo })
   return (
-    <img
-      src={card.images.small} alt={card.name} tabIndex={0}
-      onMouseEnter={() => preview.show(card.images.large || card.images.small)}
-      onMouseLeave={() => preview.hide()}
-      onClick={() => preview.show(card.images.large || card.images.small)}
-      onFocus={() => preview.show(card.images.large || card.images.small)}
-      onBlur={() => preview.hide()}
-    />
+    <div className={'thumb-wrap' + (holo ? ' holo' : '')}>
+      <img
+        className="thumb" src={card.images.small} alt={card.name} tabIndex={0} loading="lazy"
+        onMouseEnter={show} onMouseLeave={preview.hide} onClick={show} onFocus={show} onBlur={preview.hide}
+      />
+    </div>
   )
 }
 
@@ -76,12 +80,6 @@ const BOX_PRESETS: BoxChoice[] = [
   { name: '5000 Count Box', boxType: 'row-5000', capacity: 5000, color: '#50684c', label: 'Five-row monster box' },
   { name: 'Deck Box', boxType: 'deck-100', capacity: 100, color: '#68527a', label: 'Compact sleeved deck box' },
 ]
-
-// Mirrors each preset's real internal row/divider count so the open-box
-// visual shows that many compartments instead of always a single lane.
-const BOX_ROW_COUNTS: Record<string, number> = {
-  'long-800': 1, 'deck-100': 1, 'row-1600': 2, 'row-3200': 4, 'row-5000': 5,
-}
 
 interface ShelfPreset {
   name: string; unitType: StorageUnitType; preset: string; color: string
@@ -802,14 +800,11 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
 
   const insideBox = placements.filter(matchesAllocation).sort((a, b) => byChosenSort(lots.find(l => l.id === a.lotId), lots.find(l => l.id === b.lotId)))
   const available = lots.filter(lot => lot.quantity - lot.allocated > 0 && matchesLot(lot)).sort(byChosenSort).slice(0, 40)
-
-  // Real box formats have a real number of internal rows/dividers — the
-  // visual should show that many compartments, not always a single lane.
-  const rowCount = BOX_ROW_COUNTS[box.boxType || ''] || 1
-  const visibleCards = placements.slice(0, 60)
-  const lanes: CardAllocation[][] = Array.from({ length: rowCount }, () => [])
-  visibleCards.forEach((allocation, i) => lanes[i % rowCount].push(allocation))
-  const hiddenCardCount = placements.length - visibleCards.length
+  // The backend tracks which drawer a copy is in, not which internal row —
+  // so there's no real per-card row to show. Capped generously since this
+  // grid is now the primary view, not a decorative accent.
+  const visibleInsideBox = insideBox.slice(0, 150)
+  const hiddenCardCount = insideBox.length - visibleInsideBox.length
 
   return (
     <section className="inside-box-view">
@@ -833,92 +828,86 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
 
       {message && <div className="spaces-action-message">{message}</div>}
 
-      <div className="inventory-workspace">
-        <section className={`inventory-open-box rows-${rowCount}`} style={{ '--inventory-box': box.color || '#d8d0c0' } as React.CSSProperties}>
-          <div className="inventory-lid"><b>{savedName}</b></div>
-          <div className="inventory-well">
-            {lanes.map((lane, i) => (
-              <div className="inventory-lane" key={i}>
-                <span>{rowCount > 1 ? `ROW ${i + 1}` : 'MAIN COMPARTMENT'}</span>
-                {lane.map(allocation => {
-                  const lot = lots.find(l => l.id === allocation.lotId)
-                  const card = lot && cardFor(lot.cardId)
-                  return card
-                    ? <img key={allocation.id} src={card.images.small} alt={card.name} className="inventory-card-edge" />
-                    : <i key={allocation.id} />
-                })}
-              </div>
-            ))}
-          </div>
-          {hiddenCardCount > 0 && <p className="inventory-more-note">+{hiddenCardCount} more not shown here — see the list</p>}
-        </section>
-
-        <aside>
-          <label className="inventory-search"><span>🔍</span><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search inside this box…" /></label>
-
-          <div className="inventory-filters">
-            <select value={sort} onChange={e => setSort(e.target.value as 'name' | 'condition' | 'number')}>
-              <option value="name">Sort: Name</option>
-              <option value="number">Sort: Number</option>
-              <option value="condition">Sort: Condition</option>
-            </select>
-            <select value={conditionFilter} onChange={e => setConditionFilter(e.target.value)}>
-              <option value="">All conditions</option>
-              {conditions.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <select value={variantFilter} onChange={e => setVariantFilter(e.target.value)}>
-              <option value="">All variants</option>
-              {variants.map(v => <option key={v} value={v}>{v}</option>)}
-            </select>
-            <select value={protectionFilter} onChange={e => setProtectionFilter(e.target.value)}>
-              <option value="">All protection</option>
-              {protections.map(p => <option key={p} value={p}>{p.replaceAll('_', ' ')}</option>)}
-            </select>
-            <select value={setFilter} onChange={e => setSetFilter(e.target.value)}>
-              <option value="">All sets</option>
-              {sets.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <label className="inventory-duplicates-toggle">
-              <input type="checkbox" checked={duplicatesOnly} onChange={e => setDuplicatesOnly(e.target.checked)} />
-              Duplicates only
-            </label>
-          </div>
-
-          <h3>Inside this box</h3>
-          {insideBox.map(allocation => {
-            const lot = lots.find(x => x.id === allocation.lotId)
-            const card = lot && cardFor(lot.cardId)
-            return (
-              <div className="box-copy-row" key={allocation.id}>
-                {card && <ZoomableCardImage card={card} preview={preview} />}
-                <span><b>{card?.name || lot?.cardId || 'Card'}</b><small>{lot?.condition} · {lot?.variantKey} · {lot?.edition} · {allocation.quantity} copy</small></span>
-                <span className="box-copy-actions">
-                  <button
-                    onClick={() => setMovingAllocation(allocation)}
-                    disabled={!otherBoxes.length && !binders.length && !displayCases.length}
-                    title="Move to another box, binder, or display case"
-                  >Move</button>
-                  <button onClick={() => void remove(allocation)}>Remove</button>
-                </span>
-              </div>
-            )
-          })}
-          {!placements.length && <p>This box is empty.</p>}
-          {placements.length > 0 && !insideBox.length && <p>Nothing here matches that search/filter.</p>}
-
-          <h3>Available owned copies</h3>
-          {available.map(lot => {
-            const card = cardFor(lot.cardId)
-            return (
-              <div className="box-copy-row" key={lot.id}>
-                {card && <ZoomableCardImage card={card} preview={preview} />}
-                <span><b>{card?.name || lot.cardId}</b><small>{lot.condition} · {lot.variantKey} · {lot.edition} · {lot.quantity - lot.allocated} available</small></span>
-                <button onClick={() => void add(lot)}>+ Add one</button>
-              </div>
-            )
-          })}
-        </aside>
+      <div className="box-toolbar">
+        <label className="inventory-search"><span>🔍</span><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search inside this box…" /></label>
+        <div className="inventory-filters">
+          <select value={sort} onChange={e => setSort(e.target.value as 'name' | 'condition' | 'number')}>
+            <option value="name">Sort: Name</option>
+            <option value="number">Sort: Number</option>
+            <option value="condition">Sort: Condition</option>
+          </select>
+          <select value={conditionFilter} onChange={e => setConditionFilter(e.target.value)}>
+            <option value="">All conditions</option>
+            {conditions.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <select value={variantFilter} onChange={e => setVariantFilter(e.target.value)}>
+            <option value="">All variants</option>
+            {variants.map(v => <option key={v} value={v}>{v}</option>)}
+          </select>
+          <select value={protectionFilter} onChange={e => setProtectionFilter(e.target.value)}>
+            <option value="">All protection</option>
+            {protections.map(p => <option key={p} value={p}>{p.replaceAll('_', ' ')}</option>)}
+          </select>
+          <select value={setFilter} onChange={e => setSetFilter(e.target.value)}>
+            <option value="">All sets</option>
+            {sets.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <label className="inventory-duplicates-toggle">
+            <input type="checkbox" checked={duplicatesOnly} onChange={e => setDuplicatesOnly(e.target.checked)} />
+            Duplicates only
+          </label>
+        </div>
       </div>
+
+      <section className="box-open-surface" style={{ '--box-color': box.color || '#d8d0c0' } as React.CSSProperties}>
+        <h3>Inside this box</h3>
+        {!placements.length && <p className="box-empty-note">This box is empty. Add owned copies below.</p>}
+        {placements.length > 0 && !insideBox.length && <p className="box-empty-note">Nothing here matches that search/filter.</p>}
+        {visibleInsideBox.length > 0 && (
+          <div className="box-card-grid">
+            {visibleInsideBox.map(allocation => {
+              const lot = lots.find(l => l.id === allocation.lotId)
+              const card = lot && cardFor(lot.cardId)
+              return (
+                <div className="box-card-tile" key={allocation.id}>
+                  {card ? <ZoomableCardImage card={card} preview={preview} /> : <div className="thumb-placeholder">🃏</div>}
+                  <b>{card?.name || lot?.cardId || 'Card'}</b>
+                  <small>{lot?.condition} · {lot?.variantKey}{allocation.quantity > 1 ? ` · ×${allocation.quantity}` : ''}</small>
+                  <div className="box-card-tile-actions">
+                    <button
+                      onClick={() => setMovingAllocation(allocation)}
+                      disabled={!otherBoxes.length && !binders.length && !displayCases.length}
+                      title="Move to another box, binder, or display case"
+                    >Move</button>
+                    <button onClick={() => void remove(allocation)}>Remove</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+        {hiddenCardCount > 0 && <p className="box-empty-note">+{hiddenCardCount} more — narrow it down with search or filters to see the rest.</p>}
+      </section>
+
+      <section className="box-open-surface">
+        <h3>Available owned copies</h3>
+        {!available.length && <p className="box-empty-note">Nothing available to add — everything owned is already placed somewhere, or nothing matches the current search/filter.</p>}
+        {available.length > 0 && (
+          <div className="box-card-grid">
+            {available.map(lot => {
+              const card = cardFor(lot.cardId)
+              return (
+                <div className="box-card-tile" key={lot.id}>
+                  {card ? <ZoomableCardImage card={card} preview={preview} /> : <div className="thumb-placeholder">🃏</div>}
+                  <b>{card?.name || lot.cardId}</b>
+                  <small>{lot.condition} · {lot.variantKey} · {lot.quantity - lot.allocated} available</small>
+                  <button className="box-card-add" onClick={() => void add(lot)}>+ Add one</button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </section>
 
       {movingAllocation && (
         <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setMovingAllocation(null) }}>
