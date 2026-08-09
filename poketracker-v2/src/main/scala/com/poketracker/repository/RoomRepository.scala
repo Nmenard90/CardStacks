@@ -48,6 +48,18 @@ object RoomRepository:
     private type CaseRow = (String,String,String,String,String,String,String,Boolean,Int,Int,Int,String,Instant,Instant)
 
     def listSpaces(userId: String): Task[List[CollectionSpace]] =
+      // Spaces is the logged-in landing page, so a user must never see an
+      // empty "create a space" prompt there — ensure a default space exists
+      // before reading. Guarded by NOT EXISTS (skip once the user has any
+      // space) and ON CONFLICT against uq_collection_spaces_default (the
+      // partial unique index on is_default) so two concurrent first loads
+      // can't both insert a default space.
+      val defaultId = java.util.UUID.randomUUID().toString
+      val now = Instant.now()
+      val ensureDefault = sql"""INSERT INTO collection_spaces(id,user_id,name,space_type,is_default,position,created_at,updated_at)
+        SELECT $defaultId,$userId,'My Collection Room','collection_room',TRUE,0,$now,$now
+        WHERE NOT EXISTS (SELECT 1 FROM collection_spaces WHERE user_id=$userId)
+        ON CONFLICT (user_id) WHERE is_default DO NOTHING""".update.run
       val spaces = sql"""SELECT id,user_id,name,space_type,is_default,position,created_at,updated_at
         FROM collection_spaces WHERE user_id=$userId ORDER BY position,created_at""".query[SpaceRow].to[List]
       val units = sql"""SELECT su.id,su.space_id,su.name,su.unit_type,su.preset,su.color,su.shelf_count,
@@ -64,6 +76,7 @@ object RoomRepository:
         ORDER BY ds.display_case_id,ds.shelf_index,ds.slot_index"""
         .query[(String,String,Int,Int,Option[String])].to[List]
       (for
+        _ <- ensureDefault
         sr <- spaces
         ur <- units
         cr <- cases

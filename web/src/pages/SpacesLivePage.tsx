@@ -241,6 +241,7 @@ export function SpacesLivePage() {
           <div className="user-badge">● <b>{user?.username || 'Collector'}</b></div>
           <div className="header-search-wrap">
             <input
+              type="text"
               className="header-search"
               placeholder="Search spaces, boxes, binders, or display cases…"
               value={query}
@@ -322,7 +323,7 @@ function AddSpaceModal({ onCancel, onCreate }: { onCancel: () => void; onCreate:
         <h3>+ Add Space</h3>
         <label className="modal-field">
           Name
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Back Room Archive" autoFocus />
+          <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Back Room Archive" autoFocus />
         </label>
         {touched && !name.trim() && <p className="modal-error">A space needs a name.</p>}
         <label className="modal-field">
@@ -645,7 +646,7 @@ function ShelfUnitPicker({ cancel, choose }: { cancel: () => void; choose: (pres
       {custom && (
         <div className="custom-box-builder">
           <h3>Custom shelf unit</h3>
-          <label>Name<input value={name} onChange={e => setName(e.target.value)} /></label>
+          <label>Name<input type="text" value={name} onChange={e => setName(e.target.value)} /></label>
           <label>Shelves<input type="number" min="1" max="10" value={shelfCount} onChange={e => setShelfCount(Math.max(1, Number(e.target.value)))} /></label>
           <label>Positions/shelf<input type="number" min="1" max="10" value={positionsPerShelf} onChange={e => setPositionsPerShelf(Math.max(1, Number(e.target.value)))} /></label>
           <label>Max stack height<input type="number" min="1" max="8" value={maxStackHeight} onChange={e => setMaxStackHeight(Math.max(1, Number(e.target.value)))} /></label>
@@ -814,6 +815,7 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
           <small>OPEN PHYSICAL BOX</small>
           {renaming ? (
             <input
+              type="text"
               className="edit-box-name" autoFocus value={name}
               onChange={e => setName(e.target.value)}
               onBlur={saveName}
@@ -829,7 +831,7 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
       {message && <div className="spaces-action-message">{message}</div>}
 
       <div className="box-toolbar">
-        <label className="inventory-search"><span>🔍</span><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search inside this box…" /></label>
+        <label className="inventory-search"><span>🔍</span><input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search inside this box…" /></label>
         <div className="inventory-filters">
           <select value={sort} onChange={e => setSort(e.target.value as 'name' | 'condition' | 'number')}>
             <option value="name">Sort: Name</option>
@@ -987,7 +989,7 @@ function BoxPicker({ cancel, choose }: { cancel: () => void; choose: (choice: Bo
       {custom && (
         <div className="custom-box-builder">
           <h3>Custom box</h3>
-          <label>Name<input value={name} onChange={e => setName(e.target.value)} /></label>
+          <label>Name<input type="text" value={name} onChange={e => setName(e.target.value)} /></label>
           <label>Capacity<input type="number" min="1" value={capacity} onChange={e => setCapacity(Math.max(1, Number(e.target.value)))} /></label>
           <label>Color<input type="color" value={color} onChange={e => setColor(e.target.value)} /></label>
           <button onClick={() => choose({ name: name.trim() || 'Custom Card Box', boxType: 'custom', capacity, color, label: 'Custom physical box' })}>Create custom box</button>
@@ -1082,7 +1084,7 @@ function AddBinderModal({ space, onCancel, onCreate }: {
         <h3>+ Add Binder</h3>
         <label className="modal-field">
           Name
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Base Set Master Binder" autoFocus />
+          <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Base Set Master Binder" autoFocus />
         </label>
         {touched && !name.trim() && <p className="modal-error">A binder needs a name.</p>}
         <label className="modal-field">
@@ -1100,7 +1102,7 @@ function AddBinderModal({ space, onCancel, onCreate }: {
         </label>
         <label className="modal-field">
           Cover image URL <span style={{ fontWeight: 400 }}>(optional)</span>
-          <input value={coverImage} onChange={e => setCoverImage(e.target.value)} placeholder="https://…" />
+          <input type="text" value={coverImage} onChange={e => setCoverImage(e.target.value)} placeholder="https://…" />
         </label>
         <div className="modal-btns">
           <button className="tb-btn" onClick={onCancel}>Cancel</button>
