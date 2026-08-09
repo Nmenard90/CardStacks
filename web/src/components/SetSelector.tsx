@@ -35,20 +35,29 @@ export function SetSelector({ sets, selectedId, onSelect }: Props) {
   const selected = sets.find(s => s.id === selectedId)
 
   const groups = useMemo(() => {
-    const sorted = [...sets].sort((a, b) => b.releaseDate.localeCompare(a.releaseDate))
     const ql = q.toLowerCase().trim()
     const filtered = ql
-      ? sorted.filter(s => s.name.toLowerCase().includes(ql) || s.series.toLowerCase().includes(ql))
-      : sorted
+      ? sets.filter(s => s.name.toLowerCase().includes(ql) || s.series.toLowerCase().includes(ql))
+      : sets
 
-    // Groups consecutive same-series sets — relies on `sorted` already
-    // being newest-first, so a series' sets are contiguous.
-    const out: { series: string; sets: CardSet[] }[] = []
+    // Grouped by a map first rather than by walking a release-date-sorted
+    // list and merging consecutive same-series entries — a series' sets
+    // aren't guaranteed contiguous by release date (e.g. the "Other" bucket
+    // spans years), so that approach could produce two separate groups for
+    // one series, both keyed by the same series name.
+    const bySeries = new Map<string, CardSet[]>()
     for (const s of filtered) {
-      const last = out[out.length - 1]
-      if (last && last.series === s.series) last.sets.push(s)
-      else out.push({ series: s.series, sets: [s] })
+      const existing = bySeries.get(s.series)
+      if (existing) existing.push(s)
+      else bySeries.set(s.series, [s])
     }
+
+    const out = Array.from(bySeries, ([series, setsInSeries]) => ({
+      series,
+      sets: setsInSeries.sort((a, b) => b.releaseDate.localeCompare(a.releaseDate)),
+    }))
+    // Newest series first, using each group's newest set as its release date.
+    out.sort((a, b) => b.sets[0].releaseDate.localeCompare(a.sets[0].releaseDate))
     return out
   }, [sets, q])
 
