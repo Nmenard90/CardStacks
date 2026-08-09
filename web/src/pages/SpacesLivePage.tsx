@@ -77,6 +77,12 @@ const BOX_PRESETS: BoxChoice[] = [
   { name: 'Deck Box', boxType: 'deck-100', capacity: 100, color: '#68527a', label: 'Compact sleeved deck box' },
 ]
 
+// Mirrors each preset's real internal row/divider count so the open-box
+// visual shows that many compartments instead of always a single lane.
+const BOX_ROW_COUNTS: Record<string, number> = {
+  'long-800': 1, 'deck-100': 1, 'row-1600': 2, 'row-3200': 4, 'row-5000': 5,
+}
+
 interface ShelfPreset {
   name: string; unitType: StorageUnitType; preset: string; color: string
   shelfCount: number; positionsPerShelf: number; maxStackHeight: number; label: string
@@ -797,6 +803,14 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   const insideBox = placements.filter(matchesAllocation).sort((a, b) => byChosenSort(lots.find(l => l.id === a.lotId), lots.find(l => l.id === b.lotId)))
   const available = lots.filter(lot => lot.quantity - lot.allocated > 0 && matchesLot(lot)).sort(byChosenSort).slice(0, 40)
 
+  // Real box formats have a real number of internal rows/dividers — the
+  // visual should show that many compartments, not always a single lane.
+  const rowCount = BOX_ROW_COUNTS[box.boxType || ''] || 1
+  const visibleCards = placements.slice(0, 60)
+  const lanes: CardAllocation[][] = Array.from({ length: rowCount }, () => [])
+  visibleCards.forEach((allocation, i) => lanes[i % rowCount].push(allocation))
+  const hiddenCardCount = placements.length - visibleCards.length
+
   return (
     <section className="inside-box-view">
       <header>
@@ -820,9 +834,23 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
       {message && <div className="spaces-action-message">{message}</div>}
 
       <div className="inventory-workspace">
-        <section className="inventory-open-box rows-1" style={{ '--inventory-box': box.color || '#d8d0c0' } as React.CSSProperties}>
+        <section className={`inventory-open-box rows-${rowCount}`} style={{ '--inventory-box': box.color || '#d8d0c0' } as React.CSSProperties}>
           <div className="inventory-lid"><b>{savedName}</b></div>
-          <div className="inventory-well"><div className="inventory-lane"><span>MAIN COMPARTMENT</span>{placements.slice(0, 28).map(x => <i key={x.id} />)}</div></div>
+          <div className="inventory-well">
+            {lanes.map((lane, i) => (
+              <div className="inventory-lane" key={i}>
+                <span>{rowCount > 1 ? `ROW ${i + 1}` : 'MAIN COMPARTMENT'}</span>
+                {lane.map(allocation => {
+                  const lot = lots.find(l => l.id === allocation.lotId)
+                  const card = lot && cardFor(lot.cardId)
+                  return card
+                    ? <img key={allocation.id} src={card.images.small} alt={card.name} className="inventory-card-edge" />
+                    : <i key={allocation.id} />
+                })}
+              </div>
+            ))}
+          </div>
+          {hiddenCardCount > 0 && <p className="inventory-more-note">+{hiddenCardCount} more not shown here — see the list</p>}
         </section>
 
         <aside>
