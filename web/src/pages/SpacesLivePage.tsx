@@ -42,7 +42,7 @@ import {
   getDrawerPlacements, getSpaceInventory, listSpaces, placeBinder, placeBox,
   placeCopies, placeInBinderSlot, removePlacement, setDisplayLights,
 } from '../api/rooms'
-import { createBox, createDrawer, listBoxes, updateBox } from '../api/storage'
+import { createBox, createDrawer, deleteBox, listBoxes, updateBox } from '../api/storage'
 import type {
   Binder, Card, CardAllocation, CollectionSpace, DisplayCase, DisplayCaseType,
   DisplaySlot, InventoryLot, OwnedCard, PocketSize, SpaceType, StorageBox,
@@ -907,6 +907,23 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
     catch { setMessage('Could not rename this box.'); setName(savedName) }
   }
 
+  /** The backend cascades to drawers and un-assigns cards (not deletes them —
+   *  they stay in the collection, just no longer allocated to this box). */
+  const deleteThisBox = async () => {
+    const cardCount = placements.reduce((n, x) => n + x.quantity, 0)
+    const warning = cardCount > 0
+      ? `Delete "${savedName}"? Its ${cardCount} card${cardCount === 1 ? '' : 's'} will stay in your collection, just no longer assigned to a box.`
+      : `Delete "${savedName}"?`
+    if (!window.confirm(warning)) return
+    try {
+      await deleteBox(box.id)
+      await onRenamed()
+      close()
+    } catch {
+      setMessage('Could not delete this box.')
+    }
+  }
+
   const q = search.trim().toLowerCase()
   const matchesLot = (lot: InventoryLot | undefined) => {
     if (!lot) return true
@@ -962,6 +979,7 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
           )}
           <p>{box.boxType} · {placements.reduce((n, x) => n + x.quantity, 0)} of {box.capacity || 'custom'} cards tracked</p>
         </div>
+        <button onClick={() => void deleteThisBox()} style={{ color: '#fca5a5', borderColor: 'rgba(239,68,68,0.4)' }}>🗑 Delete box</button>
       </header>
 
       {message && <div className="spaces-action-message">{message}</div>}
