@@ -705,10 +705,23 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   // "Add a new card" — searches the whole catalog (not just what's already
   // owned-but-unplaced), so a card that isn't owned yet at all can be added
   // straight into this box instead of needing a trip to Add Cards first.
+  // Boxes are specifically for bulk, so this needs to support rapid repeat
+  // clicks the way Quick Add does — clicking a tile bumps a local counter
+  // immediately (no network wait per click) and a short pause after the
+  // last click flushes the whole queued count in one save + one placement,
+  // instead of one full round trip per copy.
   const [catalogQuery, setCatalogQuery] = useState('')
   const [catalogHits, setCatalogHits] = useState<Card[]>([])
   const [catalogSearching, setCatalogSearching] = useState(false)
-  const [addingCardId, setAddingCardId] = useState<string | null>(null)
+  const [pendingAdds, setPendingAdds] = useState<Record<string, number>>({})
+  const pendingRef = useRef<Record<string, number>>({})
+  const flushTimers = useRef<Record<string, number>>({})
+  // Serializes flushes per card: if a second batch of clicks lands while
+  // the first batch's save is still in flight, it waits for that save to
+  // actually land instead of reading pre-save owned/lot state and racing
+  // it — saveEntry is a full REPLACE, so two concurrent flushes for the
+  // same card would otherwise silently overwrite each other.
+  const flushChain = useRef<Record<string, Promise<void>>>({})
   const catalogTimer = useRef<number | null>(null)
 
   const load = async () => {
@@ -738,38 +751,85 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
     return () => { if (catalogTimer.current) clearTimeout(catalogTimer.current) }
   }, [catalogQuery])
 
+  // Flushes any still-queued bulk-add clicks if the box is closed mid-batch
+  // (only cancelling the debounce timers, with no matching flush, would
+  // silently drop clicks the badge already promised were queued). No
+  // component setState here — it's already unmounting — this is the raw
+  // save+place work with no UI feedback to show afterward.
+  useEffect(() => () => {
+    Object.values(flushTimers.current).forEach(t => window.clearTimeout(t))
+    for (const [cardId, qty] of Object.entries(pendingRef.current)) {
+      if (!qty) continue
+      flushChain.current[cardId] = (flushChain.current[cardId] ?? Promise.resolve()).then(async () => {
+        try {
+          const freshOwned = await getOwnedCards(userId)
+          const existing = freshOwned.find(o => o.cardId === cardId)
+          const conds = existing ? existing.conditions.map(c => ({ ...c })) : []
+          const nm = conds.find(c => c.condition === 'NM')
+          if (nm) nm.quantity += qty
+          else conds.push({ condition: 'NM', quantity: qty })
+          await saveEntry(userId, cardId, conds, 'NM')
+          const freshLots = await getSpaceInventory(userId)
+          const lot = freshLots.find(l =>
+            l.cardId === cardId && l.condition === 'NM' && l.variantKey === 'standard' && l.quantity - l.allocated > 0,
+          )
+          if (lot) await placeCopies(userId, { lotId: lot.id, drawerId: drawer.id, quantity: Math.min(qty, lot.quantity - lot.allocated), protection: 'raw' })
+        } catch { /* best-effort on unmount — nothing left to show the user */ }
+      })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const cardFor = (cardId: string) => owned.find(x => x.cardId === cardId)?.card
 
-  /** Marks one more NM copy owned (creating the collection entry if this
-   *  card wasn't owned at all yet) and immediately places it in this box —
-   *  the shortcut for "I don't have to leave this box to add a new card." */
-  const addNewCard = async (card: Card) => {
-    setAddingCardId(card.id)
-    setMessage(`Adding ${card.name}…`)
+  /** The actual save + place for one card's queued batch — always reads
+   *  fresh owned/lot state right before writing (never the component's
+   *  `owned` state, which could be stale mid-batch) and only ever runs one
+   *  at a time per card via flushChain, so two overlapping batches for the
+   *  same card can't read-before-the-other's-write and clobber each other. */
+  const commitNewCard = async (cardId: string, qty: number, cardName: string) => {
+    setMessage(`Adding ${qty} × ${cardName}…`)
     try {
-      const existing = owned.find(o => o.cardId === card.id)
+      const freshOwned = await getOwnedCards(userId)
+      const existing = freshOwned.find(o => o.cardId === cardId)
       const conds = existing ? existing.conditions.map(c => ({ ...c })) : []
       const nm = conds.find(c => c.condition === 'NM')
-      if (nm) nm.quantity += 1
-      else conds.push({ condition: 'NM', quantity: 1 })
-      await saveEntry(userId, card.id, conds, 'NM')
+      if (nm) nm.quantity += qty
+      else conds.push({ condition: 'NM', quantity: qty })
+      await saveEntry(userId, cardId, conds, 'NM')
 
       const freshLots = await getSpaceInventory(userId)
       const lot = freshLots.find(l =>
-        l.cardId === card.id && l.condition === 'NM' && l.variantKey === 'standard' && l.quantity - l.allocated > 0,
+        l.cardId === cardId && l.condition === 'NM' && l.variantKey === 'standard' && l.quantity - l.allocated > 0,
       )
       if (lot) {
-        await placeCopies(userId, { lotId: lot.id, drawerId: drawer.id, quantity: 1, protection: 'raw' })
-        setMessage(`Added ${card.name}.`)
+        await placeCopies(userId, { lotId: lot.id, drawerId: drawer.id, quantity: Math.min(qty, lot.quantity - lot.allocated), protection: 'raw' })
+        await load()
+        setMessage(`Added ${qty} × ${cardName}.`)
       } else {
-        setMessage(`${card.name} is now in your collection, but couldn't be auto-placed — add it from "Available owned copies" below.`)
+        await load()
+        setMessage(`${cardName} is now in your collection, but couldn't be auto-placed — add it from "Available owned copies" below.`)
       }
-      await load()
     } catch (e) {
+      await load()
       setMessage(e instanceof Error ? e.message : 'Could not add that card.')
-    } finally {
-      setAddingCardId(null)
     }
+  }
+
+  /** One click = one more copy queued, instantly (the badge updates from
+   *  pendingRef, not a network response) — click the same card as many
+   *  times as you're dropping copies in the box, exactly like Quick Add. */
+  const bumpNewCard = (card: Card) => {
+    pendingRef.current[card.id] = (pendingRef.current[card.id] ?? 0) + 1
+    setPendingAdds({ ...pendingRef.current })
+    if (flushTimers.current[card.id]) window.clearTimeout(flushTimers.current[card.id])
+    flushTimers.current[card.id] = window.setTimeout(() => {
+      const qty = pendingRef.current[card.id]
+      if (!qty) return
+      delete pendingRef.current[card.id]
+      setPendingAdds({ ...pendingRef.current })
+      flushChain.current[card.id] = (flushChain.current[card.id] ?? Promise.resolve())
+        .then(() => commitNewCard(card.id, qty, card.name))
+    }, 700)
   }
 
   const add = async (lot: InventoryLot) => {
@@ -966,6 +1026,7 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
 
       <section className="box-open-surface">
         <h3>Add a new card</h3>
+        <p className="box-empty-note">Boxes are for bulk — click a card to drop one in, click again for more. A moment after you stop clicking it, they're saved and placed all at once.</p>
         <label className="inventory-search">
           <span>🔍</span>
           <input
@@ -979,17 +1040,20 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
         )}
         {catalogHits.length > 0 && (
           <div className="box-card-grid">
-            {catalogHits.slice(0, 30).map(card => (
-              <div className="box-card-tile" key={card.id}>
-                <CardThumb card={card} preview={preview} />
-                <b>{card.name}</b>
-                <small>#{card.number} · {card.setId}</small>
+            {catalogHits.slice(0, 30).map(card => {
+              const queued = pendingAdds[card.id] ?? 0
+              return (
                 <button
-                  className="box-card-add" disabled={addingCardId === card.id}
-                  onClick={() => void addNewCard(card)}
-                >{addingCardId === card.id ? 'Adding…' : '+ Add to this box'}</button>
-              </div>
-            ))}
+                  key={card.id} className={'box-card-tile box-quick-add' + (queued ? ' queued' : '')}
+                  onClick={() => bumpNewCard(card)} title={`Click to add another copy of ${card.name}`}
+                >
+                  <CardThumb card={card} preview={preview} />
+                  <b>{card.name}</b>
+                  <small>#{card.number} · {card.setId}</small>
+                  {queued > 0 && <span className="box-quick-add-badge">+{queued} queued</span>}
+                </button>
+              )
+            })}
           </div>
         )}
       </section>

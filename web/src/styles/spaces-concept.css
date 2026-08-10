@@ -103,6 +103,23 @@
 .box-card-add { margin-top: 6px; width: 100%; }
 .box-card-tile.selected { outline: 2px solid var(--gold, #d6a958); outline-offset: 2px; }
 
+/* Bulk "click to add another copy" tiles — same specificity fix as the
+   empty display-slot buttons below (.page-tracker button would otherwise
+   win and flatten this back into a plain pill button). */
+.box-card-grid .box-quick-add {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  text-align: center; padding: 10px 8px;
+  background: #171d20; border: 1px solid #ffffff14; border-radius: 10px;
+  cursor: pointer; transition: transform .1s, border-color .15s;
+}
+.box-card-grid .box-quick-add:hover { border-color: #d6a95877; }
+.box-card-grid .box-quick-add:active { transform: scale(.97); }
+.box-card-grid .box-quick-add.queued { border-color: var(--gold, #d6a958); background: #24261a; }
+.box-quick-add-badge {
+  background: var(--gold, #d6a958); color: #211a31; font-weight: 800; font-size: 11px;
+  padding: 2px 8px; border-radius: 99px;
+}
+
 /* An empty display slot is a <button> (opens the same picker as a filled
    one's "Change"), so — same specificity trap as the room-art buttons —
    .page-tracker button (class+element) would otherwise beat plain
