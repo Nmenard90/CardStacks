@@ -18,6 +18,7 @@
 
 package com.poketracker.api
 
+import com.poketracker.models.Card
 import com.poketracker.service.CardService
 import zio.*
 import zio.http.*
@@ -25,11 +26,30 @@ import zio.json.*
 
 object CardRoutes:
 
+  private case class BrowseResponse(cards: List[Card], total: Int)
+  private given JsonEncoder[BrowseResponse] = DeriveJsonEncoder.gen
+
+  private val allowedSorts = Set("name", "price", "number", "artist", "set")
+
   val routes: Routes[CardService, Nothing] = Routes(
 
     Method.GET / "api" / "sets" -> handler {
       ZIO.serviceWithZIO[CardService](_.getSets)
         .map(sets => Response.json(sets.toJson))
+        .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
+    },
+
+    // Registered ahead of "/api/cards/:setId" — that route's string()
+    // matcher would otherwise swallow "browse" as a literal set ID.
+    Method.GET / "api" / "cards" / "browse" -> handler { (req: Request) =>
+      val qp = req.url.queryParams
+      val sort = qp.getAll("sort").headOption.filter(allowedSorts).getOrElse("name")
+      val dir = if qp.getAll("dir").headOption.contains("desc") then "desc" else "asc"
+      val page = qp.getAll("page").headOption.flatMap(_.toIntOption).map(_.max(0)).getOrElse(0)
+      val pageSize = qp.getAll("pageSize").headOption.flatMap(_.toIntOption).map(n => n.max(1).min(100)).getOrElse(60)
+
+      ZIO.serviceWithZIO[CardService](_.browseCards(sort, dir, page, pageSize))
+        .map { case (cards, total) => Response.json(BrowseResponse(cards, total).toJson) }
         .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
     },
 

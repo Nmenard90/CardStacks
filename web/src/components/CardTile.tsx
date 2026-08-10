@@ -33,6 +33,12 @@ interface Props {
   purchases?: PurchaseMap
   /** If given, each owned condition gets a "log what you paid" control. */
   onSetPurchase?: (cond: string, price: number) => void
+  /** Which set this card is from, shown on the tile — only meaningful (and
+   *  only passed) where a grid can mix cards from more than one set: cross-set
+   *  search/browse, and the bulk-add session list. Browsing one set already
+   *  says its name once in the banner above the grid, so tiles there leave
+   *  this unset rather than repeating it on every single card. */
+  setName?: string
 }
 
 /**
@@ -46,7 +52,7 @@ function gainLossPct(paid: number, market: number): number | null {
   return ((market - paid) / paid) * 100
 }
 
-export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, onAdjCond, onPreview, onAddToBinder, purchases, onSetPurchase }: Props) {
+export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, onAdjCond, onPreview, onAddToBinder, purchases, onSetPurchase, setName }: Props) {
   const [editingPurchase, setEditingPurchase] = useState<string | null>(null)
   const [purchaseInput, setPurchaseInput] = useState('')
   const [detailsOpen, setDetailsOpen] = useState(false)
@@ -107,6 +113,7 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
         )}
         <div className="cinfo">
           <div className="cname" title={card.name}>{card.name}</div>
+          {setName && <div className="cmeta cset" title={setName}>{setName}</div>}
           <div className="cmeta">#{card.number} · {card.rarity || '?'}</div>
           <div className="cmeta" style={{ opacity: 0.6 }}>{card.artist ? '✏ ' + card.artist : ''}</div>
           <div className={'cprice' + (price === 0 ? ' no-price' : '')}>

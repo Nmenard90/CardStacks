@@ -19,7 +19,7 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { getCards, getSets, searchCards } from '../api/cards'
+import { browseCards, getCards, getSets, searchCards, type BrowseSort } from '../api/cards'
 import { bulkSave, getCollection, getOwnedCards, getStats, saveEntry } from '../api/collection'
 import { BinderPickerModal } from '../components/BinderPickerModal'
 import { CardTile } from '../components/CardTile'
@@ -69,6 +69,17 @@ export function CollectionPage() {
   const [globalHits, setGlobalHits] = useState<Card[]>([])
   const [globalSearching, setGlobalSearching] = useState(false)
   const globalTimer = useRef<number | null>(null)
+
+  // "All Sets" + no search query: a real paginated browse of the whole
+  // catalog (server-sorted — too large to fetch and sort client-side),
+  // instead of the old blank "type something to search" placeholder.
+  const [browseSort, setBrowseSort] = useState<BrowseSort>('name')
+  const [browseDir, setBrowseDir] = useState<'asc' | 'desc'>('asc')
+  const [browseList, setBrowseList] = useState<Card[]>([])
+  const [browseTotal, setBrowseTotal] = useState(0)
+  const [browsePage, setBrowsePage] = useState(0)
+  const [browseLoading, setBrowseLoading] = useState(false)
+  const BROWSE_PAGE_SIZE = 60
 
   const userId = user?.id ?? ''
 
@@ -144,7 +155,37 @@ export function CollectionPage() {
     return () => { if (globalTimer.current) clearTimeout(globalTimer.current) }
   }, [search, setTotals, activeSetId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Loads page 0 of the whole-catalog browse whenever "All Sets" is picked
+  // with no search typed, or the sort changes while already there.
+  useEffect(() => {
+    if (!user || activeSetId !== ALL_SETS || search.trim().length >= 2) return
+    let cancelled = false
+    setBrowsePage(0)
+    setBrowseLoading(true)
+    browseCards({ sort: browseSort, dir: browseDir, page: 0, pageSize: BROWSE_PAGE_SIZE })
+      // Defensive fallback, not just the happy path: an old/mismatched
+      // backend responding to this route with something other than
+      // {cards,total} must degrade to an empty page, not crash the whole
+      // app on `undefined.filter` further down.
+      .then(res => { if (!cancelled) { setBrowseList(res?.cards ?? []); setBrowseTotal(res?.total ?? 0) } })
+      .catch(() => { if (!cancelled) toast('Could not load the catalog.') })
+      .finally(() => { if (!cancelled) setBrowseLoading(false) })
+    return () => { cancelled = true }
+  }, [user, activeSetId, search, browseSort, browseDir]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadMoreBrowse = () => {
+    const nextPage = browsePage + 1
+    setBrowseLoading(true)
+    browseCards({ sort: browseSort, dir: browseDir, page: nextPage, pageSize: BROWSE_PAGE_SIZE })
+      .then(res => { setBrowseList(prev => [...prev, ...(res?.cards ?? [])]); setBrowsePage(nextPage) })
+      .catch(() => toast('Could not load more cards.'))
+      .finally(() => setBrowseLoading(false))
+  }
+
   const cardById = useMemo(() => new Map(cards.map(c => [c.id, c])), [cards])
+  // Only consulted for cross-set grids (search-all, catalog browse) — a
+  // single-set grid already names its set once in the banner above it.
+  const setNameById = useMemo(() => new Map(sets.map(s => [s.id, s.name])), [sets])
 
   /** Saves one card's current local entry to the backend for real. */
   const persist = (card: Card, entry: Entry) => {
@@ -317,17 +358,23 @@ export function CollectionPage() {
     )
   }, [cards, search, isSearchMode, allSets])
 
+  // The catalog-browse list ("All Sets", nothing typed), filtered by "owned only".
+  const browseDisplay = useMemo(
+    () => browseList.filter(c => !ownedOnly || totalQty(coll[c.id]?.conds ?? {}) > 0),
+    [browseList, coll, ownedOnly],
+  )
+
   // Which single list of cards to actually show, based on the current
   // combination of search-mode and set-scope.
   const displayCards = isSearchMode
     ? (allSets ? globalHits : withinSetHits).filter(c => !ownedOnly || totalQty(coll[c.id]?.conds ?? {}) > 0)
-    : filtered
+    : allSets ? browseDisplay : filtered
 
   const set = sets.find(s => s.id === activeSetId)
   const ownedInSet = cards.filter(c => totalQty(coll[c.id]?.conds ?? {}) > 0).length
   const setValue = cards.reduce((sum, c) => sum + cardValue(coll[c.id]?.conds ?? {}, c), 0)
   const completion = set && set.total > 0 ? Math.round((ownedInSet / set.total) * 100) : 0
-  const gridReady = isSearchMode ? (allSets ? !globalSearching : true) : !cardsLoading
+  const gridReady = isSearchMode ? (allSets ? !globalSearching : true) : allSets ? !browseLoading || browseList.length > 0 : !cardsLoading
 
   if (!user) return <div className="page-tracker"><LoginScreen /></div>
 
@@ -383,21 +430,41 @@ export function CollectionPage() {
           </div>
         </div>
 
-        {/* Toolbar */}
-        <div className="toolbar">
-          <span className="sort-label">Sort:</span>
-          {(['number', 'value', 'qty', 'name'] as SortMode[]).map(m => (
-            <button key={m} className={'tb-btn' + (sort === m ? ' active' : '')} onClick={() => setSort(m)}>
-              {m === 'number' ? 'Card #' : m === 'value' ? 'Value ↓' : m === 'qty' ? 'Qty ↓' : 'Name'}
+        {/* Toolbar — the whole-catalog browse gets its own sort set (Set/
+            Price/Artist make sense across sets; per-set actions like
+            Export/Clear set don't, so they're swapped out entirely here
+            rather than just disabled). */}
+        {allSets && !isSearchMode ? (
+          <div className="toolbar">
+            <span className="sort-label">Sort:</span>
+            {(['name', 'price', 'set', 'number', 'artist'] as BrowseSort[]).map(m => (
+              <button key={m} className={'tb-btn' + (browseSort === m ? ' active' : '')} onClick={() => setBrowseSort(m)}>
+                {m === 'name' ? 'Name' : m === 'price' ? 'Price' : m === 'set' ? 'Set' : m === 'number' ? 'Card #' : 'Artist'}
+              </button>
+            ))}
+            <button className="tb-btn" onClick={() => setBrowseDir(d => (d === 'asc' ? 'desc' : 'asc'))}>
+              {browseDir === 'asc' ? '↑ Ascending' : '↓ Descending'}
             </button>
-          ))}
-          <button className={'tb-btn' + (ownedOnly ? ' active' : '')} onClick={() => setOwnedOnly(o => !o)}>
-            Owned only
-          </button>
-          <button className="tb-btn" onClick={exportCSV}>⬇ Export CSV</button>
-          <button className="tb-btn" onClick={() => setImportOpen(true)}>⬆ Import CSV</button>
-          <button className="tb-btn primary" onClick={clearSet}>Clear set</button>
-        </div>
+            <button className={'tb-btn' + (ownedOnly ? ' active' : '')} onClick={() => setOwnedOnly(o => !o)}>
+              Owned only
+            </button>
+          </div>
+        ) : (
+          <div className="toolbar">
+            <span className="sort-label">Sort:</span>
+            {(['number', 'value', 'qty', 'name'] as SortMode[]).map(m => (
+              <button key={m} className={'tb-btn' + (sort === m ? ' active' : '')} onClick={() => setSort(m)}>
+                {m === 'number' ? 'Card #' : m === 'value' ? 'Value ↓' : m === 'qty' ? 'Qty ↓' : 'Name'}
+              </button>
+            ))}
+            <button className={'tb-btn' + (ownedOnly ? ' active' : '')} onClick={() => setOwnedOnly(o => !o)}>
+              Owned only
+            </button>
+            <button className="tb-btn" onClick={exportCSV}>⬇ Export CSV</button>
+            <button className="tb-btn" onClick={() => setImportOpen(true)}>⬆ Import CSV</button>
+            <button className="tb-btn primary" onClick={clearSet}>Clear set</button>
+          </div>
+        )}
 
         <div id="app-wrap">
           <div id="main">
@@ -412,8 +479,16 @@ export function CollectionPage() {
               </div>
             )}
 
-            {!isSearchMode && allSets && (
-              <div className="empty">Pick a set above to browse it, or type a name or number to search every set.</div>
+            {!isSearchMode && allSets && browseLoading && browseList.length === 0 && (
+              <div className="loading">Loading the catalog…</div>
+            )}
+            {!isSearchMode && allSets && !browseLoading && browseDisplay.length === 0 && (
+              <div className="empty">{ownedOnly ? "You don't own any cards yet." : 'No cards in the catalog.'}</div>
+            )}
+            {!isSearchMode && allSets && browseDisplay.length > 0 && (
+              <div style={{ padding: '8px 18px', color: 'var(--muted)', fontSize: 13 }}>
+                Showing {browseDisplay.length} of {browseTotal.toLocaleString()} cards
+              </div>
             )}
 
             {isSearchMode && allSets && globalSearching && <div className="loading">Searching all sets…</div>}
@@ -438,6 +513,7 @@ export function CollectionPage() {
                   return (
                     <CardTile
                       key={c.id} card={c} conds={entry.conds} selCond={entry.selCond}
+                      setName={allSets ? setNameById.get(c.setId) : undefined}
                       onAdj={d => adj(c, d)}
                       onSetQty={q => setQty(c, q)}
                       onSelectCond={cond => selectCond(c, cond)}
@@ -447,6 +523,14 @@ export function CollectionPage() {
                     />
                   )
                 })}
+              </div>
+            )}
+
+            {!isSearchMode && allSets && browseList.length < browseTotal && (
+              <div style={{ display: 'flex', justifyContent: 'center', padding: '18px 0' }}>
+                <button className="tb-btn primary" onClick={loadMoreBrowse} disabled={browseLoading}>
+                  {browseLoading ? 'Loading…' : `Load more (${(browseTotal - browseList.length).toLocaleString()} left)`}
+                </button>
               </div>
             )}
           </div>

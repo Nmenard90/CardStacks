@@ -472,6 +472,7 @@
   .page-tracker .cinfo{flex:1;min-width:0;}
   .page-tracker .cname{font-size:15px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:1px;}
   .page-tracker .cmeta{font-size:13px;color:var(--muted);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .page-tracker .cmeta.cset{color:var(--accent-ink);font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:.03em;}
   .page-tracker .cprice{font-size:13px;color:var(--green);font-family:'Space Mono',monospace;margin-bottom:5px;min-height:14px;}
   .page-tracker .cprice.no-price{color:var(--muted);}
   .page-tracker .qty-row{display:flex;align-items:center;gap:5px;}

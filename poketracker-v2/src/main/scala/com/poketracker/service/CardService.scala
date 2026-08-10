@@ -116,6 +116,10 @@ trait CardService:
    */
   def searchCards(q: String, n: Int = 60): Task[List[Card]]
 
+  /** Cross-set catalog browse, purely local (no pokemontcg.io fallback —
+   *  every already-cached card is fair game, nothing to fetch on a miss). */
+  def browseCards(sort: String, dir: String, page: Int, pageSize: Int): Task[(List[Card], Int)]
+
   /** Forces a full re-download, e.g. when a new set releases. */
   def refreshSet(setId: String): Task[Unit]
 
@@ -364,6 +368,9 @@ object CardService:
                   .as(Nil)
               }
       }
+
+    def browseCards(sort: String, dir: String, page: Int, pageSize: Int): Task[(List[Card], Int)] =
+      repo.browseCards(sort, dir, page, pageSize)
 
     def refreshSet(setId: String): Task[Unit] =
       for

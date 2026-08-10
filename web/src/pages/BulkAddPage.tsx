@@ -335,6 +335,10 @@ export function BulkAddPage() {
   )
   const totalCards = useMemo(() => tiles.reduce((s, t) => s + totalQty(t.conds), 0), [tiles])
   const totalValue = useMemo(() => tiles.reduce((s, t) => s + cardValue(t.conds, t.card), 0), [tiles])
+  // The session list can mix cards added from different sets, so (unlike a
+  // single-set grid) every tile names its own set rather than relying on a
+  // single banner above the grid.
+  const setNameById = useMemo(() => new Map(sets.map(s => [s.id, s.name])), [sets])
 
   if (!user) return <div className="page-tracker bulk-page"><LoginScreen /></div>
 
@@ -658,6 +662,7 @@ export function BulkAddPage() {
                 {tiles.map(t => (
                   <CardTile
                     key={t.card.id} card={t.card} conds={t.conds} selCond={t.selCond}
+                    setName={setNameById.get(t.card.setId)}
                     onAdj={d => dispatch({ type: 'adjSel', cardId: t.card.id, delta: d })}
                     onSetQty={q => dispatch({ type: 'setQty', cardId: t.card.id, qty: q })}
                     onSelectCond={c => dispatch({ type: 'selectCond', cardId: t.card.id, cond: c })}

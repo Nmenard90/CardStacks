@@ -29,6 +29,15 @@ trait CardRepository:
 
   def searchCards(query: String, limit: Int = 200): Task[List[Card]]
 
+  /**
+   * Cross-set catalog browse (the "All Sets" grid) — paginated and sorted.
+   * @param sort One of "name" | "price" | "number" | "artist" | "set" — the
+   *             caller (CardRoutes) whitelists this before it reaches here.
+   * @param dir  "asc" or "desc".
+   * @return Cards for this page, plus the total row count (for "N results" / paging).
+   */
+  def browseCards(sort: String, dir: String, page: Int, pageSize: Int): Task[(List[Card], Int)]
+
   def upsertSet(set: CardSet): Task[Unit]
 
   /**
@@ -188,6 +197,48 @@ object CardRepository:
                 Option[String])]
         .to[List]
         .map(_.map(toCardRow.tupled))
+        .transact(xa)
+
+    def browseCards(sort: String, dir: String, page: Int, pageSize: Int): Task[(List[Card], Int)] =
+      val asc = dir != "desc"
+      // Whitelisted at the call site (CardRoutes) — never built from raw
+      // user input, so Fragment.const here can't be used for injection.
+      val numberExpr = "(CASE WHEN c.number ~ '^[0-9]+$' THEN LPAD(c.number, 10, '0') ELSE c.number END)"
+      val orderBy = Fragment.const(sort match
+        case "price"  => s"p.price_nm ${if asc then "ASC" else "DESC"} NULLS LAST, c.name ASC"
+        case "artist" => s"c.artist ${if asc then "ASC" else "DESC"} NULLS LAST, c.name ASC"
+        case "number" => s"$numberExpr ${if asc then "ASC" else "DESC"}"
+        case "set"    => s"s.release_date ${if asc then "ASC" else "DESC"}, c.set_id, $numberExpr ASC"
+        case _        => s"c.name ${if asc then "ASC" else "DESC"}"
+      )
+      val offset = page * pageSize
+
+      val query = sql"""
+        SELECT c.id, c.set_id, c.name, c.number, c.rarity, c.artist,
+               c.image_small, c.image_large,
+               p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg,
+               c.details,
+               COUNT(*) OVER() AS total_count
+        FROM cards c
+        LEFT JOIN card_prices p ON p.card_id = c.id
+        LEFT JOIN card_sets s ON s.id = c.set_id
+        ORDER BY """ ++ orderBy ++ sql"""
+        LIMIT $pageSize OFFSET $offset
+      """
+
+      query
+        .query[(String, String, String, String, Option[String], Option[String],
+                String, String,
+                Option[Double], Option[Double], Option[Double], Option[Double], Option[Double],
+                Option[String], Int)]
+        .to[List]
+        .map { rows =>
+          val total = rows.headOption.map(_._15).getOrElse(0)
+          val cards = rows.map { case (id, setId, name, number, rarity, artist, imgS, imgL, nm, lp, mp, hp, dmg, details, _) =>
+            toCardRow(id, setId, name, number, rarity, artist, imgS, imgL, nm, lp, mp, hp, dmg, details)
+          }
+          (cards, total)
+        }
         .transact(xa)
 
     def upsertSet(set: CardSet): Task[Unit] =

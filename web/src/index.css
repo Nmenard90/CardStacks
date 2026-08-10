@@ -85,6 +85,36 @@ body{font-family:'Nunito',sans-serif;font-size:var(--fs-base);background:var(--b
 .bottom-nav-link .bnl-label{font-size:11px;font-weight:700;white-space:nowrap;}
 .bottom-nav-link.active{color:var(--accent-ink);background:rgba(255,203,5,.12);}
 
+/* "Tools" dropdown — groups single-purpose utility pages (Trade Analyzer,
+ * Convention Mode) under one nav slot instead of each getting its own
+ * top-level link. Shared markup for both the desktop row and the mobile
+ * bottom bar; only position/direction differ (menu opens down from the
+ * header, up from the fixed bottom bar so it isn't clipped by the viewport edge). */
+.tools-menu{position:relative;}
+.bottom-nav .tools-menu{flex:1;display:flex;}
+.tools-trigger{border:0;background:transparent;font:inherit;}
+.app-nav .tools-trigger{background:var(--surface2);border:var(--ink-w) solid var(--border);}
+.bottom-nav .tools-trigger{flex:1;width:100%;}
+.tools-chevron{font-size:10px;display:inline-block;transition:transform .15s;}
+.tools-trigger.open .tools-chevron{transform:rotate(180deg);}
+
+.tools-dropdown{
+  position:absolute;top:calc(100% + 6px);right:0;
+  display:none;flex-direction:column;gap:4px;min-width:200px;
+  background:var(--surface2);border:var(--ink-w) solid var(--border);
+  border-radius:var(--radius-sm);padding:6px;box-shadow:var(--shadow);
+  z-index:310;
+}
+.tools-dropdown.open{display:flex;}
+.tools-dropdown-up{top:auto;bottom:calc(100% + 10px);left:50%;right:auto;transform:translateX(-50%);}
+.tools-menu-item{
+  display:block;padding:10px 12px;border-radius:10px;color:var(--text);
+  text-decoration:none;font-size:14.5px;font-weight:600;white-space:nowrap;
+  font-family:'Nunito',sans-serif;
+}
+.tools-menu-item:hover{background:var(--surface3);}
+.tools-menu-item.active{background:var(--accent2);color:#fff;}
+
 @media (max-width:720px){
   /* Keep "Switch user" reachable in the header; the page-link row moves to
      the bottom bar so it doesn't push header content around. */
