@@ -101,6 +101,31 @@
 }
 .box-card-tile-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
 .box-card-add { margin-top: 6px; width: 100%; }
+.box-card-tile.selected { outline: 2px solid var(--gold, #d6a958); outline-offset: 2px; }
+
+/* An empty display slot is a <button> (opens the same picker as a filled
+   one's "Change"), so — same specificity trap as the room-art buttons —
+   .page-tracker button (class+element) would otherwise beat plain
+   .box-card-tile (one class) and flatten this back into a pill button. */
+.box-card-grid .box-card-tile-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; text-align: center; padding: 10px 8px; min-height: 128px;
+  background: #ffffff05; border: 1px dashed #ffffff28; border-radius: 10px;
+  cursor: pointer;
+}
+.box-card-grid .box-card-tile-empty:hover { border-color: #d6a95877; background: #ffffff08; }
+.box-card-grid .box-card-tile-empty.selected { outline: 2px solid var(--gold, #d6a958); outline-offset: 2px; }
+
+/* Display Gallery's flat (non-cabinet) layout — same shelving rhythm as
+   Storage's .physical-shelving, since it's the same idea: real content in
+   full-width sections instead of a small fixed-size decorative scene. */
+.gallery-stage-flat { max-width: 1250px; margin: 24px auto; padding: 0 24px 40px; display: flex; flex-direction: column; gap: 20px; }
+/* .box-open-surface's own margin:24px auto (for when it's a plain block
+   child elsewhere, e.g. inside a box) has left/right:auto — auto margins
+   on a flex item disable cross-axis stretch entirely, per the flexbox
+   spec, so it shrank to its content's width instead of filling the row. */
+.gallery-stage-flat .box-open-surface { margin: 0; }
+.display-gallery.lights-off .box-open-surface { filter: brightness(0.72) saturate(0.85); }
 
 @media (max-width: 850px) {
   .box-toolbar { padding: 10px; }
@@ -340,17 +365,22 @@
 .slot-empty-hint { font-size: 9px; color: #849092; letter-spacing: 0.06em; }
 
 .display-slot-inspector {
-  position: absolute;
+  /* Fixed (not absolute) now that the display view is a normal scrolling
+     page (.gallery-stage-flat) rather than a fixed-height staged scene —
+     absolute would've positioned this against whatever ancestor happens to
+     be the nearest positioned one, not reliably the viewport. */
+  position: fixed;
   right: 3%;
-  top: 8%;
+  top: 96px;
   width: 280px;
-  max-height: 78%;
+  max-height: 78vh;
   overflow-y: auto;
   background: #0d1214ed;
   border: 1px solid #ffffff1d;
   border-radius: 12px;
   padding: 14px;
-  z-index: 9;
+  z-index: 250;
+  box-shadow: 0 20px 50px #000a;
 }
 .display-slot-inspector > header {
   display: flex;

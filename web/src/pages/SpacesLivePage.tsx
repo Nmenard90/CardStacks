@@ -24,7 +24,7 @@
  *   components/CardPreview (site-wide card zoom overlay), components/Toast
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { HeaderNav } from '../components/HeaderNav'
 import { LoginScreen } from '../components/LoginScreen'
@@ -33,7 +33,8 @@ import { useToast } from '../components/Toast'
 import { usePreview } from '../components/CardPreview'
 import { CardThumb } from '../components/CardThumb'
 import { createBinder, getBinder, listBinders, updateBinder } from '../api/binders'
-import { getOwnedCards } from '../api/collection'
+import { searchCards } from '../api/cards'
+import { getOwnedCards, saveEntry } from '../api/collection'
 import {
   createDisplayCase, createSpace, createStorageUnit, getCaseAllocations,
   getDrawerPlacements, getSpaceInventory, listSpaces, placeBinder, placeBox,
@@ -701,6 +702,15 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   const [name, setName] = useState(box.name)
   const preview = usePreview()
 
+  // "Add a new card" — searches the whole catalog (not just what's already
+  // owned-but-unplaced), so a card that isn't owned yet at all can be added
+  // straight into this box instead of needing a trip to Add Cards first.
+  const [catalogQuery, setCatalogQuery] = useState('')
+  const [catalogHits, setCatalogHits] = useState<Card[]>([])
+  const [catalogSearching, setCatalogSearching] = useState(false)
+  const [addingCardId, setAddingCardId] = useState<string | null>(null)
+  const catalogTimer = useRef<number | null>(null)
+
   const load = async () => {
     try {
       const [nextLots, nextPlacements, nextOwned] = await Promise.all([
@@ -713,7 +723,54 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   }
   useEffect(() => { void load() }, [drawer.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Debounced catalog search, waiting a moment after typing stops — mirrors
+  // the same pattern used everywhere else in the app (Explore, Convention).
+  useEffect(() => {
+    if (catalogTimer.current) clearTimeout(catalogTimer.current)
+    const q = catalogQuery.trim()
+    catalogTimer.current = window.setTimeout(async () => {
+      if (q.length < 2) { setCatalogHits([]); setCatalogSearching(false); return }
+      setCatalogSearching(true)
+      try { setCatalogHits(await searchCards(q)) }
+      catch { setCatalogHits([]) }
+      finally { setCatalogSearching(false) }
+    }, 300)
+    return () => { if (catalogTimer.current) clearTimeout(catalogTimer.current) }
+  }, [catalogQuery])
+
   const cardFor = (cardId: string) => owned.find(x => x.cardId === cardId)?.card
+
+  /** Marks one more NM copy owned (creating the collection entry if this
+   *  card wasn't owned at all yet) and immediately places it in this box —
+   *  the shortcut for "I don't have to leave this box to add a new card." */
+  const addNewCard = async (card: Card) => {
+    setAddingCardId(card.id)
+    setMessage(`Adding ${card.name}…`)
+    try {
+      const existing = owned.find(o => o.cardId === card.id)
+      const conds = existing ? existing.conditions.map(c => ({ ...c })) : []
+      const nm = conds.find(c => c.condition === 'NM')
+      if (nm) nm.quantity += 1
+      else conds.push({ condition: 'NM', quantity: 1 })
+      await saveEntry(userId, card.id, conds, 'NM')
+
+      const freshLots = await getSpaceInventory(userId)
+      const lot = freshLots.find(l =>
+        l.cardId === card.id && l.condition === 'NM' && l.variantKey === 'standard' && l.quantity - l.allocated > 0,
+      )
+      if (lot) {
+        await placeCopies(userId, { lotId: lot.id, drawerId: drawer.id, quantity: 1, protection: 'raw' })
+        setMessage(`Added ${card.name}.`)
+      } else {
+        setMessage(`${card.name} is now in your collection, but couldn't be auto-placed — add it from "Available owned copies" below.`)
+      }
+      await load()
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : 'Could not add that card.')
+    } finally {
+      setAddingCardId(null)
+    }
+  }
 
   const add = async (lot: InventoryLot) => {
     setMessage('Placing one copy…')
@@ -905,6 +962,36 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
           </div>
         )}
         {hiddenCardCount > 0 && <p className="box-empty-note">+{hiddenCardCount} more — narrow it down with search or filters to see the rest.</p>}
+      </section>
+
+      <section className="box-open-surface">
+        <h3>Add a new card</h3>
+        <label className="inventory-search">
+          <span>🔍</span>
+          <input
+            type="text" value={catalogQuery} onChange={e => setCatalogQuery(e.target.value)}
+            placeholder="Search every set by name or number — adds straight into this box"
+          />
+        </label>
+        {catalogQuery.trim().length >= 2 && catalogSearching && <p className="box-empty-note">Searching…</p>}
+        {catalogQuery.trim().length >= 2 && !catalogSearching && catalogHits.length === 0 && (
+          <p className="box-empty-note">No cards found for "{catalogQuery.trim()}".</p>
+        )}
+        {catalogHits.length > 0 && (
+          <div className="box-card-grid">
+            {catalogHits.slice(0, 30).map(card => (
+              <div className="box-card-tile" key={card.id}>
+                <CardThumb card={card} preview={preview} />
+                <b>{card.name}</b>
+                <small>#{card.number} · {card.setId}</small>
+                <button
+                  className="box-card-add" disabled={addingCardId === card.id}
+                  onClick={() => void addNewCard(card)}
+                >{addingCardId === card.id ? 'Adding…' : '+ Add to this box'}</button>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="box-open-surface">
@@ -1225,53 +1312,38 @@ function Displays({ userId, space, reload, focusCaseId, clearFocus }: {
       )}
 
       {display ? (
-        <div className="gallery-stage">
-          <div className="gallery-wall" />
-          <div className="gallery-floor" />
-          <section className="museum-cabinet">
-            <div className="cabinet-crown"><span><small>CURATED COLLECTION</small><b>{display.name}</b></span><i className="cabinet-lock">◆</i></div>
-            <div className="led top-led" />
-            <div className="cabinet-interior">
-              <i className="back-panel" /><i className="door left-door" /><i className="door right-door" /><i className="center-seam" />
-              <div className="cabinet-shelves">
-                {shelves.map((row, i) => (
-                  <div className="cabinet-shelf-row" key={i}>
-                    {row.map(slot => {
-                      const allocation = allocationFor(slot.id)
-                      const lot = allocation && lots.find(l => l.id === allocation.lotId)
-                      const card = lot && cardFor(lot.cardId)
-                      return (
-                        <button
-                          key={slot.id}
-                          className={'display-slot-btn' + (card ? ' filled' : ' empty') + (activeSlot?.id === slot.id ? ' selected' : '')}
-                          onClick={() => setActiveSlot(slot)}
-                        >
-                          {card ? (
-                            <>
-                              <i className="spotlight" />
-                              <img
-                                src={card.images.small} alt={card.name}
-                                onMouseEnter={() => preview.show(card.images.large || card.images.small)}
-                                onMouseLeave={() => preview.hide()}
-                                onClick={e => { e.stopPropagation(); preview.show(card.images.large || card.images.small) }}
-                              />
-                              <em className="card-stand" />
-                              <span><b>{card.name}</b><small>{lot?.condition} · {lot?.variantKey}</small></span>
-                            </>
-                          ) : (
-                            <span className="slot-empty-hint">+ Add</span>
-                          )}
-                        </button>
-                      )
-                    })}
-                  </div>
-                ))}
+        <div className="gallery-stage-flat">
+          {shelves.map((row, i) => (
+            <section className="box-open-surface" key={i}>
+              <h3>Shelf {String.fromCharCode(65 + i)}</h3>
+              <div className="box-card-grid">
+                {row.map(slot => {
+                  const allocation = allocationFor(slot.id)
+                  const lot = allocation && lots.find(l => l.id === allocation.lotId)
+                  const card = lot && cardFor(lot.cardId)
+                  return card ? (
+                    <div className={'box-card-tile' + (activeSlot?.id === slot.id ? ' selected' : '')} key={slot.id}>
+                      <ZoomableCardImage card={card} preview={preview} />
+                      <b>{card.name}</b>
+                      <small>{lot?.condition} · {lot?.variantKey}</small>
+                      <div className="box-card-tile-actions">
+                        <button onClick={() => setActiveSlot(slot)}>Change</button>
+                        <button onClick={() => void remove(allocation!)}>Remove</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      className={'box-card-tile box-card-tile-empty' + (activeSlot?.id === slot.id ? ' selected' : '')}
+                      key={slot.id} onClick={() => setActiveSlot(slot)}
+                    >
+                      <div className="thumb-placeholder">🃏</div>
+                      <span className="slot-empty-hint">+ Add</span>
+                    </button>
+                  )
+                })}
               </div>
-              <i className="glass-reflection" />
-            </div>
-            <footer><span><i className="green" /> Settings saved</span><span>{display.slots.length} slots</span><span>LED display</span></footer>
-            <div className="cabinet-base"><i /><i /><i /></div>
-          </section>
+            </section>
+          ))}
 
           {activeSlot && (
             <aside className="display-slot-inspector">
