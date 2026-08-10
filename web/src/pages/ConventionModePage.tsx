@@ -20,6 +20,7 @@ import { getSets, searchCards } from '../api/cards'
 import { useUser } from '../context/UserContext'
 import { HeaderNav } from '../components/HeaderNav'
 import { usePreview } from '../components/CardPreview'
+import { CardThumb } from '../components/CardThumb'
 import { CONDS, condPrice, type Cond } from '../lib/conditions'
 import type { Card, ConventionPriceReport, PaymentType, VendorNote } from '../types'
 
@@ -255,13 +256,7 @@ export function ConventionModePage() {
               <div className="search-results" style={{ maxHeight: 360, overflowY: 'auto' }}>
                 {results.map(card => (
                   <button key={card.id} className="result-row" onClick={() => selectCard(card)}>
-                    {card.images?.small && (
-                      <img
-                        src={card.images.small} alt={card.name}
-                        onMouseEnter={() => preview.show(card.images.large || card.images.small)}
-                        onMouseLeave={() => preview.hide()}
-                      />
-                    )}
+                    <CardThumb card={card} preview={preview} onClick={() => selectCard(card)} className="result-row-img" />
                     <span><b>{card.name}</b><small>#{card.number} · {setName.get(card.setId) ?? card.setId}</small></span>
                     <strong>{money(condPrice(card, 'NM'))}</strong>
                   </button>
@@ -271,13 +266,7 @@ export function ConventionModePage() {
 
             {selectedCard && (
               <div className="selected-card">
-                {selectedCard.images?.small && (
-                  <img
-                    src={selectedCard.images.small} alt={selectedCard.name}
-                    onMouseEnter={() => preview.show(selectedCard.images.large || selectedCard.images.small)}
-                    onMouseLeave={() => preview.hide()}
-                  />
-                )}
+                <CardThumb card={selectedCard} preview={preview} className="selected-card-img" />
                 <div>
                   <h3>{selectedCard.name}</h3>
                   <p>#{selectedCard.number} · {selectedSetName}{selectedCard.rarity ? ` · ${selectedCard.rarity}` : ''}</p>

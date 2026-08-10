@@ -11,9 +11,9 @@
 
 import { useState } from 'react'
 import { getPriceHistory } from '../api/cards'
+import { CardThumb } from './CardThumb'
 import type { PreviewOpts } from './CardPreview'
 import { CONDS, COND_COLORS, baseCond, basePrice, cardValue, condPrice, dominantCondClass, totalQty, type CondMap, type PurchaseMap } from '../lib/conditions'
-import { isHolo } from '../lib/rarity'
 import type { Card, PriceHistoryPoint } from '../types'
 
 interface Props {
@@ -98,19 +98,10 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
   return (
     <div className={`pcard${qty > 0 ? ' owned' : ''} ${dominantCondClass(conds)}`}>
       <div className="pcard-top">
-        {card.images?.small ? (
-          <div className={'thumb-wrap' + (isHolo(card.rarity) ? ' holo' : '')}>
-            <img
-              className="thumb" src={card.images.small} alt={card.name} loading="lazy"
-              onMouseEnter={() => onPreview(card.images.large || card.images.small, { holo: isHolo(card.rarity), price })}
-              onMouseLeave={() => onPreview(null)}
-              onClick={() => onPreview(card.images.large || card.images.small, { holo: isHolo(card.rarity), price })}
-            />
-            {price > 0 && <span className="price-ribbon">${price.toFixed(2)}</span>}
-          </div>
-        ) : (
-          <div className="thumb-placeholder">🃏</div>
-        )}
+        <CardThumb
+          card={card} variant={selectedVariant}
+          preview={{ show: onPreview, hide: () => onPreview(null) }}
+        />
         <div className="cinfo">
           <div className="cname" title={card.name}>{card.name}</div>
           {setName && <div className="cmeta cset" title={setName}>{setName}</div>}

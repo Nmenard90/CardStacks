@@ -25,6 +25,7 @@ import { getOwnedCards } from '../api/collection'
 import { useUser } from '../context/UserContext'
 import { HeaderNav } from '../components/HeaderNav'
 import { usePreview } from '../components/CardPreview'
+import { CardThumb } from '../components/CardThumb'
 import { CONDS, condPrice, type Cond } from '../lib/conditions'
 import type { Card } from '../types'
 
@@ -180,13 +181,7 @@ export function AnalyzerPage() {
             const price = itemPrice(item)
             return (
               <div className="tcard" key={`${item.card.id}-${i}`}>
-                {item.card.images?.small
-                  ? <img
-                      className="tcard-img" src={item.card.images.small} alt={item.card.name}
-                      onMouseEnter={() => preview.show(item.card.images.large || item.card.images.small)}
-                      onMouseLeave={() => preview.hide()}
-                    />
-                  : <div className="tcard-img" />}
+                <CardThumb card={item.card} preview={preview} className="tcard-img" />
                 <div className="tcard-info">
                   <div className="tcard-name">{item.card.name}</div>
                   <div className="tcard-set">#{item.card.number} · {item.setName}</div>
@@ -308,20 +303,8 @@ export function AnalyzerPage() {
               <div className="cp-grid">
                 {/* Capped at 48 so a large collection doesn't render thousands of thumbnails at once. */}
                 {visible.slice(0, 48).map(o => (
-                  <div
-                    key={o.cardId}
-                    className="cp-card"
-                    title={`${o.card.name} — click to add to ${collSide}`}
-                    onClick={() => addCardToSide(collSide, o.card)}
-                  >
-                    {o.card.images?.small
-                      ? <img
-                          src={o.card.images.small} alt={o.card.name}
-                          onMouseEnter={() => preview.show(o.card.images.large || o.card.images.small)}
-                          onMouseLeave={() => preview.hide()}
-                        />
-                      : <span className="cp-placeholder">🃏</span>
-                    }
+                  <div key={o.cardId} className="cp-card" title={`${o.card.name} — click to add to ${collSide}`}>
+                    <CardThumb card={o.card} preview={preview} onClick={() => addCardToSide(collSide, o.card)} />
                   </div>
                 ))}
                 {visible.length === 0 && (
@@ -357,13 +340,7 @@ export function AnalyzerPage() {
               const price = condPrice(c, 'NM')
               return (
                 <div className="mcard" key={c.id} onClick={() => addCard(c)}>
-                  {c.images?.small
-                    ? <img
-                        src={c.images.small} alt={c.name} loading="lazy"
-                        onMouseEnter={() => preview.show(c.images.large || c.images.small)}
-                        onMouseLeave={() => preview.hide()}
-                      />
-                    : <div style={{ width: 36, height: 50, background: 'var(--surface2)', borderRadius: 4, flexShrink: 0 }} />}
+                  <CardThumb card={c} preview={preview} onClick={() => addCard(c)} className="mcard-img" />
                   <div className="mcard-info">
                     <div className="mcard-name">{c.name}</div>
                     <div className="mcard-meta">#{c.number} · {setName.get(c.setId) ?? c.setId}{c.rarity ? ' · ' + c.rarity : ''}</div>

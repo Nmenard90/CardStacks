@@ -419,7 +419,11 @@
   .page-tracker .variant-chip:hover{color:var(--text);border-color:var(--accent2);}
   .page-tracker .variant-chip.sel{background:var(--accent2);border-color:var(--accent2);color:#fff;}
 
-  .page-tracker .thumb{width:92px;height:128px;object-fit:contain;border-radius:6px;background:var(--surface2);flex-shrink:0;transition:transform 0.15s;cursor:zoom-in;}
+  /* Unscoped (not `.page-tracker`-prefixed) on purpose — CardThumb renders
+     these same classes on every page (Analyzer, Binder, Convention, Spaces),
+     not just the ones wrapped in .page-tracker, and a card needs to look
+     identical wherever it's shown. */
+  .thumb{width:92px;height:128px;object-fit:contain;border-radius:6px;background:var(--surface2);flex-shrink:0;transition:transform 0.15s;cursor:zoom-in;}
 
   /* Holo shine: only for cards whose printed rarity is an actual foil/holo
      treatment. Real holo foil isn't a permanent rainbow wash sitting over
@@ -434,9 +438,9 @@
      speed on hover as a reward for looking closer. Animates `transform`
      (compositor-only, cheap) rather than `background-position` (forces a
      repaint every frame) since dozens of these can be animating at once. */
-  .page-tracker .thumb-wrap{position:relative;width:92px;height:128px;border-radius:6px;flex-shrink:0;overflow:hidden;}
-  .page-tracker .thumb-wrap .thumb{width:100%;height:100%;}
-  .page-tracker .thumb-wrap.holo::after{
+  .thumb-wrap{position:relative;width:92px;height:128px;border-radius:6px;flex-shrink:0;overflow:hidden;}
+  .thumb-wrap .thumb{width:100%;height:100%;}
+  .thumb-wrap.holo::after{
     content:'';position:absolute;top:-60%;left:-60%;width:220%;height:220%;
     pointer-events:none;
     background:linear-gradient(100deg,
@@ -457,10 +461,10 @@
     0%,100%{transform:translate(-25%,-25%);}
     50%{transform:translate(25%,25%);}
   }
-  .page-tracker .thumb-wrap.holo:hover::after{opacity:1;animation-duration:1.4s;}
+  .thumb-wrap.holo:hover::after{opacity:1;animation-duration:1.4s;}
   /* Comic price-tag sticker draped across the thumbnail corner — a real
      layout element, not just recolored text. */
-  .page-tracker .price-ribbon{
+  .price-ribbon{
     position:absolute;top:5px;left:2px;z-index:5;
     background:var(--accent);color:#111;font-weight:800;font-size:11px;
     font-family:'Baloo 2',sans-serif;line-height:1;
@@ -468,7 +472,7 @@
     border:1.5px solid #000;box-shadow:1.5px 1.5px 0 rgba(0,0,0,.6);
     white-space:nowrap;pointer-events:none;
   }
-  .page-tracker .thumb-placeholder{width:92px;height:128px;background:var(--surface2);border-radius:6px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:30px;}
+  .thumb-placeholder{width:92px;height:128px;background:var(--surface2);border-radius:6px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:30px;}
   .page-tracker .cinfo{flex:1;min-width:0;}
   .page-tracker .cname{font-size:15px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:1px;}
   .page-tracker .cmeta{font-size:13px;color:var(--muted);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}

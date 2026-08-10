@@ -31,6 +31,7 @@ import { LoginScreen } from '../components/LoginScreen'
 import { useUser } from '../context/UserContext'
 import { useToast } from '../components/Toast'
 import { usePreview } from '../components/CardPreview'
+import { CardThumb } from '../components/CardThumb'
 import { createBinder, getBinder, listBinders, updateBinder } from '../api/binders'
 import { getOwnedCards } from '../api/collection'
 import {
@@ -39,7 +40,6 @@ import {
   placeCopies, placeInBinderSlot, removePlacement, setDisplayLights,
 } from '../api/rooms'
 import { createBox, createDrawer, listBoxes, updateBox } from '../api/storage'
-import { isHolo } from '../lib/rarity'
 import type {
   Binder, Card, CardAllocation, CollectionSpace, DisplayCase, DisplayCaseType,
   DisplaySlot, InventoryLot, OwnedCard, PocketSize, SpaceType, StorageBox,
@@ -54,16 +54,7 @@ import '../styles/spaces-concept.css'
  *  CardPreview overlay (non-negotiable rule #10 — every card image needs
  *  a zoom/detail interaction). */
 function ZoomableCardImage({ card, preview }: { card: Card; preview: ReturnType<typeof usePreview> }) {
-  const holo = isHolo(card.rarity)
-  const show = () => preview.show(card.images.large || card.images.small, { holo })
-  return (
-    <div className={'thumb-wrap' + (holo ? ' holo' : '')}>
-      <img
-        className="thumb" src={card.images.small} alt={card.name} tabIndex={0} loading="lazy"
-        onMouseEnter={show} onMouseLeave={preview.hide} onClick={show} onFocus={show} onBlur={preview.hide}
-      />
-    </div>
-  )
+  return <CardThumb card={card} preview={preview} />
 }
 
 type View = 'home' | 'storage' | 'binders' | 'displays'

@@ -116,7 +116,14 @@
   min-width: 120px;
   max-width: 420px;
 }
-.search-results {
+/* Scoped to .spaces-concept — "search-results" isn't a unique name
+   (ConventionModePage has its own unrelated .search-results), and this CSS
+   file loads globally alongside every other page's, so an unscoped rule
+   here would leak into that unrelated feature. That actually happened with
+   .search-results small's white-space:nowrap: with no matching min-width:0
+   on Convention's flex row, it forced that row 2400px+ wide, pushing the
+   whole results list off-screen below the fold. */
+.spaces-concept .search-results {
   position: absolute;
   left: 0; right: 0; top: calc(100% + 6px);
   z-index: 250;
@@ -129,7 +136,7 @@
   border-radius: 10px;
   box-shadow: 0 14px 30px #0008;
 }
-.search-results button {
+.spaces-concept .search-results button {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -142,9 +149,9 @@
   color: var(--text, #fff);
   cursor: pointer;
 }
-.search-results button:last-child { border-bottom: 0; }
-.search-results button:hover, .search-results button:focus-visible { background: #ffffff12; }
-.search-results small { color: var(--muted, #899394); font-size: 11px; white-space: nowrap; }
+.spaces-concept .search-results button:last-child { border-bottom: 0; }
+.spaces-concept .search-results button:hover, .spaces-concept .search-results button:focus-visible { background: #ffffff12; }
+.spaces-concept .search-results small { color: var(--muted, #899394); font-size: 11px; white-space: nowrap; }
 
 /* ── Add Space / Add Binder modals (reuse the site-wide .modal shell) ────── */
 

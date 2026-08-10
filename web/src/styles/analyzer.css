@@ -84,7 +84,11 @@
   background:var(--surface2);transition:border-color .15s;
 }
 .page-analyzer .tcard:hover{border-color:var(--accent2)}
-.page-analyzer .tcard-img{width:38px;height:53px;object-fit:cover;border-radius:4px;flex-shrink:0;background:var(--surface)}
+/* Overrides CardThumb's default 92x128 .thumb-wrap sizing down to this
+   list row's compact scale — the wrapper (not the inner .thumb img, which
+   fills it at 100%/100%) is what carries the size now. */
+.page-analyzer .thumb-wrap.tcard-img{width:38px;height:53px;border-radius:4px;background:var(--surface)}
+.page-analyzer .tcard-img .price-ribbon{font-size:8px;padding:1px 4px;top:2px;left:1px}
 .page-analyzer .tcard-info{flex:1;min-width:0}
 .page-analyzer .tcard-name{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .page-analyzer .tcard-set{font-size:13px;color:var(--muted);margin-top:1px}
@@ -175,7 +179,8 @@
   transition:all .15s;
 }
 .page-analyzer .mcard:hover{background:var(--surface2);border-color:var(--border)}
-.page-analyzer .mcard img{width:36px;height:50px;object-fit:cover;border-radius:4px;flex-shrink:0}
+.page-analyzer .thumb-wrap.mcard-img{width:36px;height:50px;border-radius:4px}
+.page-analyzer .mcard-img .price-ribbon{font-size:7px;padding:1px 3px;top:1px;left:0}
 .page-analyzer .mcard-info{flex:1;min-width:0}
 .page-analyzer .mcard-name{font-size:15px;font-weight:600}
 .page-analyzer .mcard-meta{font-size:13px;color:var(--muted);margin-top:2px}
@@ -214,3 +219,9 @@
 .page-analyzer .cp-card img{width:100%;height:100%;object-fit:cover;display:block;border-radius:5px}
 .page-analyzer .cp-placeholder{display:flex;align-items:center;justify-content:center;
   width:100%;height:100%;font-size:22px}
+/* This grid sizes cards responsively (auto-fill columns), unlike
+   CardThumb's fixed 92x128 default — the wrapper fills its .cp-card cell
+   instead. */
+.page-analyzer .cp-card .thumb-wrap,
+.page-analyzer .cp-card .thumb-placeholder{width:100%;height:100%;border-radius:5px}
+.page-analyzer .cp-card .price-ribbon{font-size:8px;padding:1px 4px;top:2px;left:1px}

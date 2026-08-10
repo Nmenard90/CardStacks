@@ -28,6 +28,7 @@ import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
 import { HeaderNav } from '../components/HeaderNav'
 import { usePreview } from '../components/CardPreview'
+import { CardThumb } from '../components/CardThumb'
 import { basePrice } from '../lib/conditions'
 import type { Binder, Card, PocketSize } from '../types'
 
@@ -346,11 +347,10 @@ export function BinderViewPage() {
                 {pickFiltered.map(c => (
                   <div
                     key={c.id} className="pcd"
-                    onClick={() => place(c)}
-                    onMouseEnter={() => { setHoverCard(c); preview.show(c.images?.large || c.images?.small) }}
-                    onMouseLeave={() => { setHoverCard(null); preview.hide() }}
+                    onMouseEnter={() => setHoverCard(c)}
+                    onMouseLeave={() => setHoverCard(null)}
                   >
-                    {c.images?.small && <img src={c.images.small} alt={c.name} loading="lazy" />}
+                    <CardThumb card={c} preview={preview} onClick={() => place(c)} className="pcd-img" />
                   </div>
                 ))}
               </>
