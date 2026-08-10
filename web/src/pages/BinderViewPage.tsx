@@ -22,7 +22,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { getBinder, setSlot as apiSetSlot, updateBinder } from '../api/binders'
+import { deleteBinder, getBinder, setSlot as apiSetSlot, updateBinder } from '../api/binders'
 import { getCards, getSets } from '../api/cards'
 import { getOwnedCards } from '../api/collection'
 import { useToast } from '../components/Toast'
@@ -173,6 +173,18 @@ export function BinderViewPage() {
     })
   }
 
+  const removeBinder = () => {
+    if (!user) return
+    const placedCount = Object.keys(slots).length
+    const warning = placedCount > 0
+      ? `Delete "${name}"? Its ${placedCount} placed card${placedCount === 1 ? '' : 's'} will stay in your collection, just no longer placed in a binder.`
+      : `Delete "${name}"?`
+    if (!window.confirm(warning)) return
+    deleteBinder(user.id, binderId)
+      .then(() => navigate('/shelf'))
+      .catch(() => toast('Could not delete this binder.'))
+  }
+
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets, enabled: !!user })
 
   const { data: pickCards = [], isLoading: pickLoading } = useQuery({
@@ -301,6 +313,7 @@ export function BinderViewPage() {
             {CFG[s].num}-Pocket
           </button>
         ))}
+        <button className="sz" onClick={removeBinder} style={{ color: '#fca5a5', borderColor: 'rgba(239,68,68,0.4)' }}>🗑 Delete</button>
         <span id="pglbl">{pageLabel}</span>
         <HeaderNav />
       </div>
