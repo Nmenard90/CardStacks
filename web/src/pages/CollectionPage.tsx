@@ -371,8 +371,12 @@ export function CollectionPage() {
     : allSets ? browseDisplay : filtered
 
   const set = sets.find(s => s.id === activeSetId)
-  const ownedInSet = cards.filter(c => totalQty(coll[c.id]?.conds ?? {}) > 0).length
-  const setValue = cards.reduce((sum, c) => sum + cardValue(coll[c.id]?.conds ?? {}, c), 0)
+  // "Cards owned" / "Set value" / "Set completion" are all scoped to one
+  // specific set (`cards`, the per-set query result) — in All Sets mode
+  // that query is disabled and `cards` is always [], so these must show as
+  // not-applicable ("—") instead of a misleading literal 0/0%/$0.00.
+  const ownedInSet = set ? cards.filter(c => totalQty(coll[c.id]?.conds ?? {}) > 0).length : 0
+  const setValue = set ? cards.reduce((sum, c) => sum + cardValue(coll[c.id]?.conds ?? {}, c), 0) : 0
   const completion = set && set.total > 0 ? Math.round((ownedInSet / set.total) * 100) : 0
   const gridReady = isSearchMode ? (allSets ? !globalSearching : true) : allSets ? !browseLoading || browseList.length > 0 : !cardsLoading
 
@@ -406,19 +410,19 @@ export function CollectionPage() {
           <div className="stat">
             <div className="stat-label">Cards owned</div>
             <div className="stat-value">
-              {ownedInSet}<span style={{ color: 'var(--muted)', fontSize: 13 }}> / {set?.total ?? '—'}</span>
+              {set ? ownedInSet : '—'}<span style={{ color: 'var(--muted)', fontSize: 13 }}> / {set?.total ?? '—'}</span>
             </div>
           </div>
           <div className="stat">
             <div className="stat-label">Set completion</div>
             <div className="stat-value">
-              {completion}%
-              <div className="progress-wrap"><div className="progress-bar" style={{ width: completion + '%' }} /></div>
+              {set ? `${completion}%` : '—'}
+              {set && <div className="progress-wrap"><div className="progress-bar" style={{ width: completion + '%' }} /></div>}
             </div>
           </div>
           <div className="stat">
             <div className="stat-label">Set value</div>
-            <div className="stat-value gold">${setValue.toFixed(2)}</div>
+            <div className="stat-value gold">{set ? `$${setValue.toFixed(2)}` : '—'}</div>
           </div>
           <div className="stat">
             <div className="stat-label">Total collection</div>
