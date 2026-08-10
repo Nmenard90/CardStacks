@@ -69,7 +69,8 @@
 .page-analyzer .col-badge.giving{background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3)}
 .page-analyzer .col-badge.getting{background:rgba(99,102,241,0.15);color:#818cf8;border:1px solid rgba(99,102,241,0.3)}
 
-.page-analyzer .col-cards{min-height:120px;padding:10px}
+.page-analyzer .col-cards{min-height:120px;padding:10px;border-radius:10px;border:2px dashed transparent;transition:background .12s,border-color .12s}
+.page-analyzer .col-cards.drag-over{background:rgba(99,241,178,0.08);border-color:var(--accent2,#818cf8)}
 .page-analyzer .empty-col{
   padding:32px;text-align:center;color:var(--muted);font-size:15px;
   display:flex;flex-direction:column;align-items:center;gap:8px;
@@ -212,10 +213,11 @@
   border-radius:6px;padding:3px 8px;font-size:14px;width:110px;outline:none}
 .page-analyzer .cp-filter:focus{border-color:var(--accent)}
 .page-analyzer .cp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:8px;padding:14px 18px}
-.page-analyzer .cp-card{border-radius:7px;overflow:hidden;cursor:pointer;
+.page-analyzer .cp-card{border-radius:7px;overflow:hidden;cursor:grab;
   border:2px solid transparent;aspect-ratio:2.5/3.5;
   background:var(--surface2);transition:all .15s;position:relative}
 .page-analyzer .cp-card:hover{border-color:var(--accent);transform:scale(1.05);z-index:2}
+.page-analyzer .cp-card:active{cursor:grabbing}
 .page-analyzer .cp-card img{width:100%;height:100%;object-fit:cover;display:block;border-radius:5px}
 .page-analyzer .cp-placeholder{display:flex;align-items:center;justify-content:center;
   width:100%;height:100%;font-size:22px}

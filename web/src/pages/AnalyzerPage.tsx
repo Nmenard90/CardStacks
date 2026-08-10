@@ -72,6 +72,11 @@ export function AnalyzerPage() {
 
   const [collSide, setCollSide] = useState<Side>('give')
   const [collFilter, setCollFilter] = useState('')
+  // Which column a dragged card is currently over, for the drop-target
+  // highlight — the payload itself is just the cardId, looked up in `owned`
+  // on drop (drag events can't carry rich data across the whole app the
+  // way React props can).
+  const [dragOverSide, setDragOverSide] = useState<Side | null>(null)
 
   // Debounced 350ms so we're not firing a search request per keystroke.
   useEffect(() => {
@@ -168,12 +173,24 @@ export function AnalyzerPage() {
           <h3>{items.length === 0 ? 'Nothing yet' : `${items.length} card${items.length !== 1 ? 's' : ''}`}</h3>
           <span className="col-total">{total > 0 ? '$' + total.toFixed(2) : ''}</span>
         </div>
-        <div className="col-cards">
+        <div
+          className={'col-cards' + (dragOverSide === side ? ' drag-over' : '')}
+          onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDragOverSide(side) }}
+          onDragLeave={() => setDragOverSide(cur => (cur === side ? null : cur))}
+          onDrop={e => {
+            e.preventDefault()
+            setDragOverSide(null)
+            const cardId = e.dataTransfer.getData('text/plain')
+            const dropped = owned.find(o => o.cardId === cardId)
+            if (dropped) addCardToSide(side, dropped.card)
+          }}
+        >
 
           {items.length === 0 && (
             <div className="empty-col">
               <div className="ei">{side === 'give' ? '📤' : '📥'}</div>
               {side === 'give' ? "Cards you're offering" : "Cards you're receiving"}
+              <small style={{ display: 'block', marginTop: 4, opacity: 0.7 }}>Drag a card here from your collection below</small>
             </div>
           )}
 
@@ -303,7 +320,12 @@ export function AnalyzerPage() {
               <div className="cp-grid">
                 {/* Capped at 48 so a large collection doesn't render thousands of thumbnails at once. */}
                 {visible.slice(0, 48).map(o => (
-                  <div key={o.cardId} className="cp-card" title={`${o.card.name} — click to add to ${collSide}`}>
+                  <div
+                    key={o.cardId} className="cp-card"
+                    title={`${o.card.name} — click to add to ${collSide}, or drag onto either column`}
+                    draggable
+                    onDragStart={e => { e.dataTransfer.setData('text/plain', o.cardId); e.dataTransfer.effectAllowed = 'copy' }}
+                  >
                     <CardThumb card={o.card} preview={preview} onClick={() => addCardToSide(collSide, o.card)} />
                   </div>
                 ))}
