@@ -443,3 +443,61 @@
   height: 2px;
   background: rgba(0,0,0,.25);
 }
+
+/* ── Room art is now real + clickable, not a fixed decorative picture ──────
+   .art-storage/.art-binders/.art-case switched from <div> to <button> so
+   each zone can jump to its section, same as the text list beside it. The
+   global .page-tracker button rule (background/border/padding, meant for
+   pill-shaped nav/toolbar buttons) would otherwise clobber this section's
+   own look now that these are real <button> elements — .space-architecture
+   .foo beats .page-tracker button on specificity (two classes vs one class
+   + one element) so the original shelf/binder-case styling wins back. */
+.space-architecture .art-storage,
+.space-architecture .art-binders,
+.space-architecture .art-case {
+  cursor: pointer;
+  transition: filter .15s, transform .15s;
+}
+.space-architecture .art-storage:hover,
+.space-architecture .art-binders:hover,
+.space-architecture .art-case:hover {
+  filter: brightness(1.15);
+}
+.space-architecture .art-storage {
+  display: grid; grid-template-columns: repeat(3, 1fr); align-items: end; gap: 6px;
+  background: repeating-linear-gradient(to bottom, #171b1d 0 9px, transparent 9px 74px);
+  border: 8px solid #15191b;
+  padding: 12px;
+}
+.space-architecture .art-binders {
+  display: flex; align-items: end; justify-content: center; gap: 4px;
+  background: #161a1c;
+  border: 7px solid #101416;
+  padding: 7px;
+}
+.space-architecture .art-case {
+  display: grid; grid-template-columns: 1fr 1fr; place-items: center; gap: 12px;
+  background: #0d1113;
+  border: 10px solid #111619;
+  padding: 20px;
+}
+/* An empty slot (no real box/binder/case in that position) reads as a gap
+   in the shelf rather than a phantom colored item. */
+.space-architecture .art-storage i.art-empty {
+  background: #ffffff08;
+  box-shadow: inset 0 0 0 1px #ffffff14;
+}
+.space-architecture .art-binders i.art-empty {
+  background: #ffffff08;
+}
+.space-architecture .art-case span.art-empty {
+  background: transparent;
+  border: 1px dashed #ffffff28;
+  box-shadow: none;
+}
+/* A real display case that exists but has its lights off — dimmer than an
+   empty slot (which is just a gap), since there's a case there, just dark. */
+.space-architecture .art-case span.unlit {
+  background: #3a3f42;
+  box-shadow: none;
+}

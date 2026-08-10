@@ -36,7 +36,18 @@ interface Props {
 
 export function CardThumb({ card, variant, preview, onClick, showPrice = true, className }: Props) {
   if (!card.images?.small) {
-    return <div className={'thumb-placeholder' + (className ? ' ' + className : '')}>🃏</div>
+    // Still needs a working onClick — a missing image is no reason for a
+    // picker/quick-add tile to silently stop being clickable.
+    return (
+      <div
+        className={'thumb-placeholder' + (className ? ' ' + className : '')}
+        onClick={onClick}
+        role={onClick ? 'button' : undefined}
+        tabIndex={onClick ? 0 : undefined}
+      >
+        🃏
+      </div>
+    )
   }
 
   const price = basePrice(card, variant)

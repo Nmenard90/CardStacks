@@ -338,24 +338,49 @@ function Home({ space, spaces, boxes, binders, onView, onSelect, onAdd }: {
   space: CollectionSpace; spaces: CollectionSpace[]; boxes: StorageBox[]; binders: Binder[]
   onView: (v: View) => void; onSelect: (id: string) => void; onAdd: () => void
 }) {
+  const displayCases = space.displayCases
   return (
     <section className="spaces-home">
       <header>
         <small>YOUR CARD-COLLECTING WORLD</small>
         <h1>Every discovery has a place.</h1>
         <p>Organize physical boxes, binders, variants, conditions, and display copies.</p>
-        <div className="atlas-elements">
-          <span className="ember">△ Ember</span><span className="tide">≈ Tide</span><span className="grove">◇ Grove</span>
-          <span className="spark">ϟ Spark</span><span className="aether">✦ Aether</span>
-        </div>
       </header>
 
       <div className="main-space">
         <div className="space-art">
+          {/* A real (if simplified) look at this space's actual boxes/binders/
+              cases, not a fixed decorative graphic — each zone shows real
+              counts/colors and jumps to that section, same as the text list
+              beside it. */}
           <div className="space-architecture">
-            <div className="art-storage"><i /><i /><i /><i /><i /><i /></div>
-            <div className="art-binders"><i /><i /><i /><i /><i /></div>
-            <div className="art-case"><span /><span /><span /><span /></div>
+            <button
+              type="button" className="art-storage" onClick={() => onView('storage')}
+              title={`Storage — ${boxes.length} box${boxes.length === 1 ? '' : 'es'}`}
+            >
+              {Array.from({ length: 6 }, (_, i) => {
+                const box = boxes[i]
+                return <i key={i} className={box ? '' : 'art-empty'} style={box ? { background: box.color || '#ded5c3' } : undefined} />
+              })}
+            </button>
+            <button
+              type="button" className="art-binders" onClick={() => onView('binders')}
+              title={`Binder Library — ${binders.length} binder${binders.length === 1 ? '' : 's'}`}
+            >
+              {Array.from({ length: 5 }, (_, i) => {
+                const binder = binders[i]
+                return <i key={i} className={binder ? '' : 'art-empty'} style={binder ? { background: colorForBinder(binder.id) } : undefined} />
+              })}
+            </button>
+            <button
+              type="button" className="art-case" onClick={() => onView('displays')}
+              title={`Display Gallery — ${displayCases.length} case${displayCases.length === 1 ? '' : 's'}`}
+            >
+              {Array.from({ length: 4 }, (_, i) => {
+                const dcase = displayCases[i]
+                return <span key={i} className={dcase ? (dcase.lightEnabled ? '' : 'unlit') : 'art-empty'} />
+              })}
+            </button>
             <div className="atlas-compass"><i /><b>✦</b></div>
           </div>
         </div>
