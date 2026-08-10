@@ -213,6 +213,13 @@
   border-radius:6px;padding:3px 8px;font-size:14px;width:110px;outline:none}
 .page-analyzer .cp-filter:focus{border-color:var(--accent)}
 .page-analyzer .cp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:8px;padding:14px 18px}
+/* Quick Add switched from the old name-less .cp-grid/.cp-card (image only,
+   ~70px, no condition shown) to the same .box-card-tile used everywhere
+   else a card gets picked from your collection — this just adds the
+   panel's own padding around that shared grid. */
+.page-analyzer .cp-grid-real{padding:14px 18px}
+.page-analyzer .cp-grid-real > div{cursor:grab}
+.page-analyzer .cp-grid-real > div:active{cursor:grabbing}
 .page-analyzer .cp-card{border-radius:7px;overflow:hidden;cursor:grab;
   border:2px solid transparent;aspect-ratio:2.5/3.5;
   background:var(--surface2);transition:all .15s;position:relative}

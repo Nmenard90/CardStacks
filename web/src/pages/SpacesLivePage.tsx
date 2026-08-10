@@ -32,6 +32,8 @@ import { useUser } from '../context/UserContext'
 import { useToast } from '../components/Toast'
 import { usePreview } from '../components/CardPreview'
 import { CardThumb } from '../components/CardThumb'
+import { OwnedCardTile } from '../components/OwnedCardTile'
+import { usePagedList } from '../lib/usePagedList'
 import { createBinder, getBinder, listBinders, updateBinder } from '../api/binders'
 import { searchCards } from '../api/cards'
 import { getOwnedCards, saveEntry } from '../api/collection'
@@ -933,12 +935,13 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   const sets = [...new Set(lots.map(l => cardFor(l.cardId)?.setId).filter((s): s is string => !!s))].sort()
 
   const insideBox = placements.filter(matchesAllocation).sort((a, b) => byChosenSort(lots.find(l => l.id === a.lotId), lots.find(l => l.id === b.lotId)))
-  const available = lots.filter(lot => lot.quantity - lot.allocated > 0 && matchesLot(lot)).sort(byChosenSort).slice(0, 40)
-  // The backend tracks which drawer a copy is in, not which internal row —
-  // so there's no real per-card row to show. Capped generously since this
-  // grid is now the primary view, not a decorative accent.
-  const visibleInsideBox = insideBox.slice(0, 150)
-  const hiddenCardCount = insideBox.length - visibleInsideBox.length
+  const available = lots.filter(lot => lot.quantity - lot.allocated > 0 && matchesLot(lot)).sort(byChosenSort)
+  // "Load more" pagination, not a hard cutoff — a bulk box or a collection
+  // in the hundreds of thousands must stay browsable instead of silently
+  // hiding everything past some fixed count. Resets to page one whenever
+  // the search/filter/sort combo changes, not on every render.
+  const insideBoxPage = usePagedList(insideBox, `${q}|${conditionFilter}|${variantFilter}|${protectionFilter}|${setFilter}|${duplicatesOnly}|${sort}`)
+  const availablePage = usePagedList(available, `${q}|${conditionFilter}|${variantFilter}|${setFilter}|${sort}`)
 
   return (
     <section className="inside-box-view">
@@ -995,33 +998,49 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
       </div>
 
       <section className="box-open-surface" style={{ '--box-color': box.color || '#d8d0c0' } as React.CSSProperties}>
-        <h3>Inside this box</h3>
+        <h3>Inside this box{insideBox.length > 0 ? ` (${insideBox.length})` : ''}</h3>
         {!placements.length && <p className="box-empty-note">This box is empty. Add owned copies below.</p>}
         {placements.length > 0 && !insideBox.length && <p className="box-empty-note">Nothing here matches that search/filter.</p>}
-        {visibleInsideBox.length > 0 && (
+        {insideBoxPage.visible.length > 0 && (
           <div className="box-card-grid">
-            {visibleInsideBox.map(allocation => {
+            {insideBoxPage.visible.map(allocation => {
               const lot = lots.find(l => l.id === allocation.lotId)
               const card = lot && cardFor(lot.cardId)
-              return (
-                <div className="box-card-tile" key={allocation.id}>
-                  {card ? <ZoomableCardImage card={card} preview={preview} /> : <div className="thumb-placeholder">🃏</div>}
-                  <b>{card?.name || lot?.cardId || 'Card'}</b>
-                  <small>{lot?.condition} · {lot?.variantKey}{allocation.quantity > 1 ? ` · ×${allocation.quantity}` : ''}</small>
-                  <div className="box-card-tile-actions">
-                    <button
-                      onClick={() => setMovingAllocation(allocation)}
-                      disabled={!otherBoxes.length && !binders.length && !displayCases.length}
-                      title="Move to another box, binder, or display case"
-                    >Move</button>
-                    <button onClick={() => void remove(allocation)}>Remove</button>
+              if (!card) {
+                return (
+                  <div className="box-card-tile" key={allocation.id}>
+                    <div className="thumb-placeholder">🃏</div>
+                    <b>{lot?.cardId || 'Card'}</b>
+                    <small>{lot?.condition} · {lot?.variantKey}{allocation.quantity > 1 ? ` · ×${allocation.quantity}` : ''}</small>
+                    <div className="box-card-tile-actions">
+                      <button
+                        onClick={() => setMovingAllocation(allocation)}
+                        disabled={!otherBoxes.length && !binders.length && !displayCases.length}
+                        title="Move to another box, binder, or display case"
+                      >Move</button>
+                      <button onClick={() => void remove(allocation)}>Remove</button>
+                    </div>
                   </div>
-                </div>
+                )
+              }
+              return (
+                <OwnedCardTile
+                  key={allocation.id} card={card} preview={preview}
+                  subtitle={`${lot?.condition} · ${lot?.variantKey}${allocation.quantity > 1 ? ` · ×${allocation.quantity}` : ''}`}
+                  actions={[
+                    { label: 'Move', onClick: () => setMovingAllocation(allocation), disabled: !otherBoxes.length && !binders.length && !displayCases.length },
+                    { label: 'Remove', onClick: () => void remove(allocation) },
+                  ]}
+                />
               )
             })}
           </div>
         )}
-        {hiddenCardCount > 0 && <p className="box-empty-note">+{hiddenCardCount} more — narrow it down with search or filters to see the rest.</p>}
+        {insideBoxPage.hasMore && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '14px 0 0' }}>
+            <button className="tb-btn primary" onClick={insideBoxPage.loadMore}>Load more ({insideBoxPage.remaining} left)</button>
+          </div>
+        )}
       </section>
 
       <section className="box-open-surface">
@@ -1059,21 +1078,32 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
       </section>
 
       <section className="box-open-surface">
-        <h3>Available owned copies</h3>
+        <h3>Available owned copies{available.length > 0 ? ` (${available.length})` : ''}</h3>
         {!available.length && <p className="box-empty-note">Nothing available to add — everything owned is already placed somewhere, or nothing matches the current search/filter.</p>}
-        {available.length > 0 && (
+        {availablePage.visible.length > 0 && (
           <div className="box-card-grid">
-            {available.map(lot => {
+            {availablePage.visible.map(lot => {
               const card = cardFor(lot.cardId)
-              return (
+              const subtitle = `${lot.condition} · ${lot.variantKey} · ${lot.quantity - lot.allocated} available`
+              return card ? (
+                <OwnedCardTile
+                  key={lot.id} card={card} preview={preview} subtitle={subtitle}
+                  actions={[{ label: '+ Add one', onClick: () => void add(lot) }]}
+                />
+              ) : (
                 <div className="box-card-tile" key={lot.id}>
-                  {card ? <ZoomableCardImage card={card} preview={preview} /> : <div className="thumb-placeholder">🃏</div>}
-                  <b>{card?.name || lot.cardId}</b>
-                  <small>{lot.condition} · {lot.variantKey} · {lot.quantity - lot.allocated} available</small>
+                  <div className="thumb-placeholder">🃏</div>
+                  <b>{lot.cardId}</b>
+                  <small>{subtitle}</small>
                   <button className="box-card-add" onClick={() => void add(lot)}>+ Add one</button>
                 </div>
               )
             })}
+          </div>
+        )}
+        {availablePage.hasMore && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '14px 0 0' }}>
+            <button className="tb-btn primary" onClick={availablePage.loadMore}>Load more ({availablePage.remaining} left)</button>
           </div>
         )}
       </section>

@@ -26,6 +26,8 @@ import { useUser } from '../context/UserContext'
 import { HeaderNav } from '../components/HeaderNav'
 import { usePreview } from '../components/CardPreview'
 import { CardThumb } from '../components/CardThumb'
+import { OwnedCardTile } from '../components/OwnedCardTile'
+import { usePagedList } from '../lib/usePagedList'
 import { CONDS, condPrice, type Cond } from '../lib/conditions'
 import type { Card } from '../types'
 
@@ -77,6 +79,14 @@ export function AnalyzerPage() {
   // on drop (drag events can't carry rich data across the whole app the
   // way React props can).
   const [dragOverSide, setDragOverSide] = useState<Side | null>(null)
+
+  const collQ = collFilter.trim().toLowerCase()
+  const collVisible = collQ
+    ? owned.filter(o => o.card.name.toLowerCase().includes(collQ) || o.card.number.toLowerCase().includes(collQ))
+    : owned
+  // "Load more" instead of a hard cap, same as everywhere else a big owned
+  // list gets rendered — resets to page one whenever the filter changes.
+  const collPage = usePagedList(collVisible, collQ)
 
   // Debounced 350ms so we're not firing a search request per keystroke.
   useEffect(() => {
@@ -288,56 +298,58 @@ export function AnalyzerPage() {
           Make sure the other party isn't taking advantage. Always verify card values on TCGPlayer before trading.
         </div>
 
-        {user && owned.length > 0 && (() => {
-          const q = collFilter.trim().toLowerCase()
-          const visible = q
-            ? owned.filter(o =>
-                o.card.name.toLowerCase().includes(q) ||
-                o.card.number.toLowerCase().includes(q)
-              )
-            : owned
-          return (
-            <div id="collPanel" className="show">
-              <div className="cp-head">
-                <span>Quick Add from Your Collection</span>
-                <span className="cp-side-toggle">
-                  <button
-                    className={'cp-side-btn' + (collSide === 'give' ? ' active' : '')}
-                    onClick={() => setCollSide('give')}
-                  >Give</button>
-                  <button
-                    className={'cp-side-btn' + (collSide === 'get' ? ' active' : '')}
-                    onClick={() => setCollSide('get')}
-                  >Get</button>
-                </span>
-                <input
-                  className="cp-filter"
-                  placeholder="Filter…"
-                  value={collFilter}
-                  onChange={e => setCollFilter(e.target.value)}
-                />
-              </div>
-              <div className="cp-grid">
-                {/* Capped at 48 so a large collection doesn't render thousands of thumbnails at once. */}
-                {visible.slice(0, 48).map(o => (
+        {user && owned.length > 0 && (
+          <div id="collPanel" className="show">
+            <div className="cp-head">
+              <span>Quick Add from Your Collection ({collVisible.length})</span>
+              <span className="cp-side-toggle">
+                <button
+                  className={'cp-side-btn' + (collSide === 'give' ? ' active' : '')}
+                  onClick={() => setCollSide('give')}
+                >Give</button>
+                <button
+                  className={'cp-side-btn' + (collSide === 'get' ? ' active' : '')}
+                  onClick={() => setCollSide('get')}
+                >Get</button>
+              </span>
+              <input
+                className="cp-filter"
+                placeholder="Filter…"
+                value={collFilter}
+                onChange={e => setCollFilter(e.target.value)}
+              />
+            </div>
+            <div className="box-card-grid cp-grid-real">
+              {collPage.visible.map(o => {
+                const breakdown = o.conditions.filter(c => c.quantity > 0).map(c => `${c.condition} ×${c.quantity}`).join(' · ')
+                return (
                   <div
-                    key={o.cardId} className="cp-card"
+                    key={o.cardId}
                     title={`${o.card.name} — click to add to ${collSide}, or drag onto either column`}
                     draggable
                     onDragStart={e => { e.dataTransfer.setData('text/plain', o.cardId); e.dataTransfer.effectAllowed = 'copy' }}
                   >
-                    <CardThumb card={o.card} preview={preview} onClick={() => addCardToSide(collSide, o.card)} />
+                    <OwnedCardTile
+                      card={o.card} preview={preview}
+                      subtitle={breakdown || `#${o.card.number}`}
+                      actions={[{ label: `+ Add to ${collSide}`, onClick: () => addCardToSide(collSide, o.card) }]}
+                    />
                   </div>
-                ))}
-                {visible.length === 0 && (
-                  <div style={{ color: 'var(--muted)', fontSize: 12, gridColumn: '1/-1' }}>
-                    No owned cards match "{collFilter}"
-                  </div>
-                )}
-              </div>
+                )
+              })}
+              {collVisible.length === 0 && (
+                <div style={{ color: 'var(--muted)', fontSize: 12, gridColumn: '1/-1' }}>
+                  No owned cards match "{collFilter}"
+                </div>
+              )}
             </div>
-          )
-        })()}
+            {collPage.hasMore && (
+              <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 0 16px' }}>
+                <button className="tb-btn primary" onClick={collPage.loadMore}>Load more ({collPage.remaining} left)</button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div id="modal" className={modalSide !== null ? 'open' : ''} onClick={e => { if (e.target === e.currentTarget) closeModal() }}>

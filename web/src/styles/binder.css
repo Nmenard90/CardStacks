@@ -138,27 +138,27 @@
 .page-binder .ph h3{font-size:16px;font-weight:700;letter-spacing:.06em;flex:1;text-transform:uppercase}
 .page-binder .px{width:36px;height:36px;border-radius:50%;background:var(--surface2);border:var(--ink-w) solid var(--border);color:var(--muted);font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
 .page-binder .px:hover{background:var(--red);border-color:var(--red);color:#fff}
-.page-binder .pc{padding:12px 20px;display:flex;gap:8px;flex-wrap:wrap;border-bottom:var(--ink-w) solid var(--border)}
+.page-binder .pc{padding:12px 20px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:var(--ink-w) solid var(--border)}
 .page-binder .pc select,.page-binder .pc input{flex:1;min-width:150px;padding:8px 12px;background:var(--surface2);border:var(--ink-w) solid var(--border);border-radius:8px;color:var(--text);font-family:'Nunito',sans-serif;font-size:15px;outline:none;-webkit-appearance:none;appearance:none}
 .page-binder .pc select:focus,.page-binder .pc input:focus{border-color:var(--accent2)}.page-binder .pc select option{background:var(--surface);color:var(--text)}
 .page-binder .pc input::placeholder{color:var(--muted)}
-.page-binder #pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:8px;padding:14px 20px 24px;overflow-y:auto;flex:1}
-.page-binder .pcd{border-radius:7px;overflow:hidden;cursor:pointer;border:2px solid transparent;aspect-ratio:2.5/3.5;background:var(--surface2);display:flex;align-items:center;justify-content:center;transition:all .15s}
-.page-binder .pcd:hover{border-color:var(--accent2);transform:scale(1.06) translateY(-2px);box-shadow:0 8px 20px rgba(0,0,0,.2)}
-.page-binder .pcd img{width:100%;height:100%;object-fit:cover;border-radius:5px}
-/* This grid sizes cards responsively (auto-fill columns), unlike
-   CardThumb's fixed 92x128 default — the wrapper fills its .pcd cell instead. */
-.page-binder .pcd .thumb-wrap,
-.page-binder .pcd .thumb-placeholder{width:100%;height:100%;border-radius:5px}
-.page-binder .pcd .price-ribbon{font-size:8px;padding:1px 4px;top:2px;left:1px}
-.page-binder .pcd.clr{border:2px dashed var(--border);flex-direction:column;gap:4px}
-.page-binder .pcd.clr:hover{border-color:var(--red)}
-.page-binder .pcd.clr .ci{font-size:20px;color:var(--muted)}
-.page-binder .pcd.clr .ct{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
-.page-binder .pcd.clr:hover .ci,.page-binder .pcd.clr:hover .ct{color:var(--red)}
-.page-binder #pmsg{padding:2.5rem;text-align:center;color:var(--muted);font-size:15px}
-/* Hover zoom */
-.page-binder .pcd:hover{border-color:var(--accent2);transform:scale(1.08) translateY(-2px);box-shadow:0 8px 20px rgba(0,0,0,.2);z-index:10;}
+.page-binder .pc-owned{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);white-space:nowrap;cursor:pointer;flex:none}
+.page-binder .pc-owned input{flex:none;width:auto;min-width:0}
+/* Same .box-card-grid/.box-card-tile pattern used for the box and Trade
+   Analyzer owned-card pickers (see OwnedCardTile) — a card here shows its
+   name and condition/price right on the tile instead of only on hover,
+   and .box-card-tile's fixed ~110px columns replace the old 74px
+   image-only .pcd grid that made large sets (e.g. 295-card Ascended
+   Heroes) unreadable. */
+.page-binder #pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:18px;padding:14px 20px 24px;overflow-y:auto;flex:1}
+.page-binder #pgrid .box-card-tile{cursor:default}
+#pgrid .pcd-clear{cursor:pointer;border:2px dashed #ffffff33;display:flex;align-items:center;justify-content:center;min-height:118px}
+#pgrid .pcd-clear:hover{border-color:var(--red,#ef4444)}
+#pgrid .pcd-clear .ci{font-size:20px;color:#899394}
+#pgrid .pcd-clear .ct{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#899394;margin-top:4px}
+#pgrid .pcd-clear:hover .ci,#pgrid .pcd-clear:hover .ct{color:var(--red,#ef4444)}
+.page-binder #pmsg{padding:2.5rem;text-align:center;color:var(--muted);font-size:15px;grid-column:1/-1}
+.page-binder #pload{display:flex;justify-content:center;padding:0 20px 16px}
 
 /* Card info panel */
 .page-binder #cardInfo{

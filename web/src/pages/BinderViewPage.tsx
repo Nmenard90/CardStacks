@@ -24,11 +24,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { getBinder, setSlot as apiSetSlot, updateBinder } from '../api/binders'
 import { getCards, getSets } from '../api/cards'
+import { getOwnedCards } from '../api/collection'
 import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
 import { HeaderNav } from '../components/HeaderNav'
 import { usePreview } from '../components/CardPreview'
-import { CardThumb } from '../components/CardThumb'
+import { OwnedCardTile } from '../components/OwnedCardTile'
+import { usePagedList } from '../lib/usePagedList'
 import { basePrice } from '../lib/conditions'
 import type { Binder, Card, PocketSize } from '../types'
 
@@ -85,6 +87,7 @@ export function BinderViewPage() {
   const [activeSlot, setActiveSlot] = useState<number | null>(null)
   const [pickSetId, setPickSetId] = useState('')
   const [pickSearch, setPickSearch] = useState('')
+  const [ownedOnly, setOwnedOnly] = useState(false)
   const [hoverCard, setHoverCard] = useState<Card | null>(null)
 
   useEffect(() => { if (!user) navigate('/') }, [user, navigate])
@@ -176,10 +179,24 @@ export function BinderViewPage() {
     queryKey: ['cards', pickSetId], queryFn: () => getCards(pickSetId), enabled: !!pickSetId,
   })
 
+  const { data: owned = [], isLoading: ownedLoading } = useQuery({
+    queryKey: ['owned', user?.id], queryFn: () => getOwnedCards(user!.id), enabled: !!user,
+  })
+  const ownedByCardId = useMemo(() => new Map(owned.map(o => [o.cardId, o])), [owned])
+
+  // With no set chosen, "Owned only" browses every card the user owns
+  // directly (no set pick required) instead of just filtering one set down.
+  const pickSource = ownedOnly && !pickSetId ? owned.map(o => o.card) : pickCards
+
   const pickFiltered = useMemo(() => {
     const q = pickSearch.toLowerCase().trim()
-    return pickCards.filter(c => !q || c.name.toLowerCase().includes(q) || c.number.includes(q))
-  }, [pickCards, pickSearch])
+    let list = pickSource.filter(c => !q || c.name.toLowerCase().includes(q) || c.number.includes(q))
+    if (ownedOnly) list = list.filter(c => ownedByCardId.has(c.id))
+    return list
+  }, [pickSource, pickSearch, ownedOnly, ownedByCardId])
+
+  const pickReady = pickSetId ? !pickLoading : (ownedOnly && !ownedLoading)
+  const pickPage = usePagedList(pickFiltered, `${pickSetId}|${pickSearch}|${ownedOnly}`)
 
   const openPicker = (slotIndex: number) => { setActiveSlot(slotIndex); setPickSearch(''); setHoverCard(null) }
 
@@ -335,27 +352,47 @@ export function BinderViewPage() {
               placeholder="Search name or number…"
               value={pickSearch} onChange={e => setPickSearch(e.target.value)}
             />
+            <label className="pc-owned">
+              <input type="checkbox" checked={ownedOnly} onChange={e => setOwnedOnly(e.target.checked)} />
+              Owned only
+            </label>
           </div>
           <div id="pgrid">
-            {!pickSetId && <div id="pmsg">Choose a set above</div>}
-            {pickSetId && pickLoading && <div id="pmsg">Loading…</div>}
-            {pickSetId && !pickLoading && (
+            {!pickSetId && !ownedOnly && <div id="pmsg">Choose a set above, or check "Owned only" to browse everything you own</div>}
+            {((pickSetId && pickLoading) || (!pickSetId && ownedOnly && ownedLoading)) && <div id="pmsg">Loading…</div>}
+            {ownedOnly && !pickSetId && !ownedLoading && owned.length === 0 && <div id="pmsg">You don't own any cards yet</div>}
+            {pickReady && (
               <>
-                <div className="pcd clr" onClick={() => place(null)}>
-                  <div className="ci">✕</div><div className="ct">Clear</div>
+                <div className="pcd-clear" onClick={() => place(null)}>
+                  <div><div className="ci">✕</div><div className="ct">Clear</div></div>
                 </div>
-                {pickFiltered.map(c => (
-                  <div
-                    key={c.id} className="pcd"
-                    onMouseEnter={() => setHoverCard(c)}
-                    onMouseLeave={() => setHoverCard(null)}
-                  >
-                    <CardThumb card={c} preview={preview} onClick={() => place(c)} className="pcd-img" />
-                  </div>
-                ))}
+                {pickPage.visible.map(c => {
+                  const ownedEntry = ownedByCardId.get(c.id)
+                  const subtitle = ownedEntry
+                    ? (ownedEntry.conditions.filter(cc => cc.quantity > 0).map(cc => `${cc.condition} ×${cc.quantity}`).join(' · ') || `#${c.number}`)
+                    : `#${c.number}${c.rarity ? ' · ' + c.rarity : ''}`
+                  return (
+                    <div
+                      key={c.id}
+                      onMouseEnter={() => setHoverCard(c)}
+                      onMouseLeave={() => setHoverCard(null)}
+                    >
+                      <OwnedCardTile
+                        card={c} preview={preview}
+                        subtitle={subtitle}
+                        actions={[{ label: 'Place in slot', onClick: () => place(c) }]}
+                      />
+                    </div>
+                  )
+                })}
               </>
             )}
           </div>
+          {pickReady && pickPage.hasMore && (
+            <div id="pload">
+              <button className="tb-btn primary" onClick={pickPage.loadMore}>Load more ({pickPage.remaining} left)</button>
+            </div>
+          )}
           <div id="cardInfo" className={hoverCard ? '' : 'empty'}>
             {!hoverCard && <span>Hover a card to see details</span>}
             {hoverCard && (
