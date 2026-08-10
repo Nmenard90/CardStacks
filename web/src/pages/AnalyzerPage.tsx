@@ -157,6 +157,10 @@ export function AnalyzerPage() {
   const pct = giveTotal > 0 ? Math.abs((diff / giveTotal) * 100) : 0
   const empty = give.length === 0 && get.length === 0
   const fair = !empty && (Math.abs(diff) < 0.5 || (giveTotal > 0 && pct < 3))
+  // A $0 give side makes "% more value" undefined (dividing by zero), not
+  // literally 0% like the plain pct calc above would show — call it out
+  // as a one-sided gift instead of a misleadingly small percentage.
+  const oneSidedGift = giveTotal === 0 && getTotal > 0
 
   const verdictClass = empty ? '' : fair ? 'fair' : diff < 0 ? 'giving' : 'getting'
   const verdictIcon = empty ? '⚖️' : fair ? '✅' : diff < 0 ? '⚠️' : '🎉'
@@ -169,6 +173,7 @@ export function AnalyzerPage() {
     ? 'Select the condition for each card — prices update automatically'
     : fair ? 'Both sides are within $0.50 of each other. This is a solid deal.'
     : diff < 0 ? `Your cards are worth ${pct.toFixed(0)}% more. Make sure you're ok with this difference.`
+    : oneSidedGift ? `You're giving nothing in return — that's a steal.`
     : `You're receiving ${pct.toFixed(0)}% more value. Good deal for you!`
   const showWarn = !empty && !fair && diff < 0 && pct > 15
 
@@ -277,7 +282,7 @@ export function AnalyzerPage() {
                   {empty ? '—' : fair ? '~Even' : (diff < 0 ? '-' : '+') + '$' + Math.abs(diff).toFixed(2)}
                 </div>
                 <div className="verdict-pct">
-                  {!empty && !fair && (diff < 0 ? `You overpay by ${pct.toFixed(0)}%` : `You get ${pct.toFixed(0)}% more value`)}
+                  {!empty && !fair && (diff < 0 ? `You overpay by ${pct.toFixed(0)}%` : oneSidedGift ? 'You give nothing back' : `You get ${pct.toFixed(0)}% more value`)}
                 </div>
               </div>
             </div>
