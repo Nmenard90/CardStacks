@@ -58,7 +58,13 @@ object SupabaseJwtVerifier:
 
         val email    = Option(claims.getStringClaim("email"))
         val metadata = Option(claims.getJSONObjectClaim("user_metadata")).map(_.asScala)
-        val username = metadata.flatMap(_.get("username")).map(_.toString)
+        // Email/password sign-up sends "username" explicitly (see
+        // LoginScreen.tsx); Google sign-in never does, but does send a
+        // display name under one of these keys — falls back through both
+        // before UserService resorts to an auto-generated one.
+        val username = metadata.flatMap(m =>
+          m.get("username").orElse(m.get("full_name")).orElse(m.get("name"))
+        ).map(_.toString)
 
         SupabaseClaims(claims.getSubject, email, username)
       }.mapError(e => Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
