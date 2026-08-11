@@ -67,10 +67,11 @@ React SPA  ──HTTP + Supabase JWT──▶  ZIO HTTP API  ──Doobie──�
   pokemontcg.io/TCGTracking directly — it only talks to the backend API.
 - The frontend authenticates against **Supabase Auth**, then sends the
   resulting access token as a bearer token on every backend request.
-- The backend verifies that token itself (HS256, against the Supabase
-  project's JWT secret — no network call to Supabase per request) and uses it
-  to provision/resolve a local profile row, which is what collections,
-  binders, and storage actually reference. See **Authentication** below.
+- The backend verifies that token itself, against Supabase's own public
+  signing keys (fetched once and cached in memory, not per request), and
+  uses it to provision/resolve a local profile row, which is what
+  collections, binders, and storage actually reference. See
+  **Authentication** below.
 
 ### Route → service → repository → database
 
@@ -99,7 +100,7 @@ if you want to see the pattern explained in full.
 - Scala 3
 - ZIO 2.1 (effects/concurrency) + ZIO HTTP 3 (server) + ZIO JSON
 - Doobie 1.0 (functional SQL) over the PostgreSQL JDBC driver
-- Hand-rolled HS256 JWT verification for Supabase access tokens (no external JWT library)
+- Nimbus JOSE+JWT for verifying Supabase access tokens against Supabase's public JWKS (asymmetric signing keys — no shared secret)
 - PostgreSQL
 - Packaged with Docker
 
@@ -115,9 +116,12 @@ if you want to see the pattern explained in full.
 Sign-up and sign-in go straight to Supabase Auth (`supabase.auth.signUp` /
 `signInWithPassword`) — the backend never handles a password. Once Supabase
 issues a session, the frontend sends its access token as a bearer token on
-every API call; the backend (`security/AuthGuard.scala`) verifies that token's
-signature locally and resolves (or provisions, on first sign-in) a matching
-profile row in its own `users` table via `GET /api/auth/me`.
+every API call; the backend (`security/AuthGuard.scala`, via
+`security/SupabaseJwtVerifier.scala`) verifies that token's signature against
+Supabase's own public signing keys (fetched once at startup from
+`<project-url>/auth/v1/.well-known/jwks.json` and cached in memory — not
+re-fetched per request) and resolves (or provisions, on first sign-in) a
+matching profile row in its own `users` table via `GET /api/auth/me`.
 
 The same guard also closes an authorization gap: almost every endpoint is
 scoped by a `userId` path segment (`/api/spaces/:userId/...`,
@@ -135,9 +139,9 @@ the exact scope.
    into `web/.env.local` (local dev, copy from `web/.env.example`) or
    `web/.env.production` (deployed build) as `VITE_SUPABASE_URL` /
    `VITE_SUPABASE_ANON_KEY`.
-3. Project Settings → API → JWT Settings: copy the **JWT Secret** and set it
-   as the backend's `SUPABASE_JWT_SECRET` environment variable (Railway, or
-   your local shell).
+3. Set the backend's `SUPABASE_URL` environment variable (Railway, or your
+   local shell) to that same Project URL from step 2 — it's not a secret,
+   the backend just uses it to fetch Supabase's public signing keys.
 4. Run `poketracker-v2/sql/migration_011_supabase_auth.sql` against your
    database (see **Deployment** below for the production caveat).
 5. Authentication → Providers → Email: confirm email/password sign-up is
@@ -274,7 +278,7 @@ psql poketracker -f poketracker-v2/sql/schema.sql
 | Variable | Purpose |
 |----------|---------|
 | `DATABASE_HOST` / `DATABASE_PORT` / `DATABASE_NAME` / `DATABASE_USER` / `DATABASE_PASSWORD` | PostgreSQL connection |
-| `SUPABASE_JWT_SECRET` | From Supabase → Project Settings → API → JWT Settings — verifies session tokens |
+| `SUPABASE_URL` | Your Supabase project's URL (Project Settings → API) — used to fetch its public signing keys, not a secret |
 | `POKEMONTCG_API_KEY` | Optional — a free API key from pokemontcg.io for higher rate limits |
 | `PORT` | Optional — defaults to `8080` |
 

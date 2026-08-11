@@ -6,9 +6,10 @@
  * HOW IT WORKS
  *   Wraps the protected route group in Main.scala with a zio-http
  *   "providing" aspect: it verifies the caller's bearer token
- *   (SupabaseAuth.verify), turns its claims into our local User profile
- *   (UserService.findOrCreateFromAuth), and makes that User available to
- *   any handler that asks for it via `ZIO.service[User]` (see AuthRoutes).
+ *   (SupabaseJwtVerifier.verify), turns its claims into our local User
+ *   profile (UserService.findOrCreateFromAuth), and makes that User
+ *   available to any handler that asks for it via `ZIO.service[User]`
+ *   (see AuthRoutes).
  *
  *   It also closes the door this app used to leave open: almost every
  *   endpoint takes a `userId` as a path segment (`/api/spaces/:userId/...`,
@@ -26,12 +27,11 @@
  *   not introduced by this change; tracked in BUGS.md.
  *
  * USED BY: Main.scala
- * DEPENDS ON: config.AuthConfig, service.UserService
+ * DEPENDS ON: security.SupabaseJwtVerifier, service.UserService
  */
 
 package com.poketracker.security
 
-import com.poketracker.config.AuthConfig
 import com.poketracker.models.User
 import com.poketracker.service.UserService
 import zio.*
@@ -66,8 +66,8 @@ object AuthGuard:
   private val missingToken  = jsonError(Status.Unauthorized, "Missing or malformed Authorization header")
   private val notAnOwner    = jsonError(Status.Forbidden, "You do not have access to this resource")
 
-  val aspect: HandlerAspect[UserService, User] =
-    Middleware.customAuthProvidingZIO[UserService, User](
+  val aspect: HandlerAspect[UserService & SupabaseJwtVerifier, User] =
+    Middleware.customAuthProvidingZIO[UserService & SupabaseJwtVerifier, User](
       (req: Request) =>
         if isPublic(req) then
           ZIO.succeed(None)
@@ -75,8 +75,7 @@ object AuthGuard:
           req.header(Header.Authorization) match
             case Some(Header.Authorization.Bearer(token)) =>
               for
-                secret <- AuthConfig.supabaseJwtSecret.orElseFail(missingToken)
-                claims <- ZIO.fromEither(SupabaseAuth.verify(token.value.asString, secret))
+                claims <- ZIO.serviceWithZIO[SupabaseJwtVerifier](_.verify(token.value.asString))
                             .mapError(reason => jsonError(Status.Unauthorized, reason))
                 user   <- ZIO.serviceWithZIO[UserService](
                             _.findOrCreateFromAuth(claims.subject, claims.email, claims.username)
