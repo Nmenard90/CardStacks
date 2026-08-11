@@ -19,7 +19,7 @@ import zio.*
 object AuthConfig:
 
   val supabaseUrl: ZIO[Any, Throwable, String] =
-    System.env("SUPABASE_URL").someOrFail(
+    System.env("SUPABASE_URL").map(_.map(_.trim)).someOrFail(
       new IllegalArgumentException(
         "SUPABASE_URL is not set. In Railway set: SUPABASE_URL = <Supabase Project Settings -> API -> Project URL> (same value as the frontend's VITE_SUPABASE_URL)"
       )
