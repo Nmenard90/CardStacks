@@ -345,8 +345,7 @@ function Home({ space, spaces, boxes, binders, onView, onSelect, onAdd }: {
   return (
     <section className="spaces-home">
       <header>
-        <small>YOUR CARD-COLLECTING WORLD</small>
-        <h1>Every discovery has a place.</h1>
+        <h1>Your card collection</h1>
         <p>Organize physical boxes, binders, variants, conditions, and display copies.</p>
       </header>
 

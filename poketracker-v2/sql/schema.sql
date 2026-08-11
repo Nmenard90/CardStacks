@@ -137,6 +137,11 @@ CREATE INDEX IF NOT EXISTS idx_card_prices_card_id ON card_prices(card_id);
 -- Registered users of PokéTracker.
 CREATE TABLE IF NOT EXISTS users (
   id         TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+
+  -- The Supabase Auth user id ("sub" claim) this profile is linked to.
+  -- Supabase owns the password; this is the only bridge between the two.
+  supabase_user_id TEXT  NOT NULL UNIQUE,
+
   username   TEXT        NOT NULL UNIQUE,
   email      TEXT        NOT NULL UNIQUE,
 

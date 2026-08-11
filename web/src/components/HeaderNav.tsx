@@ -1,6 +1,6 @@
 /**
  * Shared top-of-page navigation: always-visible links to every page plus
- * "Switch user." Replaces the old hamburger menu so navigation is one tap
+ * "Log out." Replaces the old hamburger menu so navigation is one tap
  * instead of two. Renders as a header row on wide screens and a bottom
  * tab bar on narrow ones (CSS decides which shows); the current page is
  * auto-highlighted from the router location.
@@ -90,7 +90,7 @@ export function HeaderNav() {
           menuClassName="tools-dropdown"
         />
         <button className="nav-link switch-user" style={{ color: 'var(--muted)' }} onClick={() => setUser(null)}>
-          Switch user
+          Log out
         </button>
       </div>
 

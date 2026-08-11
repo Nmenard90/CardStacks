@@ -26,7 +26,9 @@ trait UserRepository:
   def findByUsername(username: String): Task[Option[User]]
   def findByEmail(email: String): Task[Option[User]]
 
-  /** A→Z by username — feeds the login screen's "pick an existing user" chips. */
+  /** Looks up the profile linked to a verified Supabase access token's `sub` claim. */
+  def findBySupabaseUserId(supabaseUserId: String): Task[Option[User]]
+
   def findAll: Task[List[User]]
 
   def create(user: User): Task[Unit]
@@ -41,59 +43,54 @@ object UserRepository:
   final class Live(xa: Transactor[Task]) extends UserRepository:
 
     private def rowToUser(
-      id: String, username: String, email: String, role: String,
+      id: String, supabaseUserId: String, username: String, email: String, role: String,
       reputation: Int, location: Option[String], createdAt: Instant
     ): User =
-      User(id, username, email, UserRole.valueOf(role), reputation, location, createdAt)
+      User(id, supabaseUserId, username, email, UserRole.valueOf(role), reputation, location, createdAt)
+
+    private type Row = (String, String, String, String, String, Int, Option[String], Instant)
+
+    private val columns = "id, supabase_user_id, username, email, role, reputation, location, created_at"
 
     def findById(id: String): Task[Option[User]] =
-      sql"""
-        SELECT id, username, email, role, reputation, location, created_at
-        FROM users
-        WHERE id = $id
-      """
-        .query[(String, String, String, String, Int, Option[String], Instant)]
+      (sql"SELECT " ++ Fragment.const(columns) ++ sql" FROM users WHERE id = $id")
+        .query[Row]
         .option
         .map(_.map(rowToUser.tupled))
         .transact(xa)
 
     def findByUsername(username: String): Task[Option[User]] =
-      sql"""
-        SELECT id, username, email, role, reputation, location, created_at
-        FROM users
-        WHERE username = $username
-      """
-        .query[(String, String, String, String, Int, Option[String], Instant)]
+      (sql"SELECT " ++ Fragment.const(columns) ++ sql" FROM users WHERE username = $username")
+        .query[Row]
         .option
         .map(_.map(rowToUser.tupled))
         .transact(xa)
 
     def findByEmail(email: String): Task[Option[User]] =
-      sql"""
-        SELECT id, username, email, role, reputation, location, created_at
-        FROM users
-        WHERE email = $email
-      """
-        .query[(String, String, String, String, Int, Option[String], Instant)]
+      (sql"SELECT " ++ Fragment.const(columns) ++ sql" FROM users WHERE email = $email")
+        .query[Row]
+        .option
+        .map(_.map(rowToUser.tupled))
+        .transact(xa)
+
+    def findBySupabaseUserId(supabaseUserId: String): Task[Option[User]] =
+      (sql"SELECT " ++ Fragment.const(columns) ++ sql" FROM users WHERE supabase_user_id = $supabaseUserId")
+        .query[Row]
         .option
         .map(_.map(rowToUser.tupled))
         .transact(xa)
 
     def findAll: Task[List[User]] =
-      sql"""
-        SELECT id, username, email, role, reputation, location, created_at
-        FROM users
-        ORDER BY username ASC
-      """
-        .query[(String, String, String, String, Int, Option[String], Instant)]
+      (sql"SELECT " ++ Fragment.const(columns) ++ sql" FROM users ORDER BY username ASC")
+        .query[Row]
         .to[List]
         .map(_.map(rowToUser.tupled))
         .transact(xa)
 
     def create(user: User): Task[Unit] =
       sql"""
-        INSERT INTO users (id, username, email, role, reputation, location, created_at)
-        VALUES (${user.id}, ${user.username}, ${user.email},
+        INSERT INTO users (id, supabase_user_id, username, email, role, reputation, location, created_at)
+        VALUES (${user.id}, ${user.supabaseUserId}, ${user.username}, ${user.email},
                 ${user.role.toString}, ${user.reputation},
                 ${user.location}, ${user.createdAt})
       """

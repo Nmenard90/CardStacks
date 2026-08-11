@@ -1,43 +1,76 @@
 /**
- * UserContext — tracks which user is "logged in" and makes it available
- * to every page without prop-drilling.
+ * UserContext — tracks the signed-in collector and makes it available to
+ * every page without prop-drilling.
  *
  * HOW IT WORKS
- *   There are no real passwords — logging in just means picking a name
- *   (see LoginScreen.tsx). The logged-in user is persisted to
- *   localStorage so it survives a page refresh.
+ *   Supabase Auth owns the actual session (and the password) — this
+ *   context just mirrors it. On mount, and on every Supabase auth state
+ *   change (sign in, sign out, token refresh), it calls GET /api/auth/me
+ *   with the current access token; the backend verifies that token and
+ *   returns (creating on first sign-in) this collector's profile row.
+ *   `user` is null whenever there is no active Supabase session.
  *
  * USED BY: App.tsx (wraps the whole app), every page via useUser()
  */
 
-import { createContext, useContext, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { supabase } from '../lib/supabase'
+import { fetchMe } from '../api/users'
 import type { User } from '../types'
 
 interface UserContextValue {
   user: User | null
+  /** True until the initial session check (and, if signed in, the
+   *  follow-up profile fetch) finishes — lets LoginScreen avoid flashing
+   *  the sign-in form for someone who's actually already logged in. */
+  loading: boolean
+  /** Pass null to sign out. Pass a User only to update the cached profile
+   *  locally (e.g. after an edit) — sign-in itself is handled entirely by
+   *  Supabase; this context picks the new session up on its own. */
   setUser: (user: User | null) => void
 }
 
-// "Nobody logged in" — used only if a component reads this without a Provider above it.
-const UserContext = createContext<UserContextValue>({ user: null, setUser: () => {} })
+const UserContext = createContext<UserContextValue>({ user: null, loading: true, setUser: () => {} })
 
 export function UserProvider({ children }: { children: ReactNode }) {
-  const [user, setUserState] = useState<User | null>(() => {
-    try {
-      const stored = localStorage.getItem('poketracker_user')
-      return stored ? JSON.parse(stored) : null
-    } catch {
-      return null
+  const [user, setUserState] = useState<User | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+
+    const syncProfile = async () => {
+      const { data } = await supabase.auth.getSession()
+      if (!data.session) {
+        if (!cancelled) { setUserState(null); setLoading(false) }
+        return
+      }
+      try {
+        const profile = await fetchMe()
+        if (!cancelled) setUserState(profile)
+      } catch {
+        if (!cancelled) setUserState(null)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
     }
-  })
+
+    syncProfile()
+
+    const { data: subscription } = supabase.auth.onAuthStateChange(() => { syncProfile() })
+    return () => { cancelled = true; subscription.subscription.unsubscribe() }
+  }, [])
 
   const setUser = (u: User | null) => {
-    setUserState(u)
-    if (u) localStorage.setItem('poketracker_user', JSON.stringify(u))
-    else localStorage.removeItem('poketracker_user')
+    if (u === null) {
+      setUserState(null)
+      supabase.auth.signOut()
+    } else {
+      setUserState(u)
+    }
   }
 
-  return <UserContext.Provider value={{ user, setUser }}>{children}</UserContext.Provider>
+  return <UserContext.Provider value={{ user, loading, setUser }}>{children}</UserContext.Provider>
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

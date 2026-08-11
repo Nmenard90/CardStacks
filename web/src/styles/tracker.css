@@ -5,38 +5,96 @@
   *{box-sizing:border-box;margin:0;padding:0;}
   .page-tracker{background:var(--bg);color:var(--text);min-height:100vh;}
 
-  /* ── Login screen ── */
-  .page-tracker #loginScreen{
+  /* ── Auth / landing screen ──
+   * Two columns on desktop: the left explains the product (and, inside
+   * .auth-explainer, how Spaces specifically works — Storage / Binder
+   * Library / Display Gallery), the right is the actual sign-in/sign-up
+   * card. No user list here on purpose — see LoginScreen.tsx header. */
+  .page-tracker #loginScreen.auth-page{
+    /* Pinned rather than inherited: SpacesLivePage mounts this inside
+       .spaces-concept, which redefines --bg/--gold for its own dark
+       "collector's room" look — without this override the auth screen
+       would render with different colors depending on which page happens
+       to show it (also true of every other page-tracker screen, which
+       don't carry .spaces-concept). This keeps it identical everywhere. */
+    --bg:#221b3a; --surface:#2e2650; --surface2:#3a3164; --surface3:#463c78;
+    display:flex;align-items:stretch;
+    min-height:100vh;
+  }
+  .page-tracker .auth-hero{flex:1.1;}
+  .page-tracker .auth-panel{flex:.9;}
+  .page-tracker #loginScreen.auth-page.auth-loading{
     display:flex;align-items:center;justify-content:center;
-    min-height:100vh;flex-direction:column;gap:24px;
   }
-  .page-tracker .login-box{
-    background:var(--surface);border:var(--ink-w) solid var(--border);border-radius:16px;
-    padding:36px 40px;width:100%;max-width:400px;text-align:center;
+  .page-tracker .auth-hero{
+    padding:64px 56px;display:flex;flex-direction:column;justify-content:center;gap:28px;
+    background:
+      radial-gradient(circle at 15% 20%, rgba(255,203,5,.10), transparent 45%),
+      radial-gradient(circle at 85% 80%, rgba(91,141,255,.12), transparent 50%),
+      var(--bg);
   }
-  .page-tracker .login-box .mascot-block{margin-bottom:14px;}
-  .page-tracker .login-box h1{font-family:'Bangers',cursive;font-weight:400;letter-spacing:.04em;font-size:28px;color:var(--accent-ink);margin-bottom:6px;-webkit-text-stroke:1px rgba(0,0,0,.5);}
-  .page-tracker .login-box p{font-size:16px;color:var(--muted);margin-bottom:24px;}
-  .page-tracker .login-box input{
-    width:100%;padding:10px 14px;font-size:18px;font-family:'Nunito',sans-serif;
+  .page-tracker .auth-brand{display:flex;align-items:center;gap:12px;}
+  .page-tracker .auth-wordmark{
+    font-family:'Bangers',cursive;font-weight:400;letter-spacing:.06em;font-size:24px;
+    color:var(--accent-ink);-webkit-text-stroke:1px rgba(0,0,0,.5);
+  }
+  .page-tracker .auth-hero h1{
+    font-family:'Baloo 2',sans-serif;font-weight:800;font-size:clamp(28px,3.4vw,40px);
+    line-height:1.15;color:var(--text);max-width:20ch;
+  }
+  .page-tracker .auth-tagline{font-size:17px;line-height:1.6;color:var(--muted);max-width:52ch;}
+  .page-tracker .auth-explainer{
+    margin-top:8px;background:var(--surface);border:var(--ink-w) solid var(--border);
+    border-radius:var(--radius);padding:26px 28px;
+  }
+  .page-tracker .auth-explainer h2{font-family:'Baloo 2',sans-serif;font-weight:700;font-size:20px;color:var(--accent-ink);margin-bottom:6px;}
+  .page-tracker .auth-explainer-lede{font-size:15px;color:var(--muted);margin-bottom:18px;}
+  .page-tracker .auth-explainer-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
+  .page-tracker .auth-explainer-card{
+    background:var(--surface2);border:var(--ink-w) solid var(--border);border-radius:var(--radius-sm);
+    padding:16px;
+  }
+  .page-tracker .auth-explainer-card h3{font-family:'Baloo 2',sans-serif;font-weight:700;font-size:15px;color:var(--text);margin-bottom:6px;}
+  .page-tracker .auth-explainer-card p{font-size:13.5px;line-height:1.5;color:var(--muted);}
+
+  .page-tracker .auth-panel{
+    display:flex;align-items:center;justify-content:center;padding:48px 32px;
+    background:var(--surface);border-left:var(--ink-w) solid var(--border);
+  }
+  .page-tracker .auth-card{width:100%;max-width:380px;}
+  .page-tracker .auth-tabs{display:flex;gap:8px;margin-bottom:22px;background:var(--surface2);border:var(--ink-w) solid var(--border);border-radius:99px;padding:4px;}
+  .page-tracker .auth-tabs button{
+    flex:1;padding:9px;border:none;border-radius:99px;background:transparent;color:var(--muted);
+    font-family:'Nunito',sans-serif;font-weight:700;font-size:14px;cursor:pointer;
+  }
+  .page-tracker .auth-tabs button.active{background:var(--accent);color:#111;}
+  .page-tracker .auth-notice{
+    font-size:14px;color:var(--accent-ink);background:var(--surface2);border:var(--ink-w) solid var(--border);
+    border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:16px;
+  }
+  .page-tracker .auth-form{display:flex;flex-direction:column;gap:14px;}
+  .page-tracker .auth-form label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--muted);font-weight:600;}
+  .page-tracker .auth-form input{
+    padding:11px 14px;font-size:16px;font-family:'Nunito',sans-serif;
     background:var(--surface2);border:var(--ink-w) solid var(--border);border-radius:var(--radius);
-    color:var(--text);outline:none;margin-bottom:12px;text-align:center;
+    color:var(--text);outline:none;
   }
-  .page-tracker .login-box input:focus{border-color:var(--accent);}
-  .page-tracker .login-box button{
-    width:100%;padding:11px;font-size:17px;font-weight:600;font-family:'Nunito',sans-serif;
+  .page-tracker .auth-form input:focus{border-color:var(--accent);}
+  .page-tracker .auth-form button[type=submit]{
+    margin-top:4px;padding:12px;font-size:16px;font-weight:700;font-family:'Nunito',sans-serif;
     background:var(--accent);border:none;border-radius:var(--radius);color:#111;cursor:pointer;
-    display:block;text-align:center;
   }
-  .page-tracker .login-box button:hover{background:#e6b800;}
-  .page-tracker .existing-users{margin-top:20px;}
-  .page-tracker .existing-users p{font-size:14px;color:var(--muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:.07em;}
-  .page-tracker .user-chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;}
-  .page-tracker .user-chip{
-    padding:5px 14px;border-radius:99px;background:var(--surface2);
-    border:var(--ink-w) solid var(--border);font-size:15px;color:var(--text);cursor:pointer;
+  .page-tracker .auth-form button[type=submit]:hover{background:#e6b800;}
+  .page-tracker .auth-form button[type=submit]:disabled{opacity:.6;cursor:default;}
+  .page-tracker .auth-switch{margin-top:18px;text-align:center;font-size:14px;color:var(--muted);}
+  .page-tracker .auth-switch button{background:none;border:none;color:var(--accent2);font-weight:700;cursor:pointer;font-size:14px;padding:0;}
+
+  @media (max-width:900px){
+    .page-tracker #loginScreen.auth-page{flex-direction:column;}
+    .page-tracker .auth-hero{padding:40px 24px;}
+    .page-tracker .auth-panel{border-left:none;border-top:var(--ink-w) solid var(--border);padding:40px 24px;}
+    .page-tracker .auth-explainer-grid{grid-template-columns:1fr;}
   }
-  .page-tracker .user-chip:hover{border-color:var(--accent);color:var(--accent-ink);}
 
   /* ── App ── */
   .page-tracker #app{display:none;}

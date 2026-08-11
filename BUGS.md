@@ -34,6 +34,8 @@ _Last updated: 2026-06-29 (session 2)._
 | 017 | ENH | OPEN | Card detail + pricing | Click-through card view; optional purchase price; price-vs-cost + history. |
 | 018 | ENH | OPEN | Pricing data | TCGplayer "last sold" price, per condition. |
 | 019 | S2 | FIXED | Pricing / catalog | First-load always showed "no price"; infinite retry on partial matches. Fixed. |
+| 020 | S1 | FIXED | Auth (whole backend) | No real authentication existed — any endpoint's `userId` path segment was trusted from the client, and `GET /api/users` publicly listed every registered username. Replaced with Supabase Auth (email+password) + backend JWT verification + per-request ownership checks (`security/AuthGuard.scala`). |
+| 021 | S2 | OPEN | Storage (boxes/drawers by internal id) | A handful of endpoints keyed only by an internal object id (`/api/storage/boxes/:id`, `/api/storage/drawers/:id`) are authenticated but not yet ownership-checked — closing this needs a DB lookup per object, not just a path pattern. See `security/AuthGuard.scala` header. |
 
 ---
 
