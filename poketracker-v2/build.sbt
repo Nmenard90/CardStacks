@@ -115,6 +115,15 @@ lazy val root = project
       // we never reference its classes directly in our own code.
       "org.postgresql" % "postgresql" % postgresVersion % Runtime,
 
+      // Nimbus JOSE+JWT — verifies Supabase's signed access tokens against
+      // Supabase's public JWKS (JSON Web Key Set). Supabase's newer projects
+      // sign tokens asymmetrically (e.g. ES256) rather than with a single
+      // shared secret, so verification means fetching Supabase's public
+      // keys and checking the token's signature against them — exactly
+      // what this library exists to do correctly (key rotation, caching,
+      // algorithm selection) without us hand-rolling ECDSA.
+      "com.nimbusds" % "nimbus-jose-jwt" % "9.40",
+
       // MUnit — unit testing framework.
       // We write tests in src/test/scala/ that verify our business logic.
       // "Test" means it is only included when running tests, never in production.

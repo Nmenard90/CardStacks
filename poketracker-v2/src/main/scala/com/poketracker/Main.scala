@@ -18,7 +18,7 @@ package com.poketracker
 import com.poketracker.api.*
 import com.poketracker.config.DatabaseConfig
 import com.poketracker.repository.*
-import com.poketracker.security.AuthGuard
+import com.poketracker.security.{AuthGuard, SupabaseJwtVerifier}
 import com.poketracker.service.*
 import zio.*
 import zio.http.*
@@ -63,7 +63,7 @@ object Main extends ZIOAppDefault:
         // StorageService/BinderService rather than their raw repositories.
         shelfLayer  = (repoLayer ++ coreServices) >>> ShelfService.layer
 
-        appLayer    = coreServices ++ ripLayer ++ shelfLayer
+        appLayer    = coreServices ++ ripLayer ++ shelfLayer ++ SupabaseJwtVerifier.layer
 
         // Public: no Supabase session required (catalog browsing, health check).
         publicRoutes    = Routes(Method.GET / "health" -> Handler.ok) ++
