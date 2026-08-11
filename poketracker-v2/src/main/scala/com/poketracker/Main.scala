@@ -18,6 +18,7 @@ package com.poketracker
 import com.poketracker.api.*
 import com.poketracker.config.DatabaseConfig
 import com.poketracker.repository.*
+import com.poketracker.security.AuthGuard
 import com.poketracker.service.*
 import zio.*
 import zio.http.*
@@ -64,15 +65,23 @@ object Main extends ZIOAppDefault:
 
         appLayer    = coreServices ++ ripLayer ++ shelfLayer
 
-        allRoutes   = Routes(Method.GET / "health" -> Handler.ok) ++
-                      CardRoutes.routes ++
-                      CollectionRoutes.routes ++
-                      UserRoutes.routes ++
-                      BinderRoutes.routes ++
-                      RipRoutes.routes ++
-                      StorageRoutes.routes ++
-                      ShelfRoutes.routes ++
-                      RoomRoutes.routes
+        // Public: no Supabase session required (catalog browsing, health check).
+        publicRoutes    = Routes(Method.GET / "health" -> Handler.ok) ++
+                          CardRoutes.routes ++
+                          RipRoutes.routes
+
+        // Protected: AuthGuard verifies the caller's Supabase token, provisions/
+        // loads their profile, and 403s any request whose path userId doesn't
+        // match — see security/AuthGuard.scala for exactly what's covered.
+        protectedRoutes = (CollectionRoutes.routes ++
+                           UserRoutes.routes ++
+                           BinderRoutes.routes ++
+                           StorageRoutes.routes ++
+                           ShelfRoutes.routes ++
+                           RoomRoutes.routes ++
+                           AuthRoutes.routes) @@ AuthGuard.aspect
+
+        allRoutes       = publicRoutes ++ protectedRoutes
 
         // Required so the frontend (served from a different origin) isn't
         // blocked by browser CORS checks.

@@ -19,17 +19,21 @@ object UserRole:
   )
 
 /**
- * @param location    City-level, for trade matching, e.g. "Austin, TX". None if not shared.
- * @param reputation  Running score from completed trades.
+ * @param supabaseUserId The `sub` claim of this user's Supabase account —
+ *                        the durable link between our profile row and
+ *                        Supabase Auth, which owns the actual password.
+ * @param location       City-level, for trade matching, e.g. "Austin, TX". None if not shared.
+ * @param reputation     Running score from completed trades.
  */
 final case class User(
-  id:         String,
-  username:   String,
-  email:      String,
-  role:       UserRole,
-  reputation: Int,
-  location:   Option[String],
-  createdAt:  Instant
+  id:             String,
+  supabaseUserId: String,
+  username:       String,
+  email:          String,
+  role:           UserRole,
+  reputation:     Int,
+  location:       Option[String],
+  createdAt:      Instant
 )
 
 object User:

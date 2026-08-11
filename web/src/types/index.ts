@@ -72,6 +72,7 @@ export type UserRole = 'Collector' | 'Vendor' | 'Admin'
 
 export interface User {
   id: string
+  supabaseUserId: string
   username: string
   email: string
   role: UserRole
