@@ -158,7 +158,13 @@
 #pgrid .pcd-clear .ct{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#899394;margin-top:4px}
 #pgrid .pcd-clear:hover .ci,#pgrid .pcd-clear:hover .ct{color:var(--red,#ef4444)}
 .page-binder #pmsg{padding:2.5rem;text-align:center;color:var(--muted);font-size:15px;grid-column:1/-1}
-.page-binder #pload{display:flex;justify-content:center;padding:0 20px 16px}
+/* #pgrid clips its last row wherever its scroll height happens to end —
+   often mid-button — so #pload needs its own solid background/border to
+   read as a separate footer bar instead of looking fused with that
+   half-cut-off row (a real, measured overlap: the clipped row's full
+   layout box extends a few px past #pgrid's own boundary, right where
+   #pload begins). */
+.page-binder #pload{display:flex;justify-content:center;padding:10px 20px;background:var(--surface);border-top:var(--ink-w) solid var(--border)}
 
 /* Card info panel */
 .page-binder #cardInfo{
