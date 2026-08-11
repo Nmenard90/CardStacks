@@ -84,6 +84,18 @@
   background: #171d20;
   border: 1px solid #ffffff14;
   border-radius: 10px;
+  /* These grids grow via "Load more" (box/binder/analyzer pickers) and
+     never shrink back, so a big collection can end up with hundreds of
+     tiles mounted at once. Each holo tile runs its own infinite shimmer
+     animation (see .thumb-wrap.holo in tracker.css) using mix-blend-mode,
+     which is expensive to keep compositing even off-screen — with enough
+     tiles that alone was enough to freeze the main thread on something as
+     small as a keystroke. content-visibility skips layout/paint/animation
+     entirely for tiles currently scrolled out of view; contain-intrinsic-size
+     reserves roughly this tile's real size so the page doesn't jump around
+     as tiles above the fold get measured for real.  */
+  content-visibility: auto;
+  contain-intrinsic-size: 110px 210px;
 }
 .box-card-tile b { font-size: 12px; color: #fff; margin-top: 4px; }
 .box-card-tile small { font-size: 10px; color: #899394; }
