@@ -431,7 +431,13 @@ object PriceService:
     /**
      * Groups a set's SKUs by product and pulls out one price per
      * condition. A product can have several printings (Normal, Holofoil,
-     * 1st Edition) — takes the highest price found for each condition.
+     * Reverse Holofoil, 1st Edition) sharing one product ID, distinguished
+     * only by `printing` — all five conditions must come from the SAME
+     * printing, or e.g. a Reverse Holofoil's LP price can outrank a
+     * Normal's NM price for what's nominally "one card", producing a
+     * nonsensical NM < LP. Prefers the "Normal" printing when present,
+     * otherwise whichever printing actually has an NM price, otherwise
+     * just whatever printing shows up first.
      */
     private def buildPriceMap(products: Map[String, Map[String, TcgSku]]): Map[Int, CardPrices] =
       products
@@ -440,8 +446,14 @@ object PriceService:
           productId.toIntOption.map(_ -> skuMap.values.filter(_.language == "EN").toList)
         }
         .map { case (productId, productSkus) =>
+          val byPrinting = productSkus.groupBy(_.printing)
+          val chosenSkus = byPrinting.get("Normal")
+            .orElse(byPrinting.collectFirst { case (_, skus) if skus.exists(_.condition == "NM") => skus })
+            .orElse(byPrinting.values.headOption)
+            .getOrElse(Nil)
+
           def priceFor(cond: String): Option[Double] =
-            productSkus
+            chosenSkus
               .filter(_.condition == cond)
               .flatMap(_.market)
               .maxOption
