@@ -79,7 +79,8 @@ object AuthGuard:
                             .mapError(reason => jsonError(Status.Unauthorized, reason))
                 user   <- ZIO.serviceWithZIO[UserService](
                             _.findOrCreateFromAuth(claims.subject, claims.email, claims.username, claims.isAnonymous)
-                          ).orElseFail(jsonError(Status.InternalServerError, "Could not load your profile"))
+                          ).tapErrorCause(cause => ZIO.logErrorCause("findOrCreateFromAuth failed", cause))
+                           .orElseFail(jsonError(Status.InternalServerError, "Could not load your profile"))
                 _      <- requiredOwnerUserId(req) match
                             case Some(claimedUserId) if claimedUserId != user.id => ZIO.fail(notAnOwner)
                             case _                                               => ZIO.unit

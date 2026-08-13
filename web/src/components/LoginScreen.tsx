@@ -154,33 +154,37 @@ export function LoginScreen() {
 
           <form onSubmit={submit} className="auth-form">
             {mode === 'signup' && (
-              <label>
+              <label htmlFor="auth-username">
                 Username
                 <input
+                  id="auth-username" name="username"
                   type="text" value={username} maxLength={30} autoComplete="username"
                   onChange={e => setUsername(e.target.value)} required
                 />
               </label>
             )}
-            <label>
+            <label htmlFor="auth-email">
               Email
               <input
+                id="auth-email" name="email"
                 type="email" value={email} autoComplete="email"
                 onChange={e => setEmail(e.target.value)} required
               />
             </label>
-            <label>
+            <label htmlFor="auth-password">
               Password
               <input
+                id="auth-password" name="password"
                 type="password" value={password} minLength={6}
                 autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
                 onChange={e => setPassword(e.target.value)} required
               />
             </label>
             {mode === 'signup' && (
-              <label>
+              <label htmlFor="auth-confirm-password">
                 Confirm password
                 <input
+                  id="auth-confirm-password" name="confirmPassword"
                   type="password" value={confirmPassword} minLength={6} autoComplete="new-password"
                   onChange={e => setConfirmPassword(e.target.value)} required
                 />

@@ -63,20 +63,32 @@ object UserService:
           val requested = desiredUsername.map(_.trim).filter(_.nonEmpty)
             .getOrElse(if isAnonymous then s"guest-${supabaseUserId.take(8)}" else s"collector-${supabaseUserId.take(8)}")
           for
-            username <- uniqueUsername(requested)
-            id        = UUID.randomUUID().toString
-            user      = User(
-                          id             = id,
-                          supabaseUserId = supabaseUserId,
-                          username       = username,
-                          email          = email.getOrElse(s"$supabaseUserId@users.noreply"),
-                          role           = UserRole.Collector,
-                          reputation     = 0,
-                          location       = None,
-                          isAnonymous    = isAnonymous,
-                          createdAt      = Instant.now()
-                        )
-            _        <- repo.create(user)
+            username  <- uniqueUsername(requested)
+            candidate  = User(
+                           id             = UUID.randomUUID().toString,
+                           supabaseUserId = supabaseUserId,
+                           username       = username,
+                           email          = email.getOrElse(s"$supabaseUserId@users.noreply"),
+                           role           = UserRole.Collector,
+                           reputation     = 0,
+                           location       = None,
+                           isAnonymous    = isAnonymous,
+                           createdAt      = Instant.now()
+                         )
+            // The frontend fires GET /api/auth/me once on mount and again
+            // on every Supabase auth-state-change event, so a fresh
+            // sign-in typically sends 2-3 of these in quick succession.
+            // For a brand-new account, every one of them races through
+            // the `None` branch above and tries to insert the same
+            // deterministic username/email — the first insert wins, the
+            // rest hit a unique-constraint violation. Rather than 500 the
+            // losers, fall back to the row that actually landed.
+            user      <- repo.create(candidate).as(candidate).catchAll { createError =>
+                           repo.findBySupabaseUserId(supabaseUserId).flatMap {
+                             case Some(existing) => ZIO.succeed(existing)
+                             case None           => ZIO.fail(createError)
+                           }
+                         }
           yield user
       }
 
