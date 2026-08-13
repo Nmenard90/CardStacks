@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.poketracker.app',
-  appName: 'PokeTracker',
+  appName: 'CardStacks',
   webDir: 'dist'
 };
 

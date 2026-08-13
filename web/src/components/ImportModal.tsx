@@ -54,7 +54,7 @@ export function ImportModal({ open, onClose, onImport }: Props) {
     const csv = 'Card ID,Quantity,Condition\nsv1-1,2,NM\nbase1-4,1,LP\n'
     const a = Object.assign(document.createElement('a'), {
       href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
-      download: 'poketracker-template.csv',
+      download: 'cardstacks-template.csv',
     })
     a.click()
     URL.revokeObjectURL(a.href)

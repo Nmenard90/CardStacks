@@ -1,4 +1,4 @@
-# PokéTracker
+# CardStacks
 
 A full-stack Pokémon TCG collection tracker. Log the physical cards you own — by
 condition, variant, and quantity — organize them into virtual binders and
@@ -9,13 +9,13 @@ from live market prices, and weigh trades before you make them.
 > PostgreSQL backend · Supabase Auth · deployed on Railway.
 
 <!-- TODO: add a live demo link and a couple of screenshots here -->
-**Live demo:** _coming soon_ · **API health check:** `GET /health`
+**Live demo:** no account needed — hit "Try the demo" on the login screen for a temporary account (cleared after 24h) · **API health check:** `GET /health`
 
 ---
 
 ## Overview
 
-PokéTracker is built for collectors who own real cards and want a single place
+CardStacks is built for collectors who own real cards and want a single place
 to track them. Card and set data is sourced from the
 [pokemontcg.io](https://pokemontcg.io) catalog (backfilled locally across 170+
 sets) and enriched with per-condition pricing from
@@ -36,7 +36,10 @@ focused workflows:
 
 Accounts are handled by **Supabase Auth** (email + password) — the backend
 never sees or stores a password, and there is no way to browse or discover
-other users' accounts from the app.
+other users' accounts from the app. A "Try the demo" button on the login
+screen starts a Supabase anonymous session instead, so anyone can look
+around without creating an account; demo accounts (and their data) are
+purged 24 hours after creation.
 
 ---
 

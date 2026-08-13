@@ -24,6 +24,9 @@ object UserRole:
  *                        Supabase Auth, which owns the actual password.
  * @param location       City-level, for trade matching, e.g. "Austin, TX". None if not shared.
  * @param reputation     Running score from completed trades.
+ * @param isAnonymous    True for a Supabase anonymous-auth session (the
+ *                        "try the demo" button) — cleared once that session
+ *                        links a real email/password.
  */
 final case class User(
   id:             String,
@@ -33,6 +36,7 @@ final case class User(
   role:           UserRole,
   reputation:     Int,
   location:       Option[String],
+  isAnonymous:    Boolean,
   createdAt:      Instant
 )
 

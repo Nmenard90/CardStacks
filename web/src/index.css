@@ -47,6 +47,19 @@ body{font-family:'Nunito',sans-serif;font-size:var(--fs-base);background:var(--b
 }
 .toast.show{opacity:1;transform:translateY(0);}
 
+/* Demo (Supabase anonymous-auth) session indicator — unscoped like Toast
+ * so it looks identical no matter which page's theme is underneath it. */
+.demo-banner{
+  position:sticky;top:0;z-index:998;display:flex;align-items:center;justify-content:center;gap:14px;
+  padding:8px 16px;background:var(--accent);color:#111;font-size:13.5px;font-weight:700;
+  border-bottom:var(--ink-w) solid var(--border);text-align:center;
+}
+.demo-banner button{
+  background:#111;color:var(--accent);border:none;border-radius:99px;padding:4px 12px;
+  font-weight:700;font-size:12.5px;cursor:pointer;flex-shrink:0;
+}
+.demo-banner button:hover{opacity:.85;}
+
 /* Mascot — a recurring Poké Ball buddy, unscoped so it looks the same in
  * every page's empty states and the login screen. */
 .mascot-block{display:flex;flex-direction:column;align-items:center;gap:12px;}

@@ -155,6 +155,12 @@ CREATE TABLE IF NOT EXISTS users (
   -- NULL if user has not set a location
   location   TEXT,
 
+  -- True for a Supabase anonymous-auth session (the "try the demo, no
+  -- signup" button) — cleared to false if the same session later links a
+  -- real email/password. Anonymous rows older than 24h are purged by
+  -- Main's cleanup job. See migration_012_anonymous_demo_users.sql.
+  is_anonymous BOOLEAN NOT NULL DEFAULT FALSE,
+
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

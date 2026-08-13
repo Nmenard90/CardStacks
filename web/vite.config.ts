@@ -1,6 +1,6 @@
 /**
  * FILE: vite.config.ts
- * PURPOSE: Vite build + dev-server config for the PokéTracker frontend.
+ * PURPOSE: Vite build + dev-server config for the CardStacks frontend.
  *          The dev proxy forwards /api to the Scala backend on Railway so
  *          local development needs no CORS setup; production builds call
  *          the backend directly via VITE_API_BASE (see src/api/client.ts).

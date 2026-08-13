@@ -92,12 +92,28 @@ export function LoginScreen() {
     }
   }
 
+  // Supabase anonymous auth — a real (if throwaway) session, so it flows
+  // through UserContext/backend exactly like a normal account. The backend
+  // marks it isAnonymous and clears the row 24h after creation.
+  const tryDemo = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const { error } = await supabase.auth.signInAnonymously()
+      if (error) throw error
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Could not start the demo — try again')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div id="loginScreen" className="auth-page">
       <div className="auth-hero">
         <div className="auth-brand">
           <Mascot size={52} mood="idle" />
-          <span className="auth-wordmark">POKÉTRACKER</span>
+          <span className="auth-wordmark">CARDSTACKS</span>
         </div>
         <h1>Every card you own, organized like a real collection.</h1>
         <p className="auth-tagline">
@@ -181,6 +197,12 @@ export function LoginScreen() {
               ? <>New here? <button type="button" onClick={() => switchMode('signup')}>Create an account</button></>
               : <>Already have an account? <button type="button" onClick={() => switchMode('signin')}>Log in</button></>}
           </p>
+
+          <div className="auth-divider"><span>or</span></div>
+          <button type="button" className="auth-demo-btn" onClick={tryDemo} disabled={busy}>
+            Try the demo — no signup required
+          </button>
+          <p className="auth-demo-note">Poke around with a temporary account. It's cleared automatically after 24 hours.</p>
         </div>
       </div>
     </div>

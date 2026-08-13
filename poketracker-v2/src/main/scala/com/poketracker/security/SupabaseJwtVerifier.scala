@@ -29,7 +29,7 @@ import zio.*
 import java.time.Instant
 import scala.jdk.CollectionConverters.*
 
-final case class SupabaseClaims(subject: String, email: Option[String], username: Option[String])
+final case class SupabaseClaims(subject: String, email: Option[String], username: Option[String], isAnonymous: Boolean)
 
 trait SupabaseJwtVerifier:
   /** Fails with a human-readable reason on anything wrong with the token —
@@ -56,11 +56,14 @@ object SupabaseJwtVerifier:
         if exp.exists(_.toInstant.isBefore(Instant.now())) then
           throw new IllegalStateException("Token expired")
 
-        val email    = Option(claims.getStringClaim("email"))
-        val metadata = Option(claims.getJSONObjectClaim("user_metadata")).map(_.asScala)
-        val username = metadata.flatMap(_.get("username")).map(_.toString)
+        val email       = Option(claims.getStringClaim("email"))
+        val metadata    = Option(claims.getJSONObjectClaim("user_metadata")).map(_.asScala)
+        val username    = metadata.flatMap(_.get("username")).map(_.toString)
+        // Supabase sets this true only on anonymous-auth sessions (the "try
+        // the demo" button) — absent entirely on normal accounts.
+        val isAnonymous = Option(claims.getBooleanClaim("is_anonymous")).exists(_.booleanValue)
 
-        SupabaseClaims(claims.getSubject, email, username)
+        SupabaseClaims(claims.getSubject, email, username, isAnonymous)
       }.mapError(e => Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
 
   /** RemoteJWKSet caches Supabase's public keys in memory and only

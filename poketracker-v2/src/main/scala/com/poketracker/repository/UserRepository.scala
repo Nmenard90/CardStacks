@@ -35,6 +35,15 @@ trait UserRepository:
   def updateReputation(userId: String, reputation: Int): Task[Unit]
   def updateLocation(userId: String, location: String): Task[Unit]
 
+  /** Called once an anonymous demo session links a real email/password —
+   *  keeps the account out of the 24h cleanup sweep. */
+  def clearAnonymousFlag(userId: String): Task[Unit]
+
+  /** Deletes anonymous demo accounts (and, via ON DELETE CASCADE, their
+   *  collection/binders/storage) created before the given instant. Returns
+   *  the number of rows removed. */
+  def deleteExpiredAnonymous(before: Instant): Task[Int]
+
   /** 3+ triggers a warning badge on the user's profile/listings. */
   def countReportsAgainst(userId: String): Task[Int]
 
@@ -44,13 +53,13 @@ object UserRepository:
 
     private def rowToUser(
       id: String, supabaseUserId: String, username: String, email: String, role: String,
-      reputation: Int, location: Option[String], createdAt: Instant
+      reputation: Int, location: Option[String], isAnonymous: Boolean, createdAt: Instant
     ): User =
-      User(id, supabaseUserId, username, email, UserRole.valueOf(role), reputation, location, createdAt)
+      User(id, supabaseUserId, username, email, UserRole.valueOf(role), reputation, location, isAnonymous, createdAt)
 
-    private type Row = (String, String, String, String, String, Int, Option[String], Instant)
+    private type Row = (String, String, String, String, String, Int, Option[String], Boolean, Instant)
 
-    private val columns = "id, supabase_user_id, username, email, role, reputation, location, created_at"
+    private val columns = "id, supabase_user_id, username, email, role, reputation, location, is_anonymous, created_at"
 
     def findById(id: String): Task[Option[User]] =
       (sql"SELECT " ++ Fragment.const(columns) ++ sql" FROM users WHERE id = $id")
@@ -89,10 +98,10 @@ object UserRepository:
 
     def create(user: User): Task[Unit] =
       sql"""
-        INSERT INTO users (id, supabase_user_id, username, email, role, reputation, location, created_at)
+        INSERT INTO users (id, supabase_user_id, username, email, role, reputation, location, is_anonymous, created_at)
         VALUES (${user.id}, ${user.supabaseUserId}, ${user.username}, ${user.email},
                 ${user.role.toString}, ${user.reputation},
-                ${user.location}, ${user.createdAt})
+                ${user.location}, ${user.isAnonymous}, ${user.createdAt})
       """
         .update.run.void.transact(xa)
 
@@ -107,6 +116,18 @@ object UserRepository:
         UPDATE users SET location = $location WHERE id = $userId
       """
         .update.run.void.transact(xa)
+
+    def clearAnonymousFlag(userId: String): Task[Unit] =
+      sql"""
+        UPDATE users SET is_anonymous = false WHERE id = $userId
+      """
+        .update.run.void.transact(xa)
+
+    def deleteExpiredAnonymous(before: Instant): Task[Int] =
+      sql"""
+        DELETE FROM users WHERE is_anonymous = true AND created_at < $before
+      """
+        .update.run.transact(xa)
 
     def countReportsAgainst(userId: String): Task[Int] =
       sql"""

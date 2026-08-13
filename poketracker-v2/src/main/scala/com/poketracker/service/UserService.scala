@@ -27,8 +27,15 @@ trait UserService:
 
   /** Looks up the local profile linked to a verified Supabase user id,
    *  creating one (with a unique username derived from sign-up metadata)
-   *  the first time that Supabase account is ever seen. */
-  def findOrCreateFromAuth(supabaseUserId: String, email: Option[String], desiredUsername: Option[String]): Task[User]
+   *  the first time that Supabase account is ever seen. `isAnonymous`
+   *  reflects the current token — if a previously-anonymous account has
+   *  since linked a real email/password, this clears the flag so it drops
+   *  out of the 24h demo-account cleanup. */
+  def findOrCreateFromAuth(supabaseUserId: String, email: Option[String], desiredUsername: Option[String], isAnonymous: Boolean): Task[User]
+
+  /** Deletes demo (anonymous-auth) accounts older than 24 hours. Returns
+   *  how many were removed. Run on a timer from Main. */
+  def cleanupExpiredAnonymousUsers: Task[Int]
 
   def findByUsername(username: String): Task[Option[User]]
 
@@ -45,12 +52,16 @@ object UserService:
 
   final class Live(repo: UserRepository) extends UserService:
 
-    def findOrCreateFromAuth(supabaseUserId: String, email: Option[String], desiredUsername: Option[String]): Task[User] =
+    def findOrCreateFromAuth(supabaseUserId: String, email: Option[String], desiredUsername: Option[String], isAnonymous: Boolean): Task[User] =
       repo.findBySupabaseUserId(supabaseUserId).flatMap {
+        case Some(user) if user.isAnonymous && !isAnonymous =>
+          // Same Supabase session linked a real email/password since we
+          // last saw it — keep the account (and its data) out of cleanup.
+          repo.clearAnonymousFlag(user.id).as(user.copy(isAnonymous = false))
         case Some(user) => ZIO.succeed(user)
         case None =>
           val requested = desiredUsername.map(_.trim).filter(_.nonEmpty)
-            .getOrElse(s"collector-${supabaseUserId.take(8)}")
+            .getOrElse(if isAnonymous then s"guest-${supabaseUserId.take(8)}" else s"collector-${supabaseUserId.take(8)}")
           for
             username <- uniqueUsername(requested)
             id        = UUID.randomUUID().toString
@@ -62,11 +73,15 @@ object UserService:
                           role           = UserRole.Collector,
                           reputation     = 0,
                           location       = None,
+                          isAnonymous    = isAnonymous,
                           createdAt      = Instant.now()
                         )
             _        <- repo.create(user)
           yield user
       }
+
+    def cleanupExpiredAnonymousUsers: Task[Int] =
+      repo.deleteExpiredAnonymous(Instant.now().minus(24, java.time.temporal.ChronoUnit.HOURS))
 
     /** Appends -2, -3, ... until the username is free — the caller picked
      *  it at sign-up, so a collision should be rare, not an error. */

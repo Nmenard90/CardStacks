@@ -93,8 +93,20 @@ object Main extends ZIOAppDefault:
                         maxAge           = None
                       ))
 
+        // Demo ("try it, no signup") accounts are Supabase anonymous-auth
+        // sessions — see security/AuthGuard.scala and UserService. Nothing
+        // deletes them on its own, so this sweeps rows past their 24h
+        // window once an hour for as long as the server runs. Forked
+        // before Server.serve so it shares the one built appLayer instead
+        // of re-running layer construction (e.g. the JWKS fetch) a second time.
+        cleanupJob  = ZIO.serviceWithZIO[UserService](_.cleanupExpiredAnonymousUsers)
+                        .tap(n => ZIO.when(n > 0)(ZIO.logInfo(s"Cleaned up $n expired demo account(s)")))
+                        .catchAll(e => ZIO.logWarning(s"Demo account cleanup failed: ${e.getMessage}"))
+                        .repeat(Schedule.spaced(1.hour))
+
+        serverEffect = cleanupJob.forkDaemon *> Server.serve(allRoutes @@ cors)
+
         _          <- ZIO.logInfo(s"Starting PokéTracker API on port $port")
-        _          <- Server.serve(allRoutes @@ cors)
-                        .provide(appLayer, Server.defaultWithPort(port))
+        _          <- serverEffect.provide(appLayer, Server.defaultWithPort(port))
       yield ()
     }

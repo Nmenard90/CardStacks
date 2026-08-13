@@ -78,6 +78,7 @@ export interface User {
   role: UserRole
   reputation: number
   location?: string     // city-level only, never a precise address
+  isAnonymous: boolean   // true for a "try the demo" account — cleared after 24h
   createdAt: string
 }
 
