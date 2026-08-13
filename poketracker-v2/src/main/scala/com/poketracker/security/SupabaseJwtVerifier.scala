@@ -56,7 +56,11 @@ object SupabaseJwtVerifier:
         if exp.exists(_.toInstant.isBefore(Instant.now())) then
           throw new IllegalStateException("Token expired")
 
-        val email       = Option(claims.getStringClaim("email"))
+        // Supabase anonymous sessions carry an "email" claim that's an
+        // empty string rather than omitting it — treat blank as absent so
+        // UserService's noreply-email fallback (unique per Supabase user
+        // id) kicks in instead of every anonymous user colliding on "".
+        val email       = Option(claims.getStringClaim("email")).map(_.trim).filter(_.nonEmpty)
         val metadata    = Option(claims.getJSONObjectClaim("user_metadata")).map(_.asScala)
         val username    = metadata.flatMap(_.get("username")).map(_.toString)
         // Supabase sets this true only on anonymous-auth sessions (the "try
