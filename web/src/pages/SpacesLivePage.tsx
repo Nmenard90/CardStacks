@@ -66,18 +66,13 @@ type View = 'home' | 'storage' | 'binders' | 'displays'
 // Every "+ Add ___" flow picks from one of these instead of a window.prompt,
 // per the Spaces spec ("do not use browser prompts for creation forms").
 
-// `sections` is how many pull-out drawers a real box like this actually
-// has — createChosen() below creates that many storage_drawers instead of
-// always one, and box-model-* CSS uses it to render distinct row/drawer
-// lines per type instead of every box looking like the same tinted crate.
-interface BoxChoice { name: string; boxType: string; capacity: number; color: string; label: string; sections: number }
+interface BoxChoice { name: string; boxType: string; capacity: number; color: string; label: string }
 const BOX_PRESETS: BoxChoice[] = [
-  { name: '800 Count Box', boxType: 'long-800', capacity: 800, color: '#d8d0c0', label: 'Single-row long card box', sections: 1 },
-  { name: '1600 Count Box', boxType: 'row-1600', capacity: 1600, color: '#315c73', label: 'Two-row storage box', sections: 2 },
-  { name: '1200 Triple-Drawer Box', boxType: 'row-1200-3d', capacity: 1200, color: '#7a4a2b', label: 'Three pull-out 400-card drawers', sections: 3 },
-  { name: '3200 Count Box', boxType: 'row-3200', capacity: 3200, color: '#98483e', label: 'Four-row monster box', sections: 4 },
-  { name: '5000 Count Box', boxType: 'row-5000', capacity: 5000, color: '#50684c', label: 'Five-row monster box', sections: 5 },
-  { name: 'Deck Box', boxType: 'deck-100', capacity: 100, color: '#68527a', label: 'Compact sleeved deck box', sections: 1 },
+  { name: '800 Count Box', boxType: 'long-800', capacity: 800, color: '#d8d0c0', label: 'Single-row long card box' },
+  { name: '1600 Count Box', boxType: 'row-1600', capacity: 1600, color: '#315c73', label: 'Two-row storage box' },
+  { name: '3200 Count Box', boxType: 'row-3200', capacity: 3200, color: '#98483e', label: 'Four-row monster box' },
+  { name: '5000 Count Box', boxType: 'row-5000', capacity: 5000, color: '#50684c', label: 'Five-row monster box' },
+  { name: 'Deck Box', boxType: 'deck-100', capacity: 100, color: '#68527a', label: 'Compact sleeved deck box' },
 ]
 
 interface ShelfPreset {
@@ -485,10 +480,7 @@ function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus
       }
       if (shelfIndex < 0) throw new Error('This shelf unit is full. Add another shelf unit first.')
       const made = await createBox(userId, choice.name, choice.boxType, choice.capacity, choice.color)
-      const sections = Math.max(1, choice.sections)
-      for (let i = 0; i < sections; i++) {
-        await createDrawer(made.id, sections > 1 ? `Drawer ${i + 1}` : 'Main compartment')
-      }
+      await createDrawer(made.id, 'Main compartment')
       await placeBox(userId, made.id, { spaceId: space.id, unitId: target.id, shelfIndex, stackIndex, stackLevel })
       await reload()
       setMessage(`${choice.name} was added to Shelf ${String.fromCharCode(65 + shelfIndex)}, stack ${stackIndex + 1}.`)
@@ -535,7 +527,6 @@ function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus
         otherBoxes={boxes.filter(b => b.id !== selected.box.id)}
         binders={binders} displayCases={space.displayCases}
         close={() => setSelected(null)} onRenamed={reload}
-        onSwitchDrawer={d => setSelected({ box: selected.box, drawer: d })}
       />
     )
   }
@@ -599,7 +590,7 @@ function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus
                             onDragEnd={() => setArmed('')}
                             onClick={() => { setOpening(box.id); window.setTimeout(() => setOpening(''), 650) }}
                             onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpening(box.id); window.setTimeout(() => setOpening(''), 650) } }}
-                            className={`physical-box box-model-${box.boxType || 'custom'} sections-${Math.min(box.drawers.length || 1, 6)} ${fillState} ${opening === box.id ? 'is-open opening-to-inventory' : ''}`}
+                            className={`physical-box box-model-${box.boxType || 'custom'} ${fillState} ${opening === box.id ? 'is-open opening-to-inventory' : ''}`}
                             style={{ '--chosen-box-color': box.color || '#d8d0c0' } as React.CSSProperties}
                           >
                             <span className="box-lid" />
@@ -687,11 +678,10 @@ function ShelfUnitPicker({ cancel, choose }: { cancel: () => void; choose: (pres
 
 // ─── Box inventory workspace ────────────────────────────────────────────────
 
-function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, close, onRenamed, onSwitchDrawer }: {
+function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, close, onRenamed }: {
   userId: string; box: StorageBox; drawer: StorageDrawer; otherBoxes: StorageBox[]
   binders: Binder[]; displayCases: DisplayCase[]
   close: () => void; onRenamed: () => Promise<void>
-  onSwitchDrawer: (drawer: StorageDrawer) => void
 }) {
   const [lots, setLots] = useState<InventoryLot[]>([])
   const [placements, setPlacements] = useState<CardAllocation[]>([])
@@ -991,20 +981,6 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
         <button onClick={() => void deleteThisBox()} style={{ color: '#fca5a5', borderColor: 'rgba(239,68,68,0.4)' }}>🗑 Delete box</button>
       </header>
 
-      {box.drawers.length > 1 && (
-        <div className="drawer-tabs">
-          {box.drawers.map(d => (
-            <button
-              key={d.id}
-              className={d.id === drawer.id ? 'active' : ''}
-              onClick={() => onSwitchDrawer(d)}
-            >
-              {d.name}<small>{d.cardCount} cards</small>
-            </button>
-          ))}
-        </div>
-      )}
-
       {message && <div className="spaces-action-message">{message}</div>}
 
       <div className="box-toolbar">
@@ -1206,7 +1182,6 @@ function BoxPicker({ cancel, choose }: { cancel: () => void; choose: (choice: Bo
   const [name, setName] = useState('Custom Card Box')
   const [capacity, setCapacity] = useState(1000)
   const [color, setColor] = useState('#b78a43')
-  const [sections, setSections] = useState(1)
 
   return (
     <section className="box-picker-live">
@@ -1216,8 +1191,8 @@ function BoxPicker({ cancel, choose }: { cancel: () => void; choose: (choice: Bo
       <div className="box-preset-grid">
         {BOX_PRESETS.map(choice => (
           <button key={choice.boxType} onClick={() => choose(choice)} style={{ '--preset-color': choice.color } as React.CSSProperties}>
-            <i className={`preset-box box-model-${choice.boxType} sections-${choice.sections}`}><span /></i>
-            <span><b>{choice.name}</b><small>{choice.label}</small><strong>{choice.capacity.toLocaleString()} cards{choice.sections > 1 ? ` · ${choice.sections} drawers` : ''}</strong></span>
+            <i className={`preset-box box-model-${choice.boxType}`}><span /></i>
+            <span><b>{choice.name}</b><small>{choice.label}</small><strong>{choice.capacity.toLocaleString()} cards</strong></span>
           </button>
         ))}
         <button onClick={() => setCustom(true)}>
@@ -1230,9 +1205,8 @@ function BoxPicker({ cancel, choose }: { cancel: () => void; choose: (choice: Bo
           <h3>Custom box</h3>
           <label>Name<input type="text" value={name} onChange={e => setName(e.target.value)} /></label>
           <label>Capacity<input type="number" min="1" value={capacity} onChange={e => setCapacity(Math.max(1, Number(e.target.value)))} /></label>
-          <label>Drawers<input type="number" min="1" max="6" value={sections} onChange={e => setSections(Math.max(1, Number(e.target.value)))} /></label>
           <label>Color<input type="color" value={color} onChange={e => setColor(e.target.value)} /></label>
-          <button onClick={() => choose({ name: name.trim() || 'Custom Card Box', boxType: 'custom', capacity, color, label: 'Custom physical box', sections })}>Create custom box</button>
+          <button onClick={() => choose({ name: name.trim() || 'Custom Card Box', boxType: 'custom', capacity, color, label: 'Custom physical box' })}>Create custom box</button>
         </div>
       )}
     </section>
