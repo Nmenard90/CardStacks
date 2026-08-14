@@ -560,3 +560,87 @@
   background: #3a3f42;
   box-shadow: none;
 }
+
+/* ── Box packaging look + per-type silhouette ──────────────────────────────
+   Every box used to render as the same rounded rectangle in a different
+   flat tint, so two different real-world box types (a long single-row box
+   vs. a 5-row monster box vs. a multi-drawer organizer) were indistinguishable
+   beyond size. These rules give every box a two-tone "packaging" face (same
+   gradient formula as .preset-box, so the picker icon and the placed box
+   match) plus row/drawer lines whose count comes from .sections-N — added
+   next to box-model-* in both the picker (choice.sections) and the shelf
+   (box.drawers.length) — so the silhouette reflects the real internal
+   structure instead of just a color swap. Appended at file end so these
+   higher-or-equal-specificity rules reliably win over the legacy chunk's
+   earlier .physical-box/.preset-box declarations. */
+.physical-box,
+.preset-box {
+  background: linear-gradient(155deg,
+    color-mix(in srgb, var(--chosen-box-color, var(--preset-color, #b78a43)) 92%, white),
+    color-mix(in srgb, var(--chosen-box-color, var(--preset-color, #b78a43)) 68%, black));
+}
+
+/* Row lines for single-compartment boxes with internal rows (2600/3200/5000-
+   style monster boxes) — thin horizontal dividers, not full drawer fronts. */
+.physical-box.sections-2, .preset-box.sections-2,
+.physical-box.sections-4, .preset-box.sections-4,
+.physical-box.sections-5, .preset-box.sections-5 {
+  background-image: repeating-linear-gradient(to bottom, transparent 0 calc(100% / var(--rows, 2) - 3px), rgba(0,0,0,.28) calc(100% / var(--rows, 2) - 3px) calc(100% / var(--rows, 2)));
+}
+.sections-2 { --rows: 2; }
+.sections-4 { --rows: 4; }
+.sections-5 { --rows: 5; }
+
+/* Multi-drawer boxes (3+ sections, e.g. a 1200-count/3×400 organizer) get
+   actual drawer fronts — thicker bands with a pull-handle notch on each —
+   so they read as separate pull-out drawers, not just more rows. */
+.physical-box.sections-3, .preset-box.sections-3,
+.physical-box.sections-6, .preset-box.sections-6 {
+  background-image: repeating-linear-gradient(to bottom,
+    rgba(0,0,0,.05) 0 calc(100% / var(--drawers, 3) - 6px),
+    rgba(0,0,0,.4) calc(100% / var(--drawers, 3) - 6px) calc(100% / var(--drawers, 3) - 2px),
+    transparent calc(100% / var(--drawers, 3) - 2px) calc(100% / var(--drawers, 3)));
+}
+.sections-3 { --drawers: 3; }
+.sections-6 { --drawers: 6; }
+.physical-box.sections-3::before, .preset-box.sections-3::before,
+.physical-box.sections-6::before, .preset-box.sections-6::before {
+  content: '';
+  position: absolute;
+  left: 8px; top: 4px; bottom: 4px; width: 3px;
+  background: repeating-linear-gradient(to bottom,
+    rgba(255,255,255,.55) 0 4px,
+    transparent 4px calc(100% / var(--drawers, 3)));
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+/* Deck box: compact single sleeve, no row/drawer lines — already narrower
+   via box-model-deck-100 sizing, this just keeps its face flat/plain so it
+   doesn't get mistaken for a subdivided box at a glance. */
+.physical-box.box-model-deck-100, .preset-box.box-model-deck-100 { background-image: none; }
+
+/* ── Drawer tabs — switching which drawer of a multi-drawer box you're
+   looking at, inside the open-box workspace. Mirrors .live-unit-tabs. ── */
+.drawer-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 25px 12px;
+}
+.drawer-tabs button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  background: #171d20;
+  border: 1px solid #ffffff18;
+  border-radius: 9px;
+  color: #fff;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.drawer-tabs button.active { border-color: var(--gold, #d6a958); background: #ffffff08; }
+.drawer-tabs button small { color: #849092; font-weight: 400; font-size: 10px; }
