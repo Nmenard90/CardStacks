@@ -60,7 +60,10 @@ object UserService:
           repo.clearAnonymousFlag(user.id).as(user.copy(isAnonymous = false))
         case Some(user) => ZIO.succeed(user)
         case None =>
-          val requested = desiredUsername.map(_.trim).filter(_.nonEmpty)
+          // Capped at 30 to match the sign-up form's maxLength — Google's
+          // "full_name"/"name" claims (see SupabaseJwtVerifier) aren't
+          // length-bounded the way a typed-in username is.
+          val requested = desiredUsername.map(_.trim).filter(_.nonEmpty).map(_.take(30))
             .getOrElse(if isAnonymous then s"guest-${supabaseUserId.take(8)}" else s"collector-${supabaseUserId.take(8)}")
           for
             username  <- uniqueUsername(requested)

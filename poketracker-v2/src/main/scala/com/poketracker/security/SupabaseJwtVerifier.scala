@@ -60,9 +60,15 @@ object SupabaseJwtVerifier:
         // empty string rather than omitting it — treat blank as absent so
         // UserService's noreply-email fallback (unique per Supabase user
         // id) kicks in instead of every anonymous user colliding on "".
-        val email       = Option(claims.getStringClaim("email")).map(_.trim).filter(_.nonEmpty)
-        val metadata    = Option(claims.getJSONObjectClaim("user_metadata")).map(_.asScala)
-        val username    = metadata.flatMap(_.get("username")).map(_.toString)
+        val email    = Option(claims.getStringClaim("email")).map(_.trim).filter(_.nonEmpty)
+        val metadata = Option(claims.getJSONObjectClaim("user_metadata")).map(_.asScala)
+        // Email/password sign-up sends "username" explicitly (see
+        // LoginScreen.tsx); Google sign-in never does, but does send a
+        // display name under one of these keys — falls back through both
+        // before UserService resorts to an auto-generated one.
+        val username = metadata.flatMap(m =>
+          m.get("username").orElse(m.get("full_name")).orElse(m.get("name"))
+        ).map(_.toString)
         // Supabase sets this true only on anonymous-auth sessions (the "try
         // the demo" button) — absent entirely on normal accounts.
         val isAnonymous = Option(claims.getBooleanClaim("is_anonymous")).exists(_.booleanValue)

@@ -68,6 +68,14 @@
     font-family:'Nunito',sans-serif;font-weight:700;font-size:14px;cursor:pointer;
   }
   .page-tracker .auth-tabs button.active{background:var(--accent);color:#111;}
+  .page-tracker .auth-oauth-google{
+    width:100%;display:flex;align-items:center;justify-content:center;gap:10px;
+    padding:11px;font-size:15px;font-weight:700;font-family:'Nunito',sans-serif;
+    background:#fff;color:#3c4043;border:none;border-radius:var(--radius);cursor:pointer;
+  }
+  .page-tracker .auth-oauth-google:hover{background:#f4f4f4;}
+  .page-tracker .auth-divider{display:flex;align-items:center;gap:10px;margin:16px 0;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.06em;}
+  .page-tracker .auth-divider:before,.page-tracker .auth-divider:after{content:'';flex:1;height:1px;background:var(--border);}
   .page-tracker .auth-notice{
     font-size:14px;color:var(--accent-ink);background:var(--surface2);border:var(--ink-w) solid var(--border);
     border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:16px;
