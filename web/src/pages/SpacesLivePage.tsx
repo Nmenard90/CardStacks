@@ -65,8 +65,8 @@ type View = 'home' | 'storage' | 'binders' | 'displays'
 /** box_type carries the raw `auto_set:<setId>` sentinel the backend uses to
  *  find/create a card's set box — never fit for showing to a person or for
  *  use as a CSS class token (":" isn't a valid class-name character). */
-const humanizeBoxType = (boxType: string) => boxType.startsWith('auto_set:') ? 'auto-filed by set' : boxType
-const boxTypeClass = (boxType: string) => boxType.replace(':', '-')
+const humanizeBoxType = (boxType: string | undefined) => !boxType ? 'custom' : boxType.startsWith('auto_set:') ? 'auto-filed by set' : boxType
+const boxTypeClass = (boxType: string | undefined) => (boxType || 'custom').replace(':', '-')
 
 // ─── Presets ────────────────────────────────────────────────────────────────
 // Every "+ Add ___" flow picks from one of these instead of a window.prompt,
@@ -713,7 +713,7 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   const [variantFilter, setVariantFilter] = useState('')
   const [setFilter, setSetFilter] = useState('')
   const [duplicatesOnly, setDuplicatesOnly] = useState(false)
-  const isAutoSetBox = box.boxType.startsWith('auto_set:')
+  const isAutoSetBox = (box.boxType || '').startsWith('auto_set:')
   // An auto-filed box holds exactly one set, so "sort by set" (which is for
   // boxes mixing several) wouldn't show anything useful — collector number
   // is how a single-set box actually gets organized by hand.
