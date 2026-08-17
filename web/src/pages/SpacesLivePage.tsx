@@ -193,7 +193,7 @@ export function SpacesLivePage() {
     if (q.length < 2) return []
     const hits: SearchHit[] = []
     for (const s of spaces) if (s.name.toLowerCase().includes(q)) hits.push({ kind: 'space', id: s.id, label: s.name, sub: 'Space' })
-    for (const b of boxes) if (b.name.toLowerCase().includes(q)) hits.push({ kind: 'box', id: b.id, label: b.name, sub: b.boxType ? `Box · ${b.boxType}` : 'Box', spaceId: b.spaceId })
+    for (const b of boxes) if (b.name.toLowerCase().includes(q)) hits.push({ kind: 'box', id: b.id, label: b.name, sub: b.boxType ? `Box · ${humanizeBoxType(b.boxType)}` : 'Box', spaceId: b.spaceId })
     for (const bd of binders) if (bd.name.toLowerCase().includes(q)) hits.push({ kind: 'binder', id: bd.id, label: bd.name, sub: `Binder · ${bd.pocketSize} pocket` })
     for (const s of spaces) for (const c of s.displayCases) if (c.name.toLowerCase().includes(q)) hits.push({ kind: 'display', id: c.id, label: c.name, sub: `Display case · ${s.name}`, spaceId: s.id })
     return hits.slice(0, 12)
