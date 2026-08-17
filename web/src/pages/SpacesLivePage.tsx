@@ -586,7 +586,16 @@ function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus
                             key={box.id}
                             role="button" tabIndex={0}
                             draggable
-                            onDragStart={() => setArmed(box.id)}
+                            onDragStart={e => {
+                              // A native drag with no payload is a drag in
+                              // name only — some browsers silently refuse
+                              // to fire dragover/drop for the rest of the
+                              // gesture without this, so it looks like drag
+                              // support is just broken.
+                              e.dataTransfer.effectAllowed = 'move'
+                              e.dataTransfer.setData('text/plain', box.id)
+                              setArmed(box.id)
+                            }}
                             onDragEnd={() => setArmed('')}
                             onClick={() => { setOpening(box.id); window.setTimeout(() => setOpening(''), 650) }}
                             onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpening(box.id); window.setTimeout(() => setOpening(''), 650) } }}
@@ -625,7 +634,12 @@ function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus
       <aside className="unplaced-boxes">
         <b>UNPLACED BOXES</b>
         {boxes.filter(x => !x.storageUnitId).map(box => (
-          <div className="unplaced-box-row" draggable onDragStart={() => setArmed(box.id)} onDragEnd={() => setArmed('')} key={box.id}>
+          <div
+            className="unplaced-box-row" draggable
+            onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', box.id); setArmed(box.id) }}
+            onDragEnd={() => setArmed('')}
+            key={box.id}
+          >
             <i style={{ background: box.color }} />
             <span>{box.name}<small>{box.boxType} · drag onto a shelf, or tap Move below</small></span>
             <button type="button" className="box-move-btn inline" onClick={() => setArmed(box.id)}>⇅ Move</button>
@@ -1397,7 +1411,10 @@ function Displays({ userId, space, reload, focusCaseId, clearFocus }: {
   const occupiedCount = display ? display.slots.filter(sl => allocationFor(sl.id)).length : 0
 
   return (
-    <section className={`display-gallery ${display?.lightEnabled ? 'lights-on' : 'lights-off'}`}>
+    <section
+      className={`display-gallery ${display?.lightEnabled ? 'lights-on' : 'lights-off'}`}
+      style={{ '--case-frame': display?.frameColor || '#3a3164', '--case-light': display?.lightColor || '#ffe1a5' } as React.CSSProperties}
+    >
       <header className="gallery-heading">
         <div>
           <small>{space.name.toUpperCase()} / DISPLAYS</small>

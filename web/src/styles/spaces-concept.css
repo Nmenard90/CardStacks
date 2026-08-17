@@ -154,7 +154,48 @@
    on a flex item disable cross-axis stretch entirely, per the flexbox
    spec, so it shrank to its content's width instead of filling the row. */
 .gallery-stage-flat .box-open-surface { margin: 0; }
-.display-gallery.lights-off .box-open-surface { filter: brightness(0.72) saturate(0.85); }
+
+/* A shelf section on its own reads as "a panel", not "a lit case" — the
+   flat layout still needs SOME visual tell that this is a display case and
+   not a storage box list. --case-frame/--case-light come from the case's
+   own preset (SpacesLivePage sets them as inline custom properties), so a
+   Museum Vitrine's cool glass-white glow actually looks different from a
+   Pedestal's warm spotlight instead of every case sharing one hardcoded look. */
+.display-gallery .box-open-surface {
+  position: relative;
+  border-color: color-mix(in srgb, var(--case-frame) 70%, var(--border));
+  box-shadow: var(--shadow), inset 0 0 0 1px color-mix(in srgb, var(--case-light) 35%, transparent);
+  transition: filter .3s ease, box-shadow .3s ease;
+}
+.display-gallery .box-open-surface h3 {
+  display: inline-block;
+  color: color-mix(in srgb, var(--case-light) 80%, white);
+  text-shadow: 0 0 10px color-mix(in srgb, var(--case-light) 65%, transparent);
+  letter-spacing: .04em;
+}
+/* The glass shelf each tile sits on — a thin lit line, not a full panel,
+   so it reads as a light source under the card rather than a background. */
+.display-gallery .box-card-tile,
+.display-gallery .box-card-tile-empty {
+  position: relative;
+  padding-bottom: 16px;
+}
+.display-gallery .box-card-tile::after,
+.display-gallery .box-card-tile-empty::after {
+  content: '';
+  position: absolute; left: 8px; right: 8px; bottom: 6px; height: 2px;
+  background: var(--case-light);
+  box-shadow: 0 0 8px 1px color-mix(in srgb, var(--case-light) 80%, transparent);
+  border-radius: 2px;
+  opacity: .8;
+}
+.display-gallery.lights-off .box-open-surface {
+  filter: brightness(0.72) saturate(0.85);
+  box-shadow: var(--shadow);
+}
+.display-gallery.lights-off .box-open-surface h3 { color: inherit; text-shadow: none; }
+.display-gallery.lights-off .box-card-tile::after,
+.display-gallery.lights-off .box-card-tile-empty::after { opacity: .15; box-shadow: none; }
 
 @media (max-width: 850px) {
   .box-toolbar { padding: 10px; }
