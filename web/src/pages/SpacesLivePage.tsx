@@ -443,6 +443,7 @@ function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus
   const [armed, setArmed] = useState('')
 
   const unit = space.storageUnits.find(x => x.id === unitId) || space.storageUnits[0]
+  const unplacedBoxes = boxes.filter(x => !x.storageUnitId)
 
   // A search result for a box jumps straight to its shelf unit and opens it.
   useEffect(() => {
@@ -637,9 +638,11 @@ function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus
         </div>
       )}
 
+      {unplacedBoxes.length > 0 && (
       <aside className="unplaced-boxes">
-        <b>UNPLACED BOXES</b>
-        {boxes.filter(x => !x.storageUnitId).map(box => (
+        <b>📦 {unplacedBoxes.length} box{unplacedBoxes.length === 1 ? '' : 'es'} waiting to be shelved — including anything just auto-filed by adding a card</b>
+        <div className="unplaced-boxes-list">
+        {unplacedBoxes.map(box => (
           <div
             className="unplaced-box-row" draggable
             onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', box.id); setArmed(box.id) }}
@@ -651,7 +654,9 @@ function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus
             <button type="button" className="box-move-btn inline" onClick={() => setArmed(box.id)}>⇅ Move</button>
           </div>
         ))}
+        </div>
       </aside>
+      )}
     </section>
   )
 }
