@@ -183,54 +183,91 @@
    Storage's .physical-shelving, since it's the same idea: real content in
    full-width sections instead of a small fixed-size decorative scene. */
 .gallery-stage-flat { max-width: 1250px; margin: 24px auto; padding: 0 24px 40px; display: flex; flex-direction: column; gap: 20px; }
-/* .box-open-surface's own margin:24px auto (for when it's a plain block
-   child elsewhere, e.g. inside a box) has left/right:auto — auto margins
-   on a flex item disable cross-axis stretch entirely, per the flexbox
-   spec, so it shrank to its content's width instead of filling the row. */
-.gallery-stage-flat .box-open-surface { margin: 0; }
-
-/* A shelf section on its own reads as "a panel", not "a lit case" — the
-   flat layout still needs SOME visual tell that this is a display case and
-   not a storage box list. --case-frame/--case-light come from the case's
-   own preset (SpacesLivePage sets them as inline custom properties), so a
-   Museum Vitrine's cool glass-white glow actually looks different from a
-   Pedestal's warm spotlight instead of every case sharing one hardcoded look.
-   The !important pair here isn't decorative — .page-tracker.spaces-concept
-   .box-open-surface{border;box-shadow} (3 classes) outranks a plain
-   .display-gallery .box-open-surface (2 classes) and was silently eating
-   both properties; a first pass at this without !important shipped and
-   visibly changed nothing. */
-.display-gallery .box-open-surface {
+/* An actual cabinet, not a themed panel: crown (nameplate) + glass
+   interior + base, one continuous silhouette instead of a rounded
+   rectangle with a colored border. --case-frame/--case-light are the
+   case's own preset (set as inline custom properties in SpacesLivePage),
+   so a Museum Vitrine's cool glass-white reads differently from a
+   Pedestal's warm spotlight instead of every case sharing one look.
+   (Earlier passes styled .box-open-surface — a plain content panel used
+   everywhere in Spaces — with a border and a glow. That's why it still
+   read as "a rectangle with a light": structurally it WAS just that panel,
+   no matter how it was colored. Actually building a cabinet needs its own
+   elements, not more decoration on a shared one.) */
+.display-cabinet {
+  position: relative;
+  border-radius: 14px 14px 6px 6px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--case-frame) 92%, white 4%), color-mix(in srgb, var(--case-frame) 78%, black 30%));
+  box-shadow: 0 22px 40px -14px rgba(0,0,0,.65), 0 2px 0 rgba(255,255,255,.05) inset;
+  padding: 0 14px 14px;
+}
+.cabinet-crown {
+  display: flex; align-items: center; justify-content: center;
+  height: 46px; margin: 0 -14px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--case-frame) 60%, black 25%), color-mix(in srgb, var(--case-frame) 75%, black 10%));
+  border-radius: 14px 14px 0 0;
+  border-bottom: 2px solid color-mix(in srgb, var(--case-light) 55%, transparent);
+  box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--case-light) 70%, transparent);
+}
+.cabinet-crown span {
+  font-size: 13px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase;
+  color: color-mix(in srgb, var(--case-light) 88%, white);
+  text-shadow: 0 0 14px color-mix(in srgb, var(--case-light) 85%, transparent);
+}
+.cabinet-glass-interior {
   position: relative;
   overflow: hidden;
-  border: 3px solid color-mix(in srgb, var(--case-frame) 65%, var(--border)) !important;
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--case-light) 55%, transparent),
-    0 0 34px -6px color-mix(in srgb, var(--case-light) 70%, transparent),
-    inset 0 0 46px -10px color-mix(in srgb, var(--case-light) 60%, transparent) !important;
-  transition: filter .3s ease, box-shadow .3s ease, border-color .3s ease;
+  background: color-mix(in srgb, var(--case-frame) 22%, #05070a);
+  border: 1px solid color-mix(in srgb, var(--case-light) 30%, transparent);
+  border-top: 0;
 }
-/* A top-down spotlight wash across the whole shelf, like a case light
-   mounted above the glass — the single biggest "this is lit" signal. */
-.display-gallery .box-open-surface::before {
+/* Spotlight from the crown, and a diagonal glass sheen — the two things
+   that actually sell "you're looking into a lit glass case", not just
+   "this rectangle is tinted". */
+.cabinet-glass-interior::before {
   content: '';
   position: absolute; inset: 0; z-index: 0; pointer-events: none;
-  background: radial-gradient(ellipse 70% 60% at 50% -10%, color-mix(in srgb, var(--case-light) 38%, transparent), transparent 70%);
+  background: radial-gradient(ellipse 80% 45% at 50% 0%, color-mix(in srgb, var(--case-light) 40%, transparent), transparent 70%);
   transition: opacity .3s ease;
 }
-.display-gallery .box-open-surface > * { position: relative; z-index: 1; }
-.display-gallery .box-open-surface h3 {
+.cabinet-glass-interior::after {
+  content: '';
+  position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  background: linear-gradient(115deg, transparent 30%, color-mix(in srgb, white 14%, transparent) 40%, transparent 50%);
+}
+.cabinet-shelf {
+  position: relative; z-index: 1;
+  padding: 22px 20px 26px;
+  border-bottom: 3px solid color-mix(in srgb, var(--case-light) 70%, transparent);
+  box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--case-light) 60%, transparent);
+}
+.cabinet-shelf:last-child { border-bottom: 0; box-shadow: none; padding-bottom: 20px; }
+.cabinet-shelf h3 {
   display: inline-block;
+  margin-bottom: 14px;
   padding: 3px 10px;
   background: color-mix(in srgb, var(--case-frame) 55%, black);
   border: 1px solid color-mix(in srgb, var(--case-light) 45%, transparent);
   border-radius: 4px;
+  font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
   color: color-mix(in srgb, var(--case-light) 85%, white);
-  text-shadow: 0 0 12px color-mix(in srgb, var(--case-light) 80%, transparent);
-  letter-spacing: .04em;
+  text-shadow: 0 0 10px color-mix(in srgb, var(--case-light) 70%, transparent);
 }
-/* The glass shelf each tile sits on — a thin lit line, not a full panel,
-   so it reads as a light source under the card rather than a background. */
+.cabinet-base {
+  height: 16px; margin: 0 -14px;
+  display: flex; justify-content: space-around; align-items: center;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--case-frame) 70%, black 15%), color-mix(in srgb, var(--case-frame) 55%, black 35%));
+  border-radius: 0 0 6px 6px;
+}
+.cabinet-base i { width: 4px; height: 4px; border-radius: 50%; background: color-mix(in srgb, var(--case-light) 50%, transparent); }
+.display-gallery.lights-off .cabinet-glass-interior::before { opacity: 0; }
+.display-gallery.lights-off .cabinet-crown,
+.display-gallery.lights-off .cabinet-shelf,
+.display-gallery.lights-off .cabinet-glass-interior {
+  filter: brightness(0.55) saturate(0.6);
+}
+.display-gallery.lights-off .cabinet-shelf h3 { text-shadow: none; }
+/* The glass shelf ledge each tile sits on inside its shelf. */
 .display-gallery .box-card-tile,
 .display-gallery .box-card-tile-empty {
   position: relative;
@@ -244,14 +281,6 @@
   box-shadow: 0 0 12px 2px color-mix(in srgb, var(--case-light) 85%, transparent);
   border-radius: 2px;
   opacity: .9;
-}
-.display-gallery.lights-off .box-open-surface {
-  filter: brightness(0.6) saturate(0.7);
-  box-shadow: 0 0 0 1px var(--border) !important;
-}
-.display-gallery.lights-off .box-open-surface::before { opacity: 0; }
-.display-gallery.lights-off .box-open-surface h3 {
-  background: var(--surface3); border-color: var(--border); color: var(--muted); text-shadow: none;
 }
 .display-gallery.lights-off .box-card-tile::after,
 .display-gallery.lights-off .box-card-tile-empty::after { opacity: .12; box-shadow: none; }

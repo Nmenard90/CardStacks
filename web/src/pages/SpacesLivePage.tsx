@@ -1568,37 +1568,48 @@ function Displays({ userId, space, reload, focusCaseId, clearFocus }: {
 
       {display ? (
         <div className="gallery-stage-flat">
-          {shelves.map((row, i) => (
-            <section className="box-open-surface" key={i}>
-              <h3>Shelf {String.fromCharCode(65 + i)}</h3>
-              <div className="box-card-grid">
-                {row.map(slot => {
-                  const allocation = allocationFor(slot.id)
-                  const lot = allocation && lots.find(l => l.id === allocation.lotId)
-                  const card = lot && cardFor(lot.cardId)
-                  return card ? (
-                    <div className={'box-card-tile' + (activeSlot?.id === slot.id ? ' selected' : '')} key={slot.id}>
-                      <ZoomableCardImage card={card} preview={preview} />
-                      <b>{card.name}</b>
-                      <small>{lot?.condition} · {lot?.variantKey}</small>
-                      <div className="box-card-tile-actions">
-                        <button onClick={() => setActiveSlot(slot)}>Change</button>
-                        <button onClick={() => void remove(allocation!)}>Remove</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      className={'box-card-tile box-card-tile-empty' + (activeSlot?.id === slot.id ? ' selected' : '')}
-                      key={slot.id} onClick={() => setActiveSlot(slot)}
-                    >
-                      <div className="thumb-placeholder">🃏</div>
-                      <span className="slot-empty-hint">+ Add</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </section>
-          ))}
+          {/* A real cabinet, not a stack of separate glowing panels: one
+              frame (crown nameplate + side walls + base) with the shelves
+              as glass ledges INSIDE it, not independent boxes with gaps
+              between them. That gap-and-glow version read as "a rectangle
+              with a light" because structurally that's all it was. */}
+          <div className="display-cabinet">
+            <div className="cabinet-crown"><span>{display.name}</span></div>
+            <div className="cabinet-glass-interior">
+              {shelves.map((row, i) => (
+                <section className="cabinet-shelf" key={i}>
+                  <h3>Shelf {String.fromCharCode(65 + i)}</h3>
+                  <div className="box-card-grid">
+                    {row.map(slot => {
+                      const allocation = allocationFor(slot.id)
+                      const lot = allocation && lots.find(l => l.id === allocation.lotId)
+                      const card = lot && cardFor(lot.cardId)
+                      return card ? (
+                        <div className={'box-card-tile' + (activeSlot?.id === slot.id ? ' selected' : '')} key={slot.id}>
+                          <ZoomableCardImage card={card} preview={preview} />
+                          <b>{card.name}</b>
+                          <small>{lot?.condition} · {lot?.variantKey}</small>
+                          <div className="box-card-tile-actions">
+                            <button onClick={() => setActiveSlot(slot)}>Change</button>
+                            <button onClick={() => void remove(allocation!)}>Remove</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          className={'box-card-tile box-card-tile-empty' + (activeSlot?.id === slot.id ? ' selected' : '')}
+                          key={slot.id} onClick={() => setActiveSlot(slot)}
+                        >
+                          <div className="thumb-placeholder">🃏</div>
+                          <span className="slot-empty-hint">+ Add</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
+            <div className="cabinet-base"><i /><i /><i /></div>
+          </div>
 
           {activeSlot && (
             <aside className="display-slot-inspector">
