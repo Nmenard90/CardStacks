@@ -64,26 +64,38 @@
   font-size: 13px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--gold, #d6a958);
+  color: var(--accent-ink);
   margin-bottom: 14px;
 }
-.box-empty-note { color: #899394; font-size: 13px; padding: 8px 0; }
+.box-empty-note { color: var(--muted); font-size: 13px; padding: 8px 0; }
 
+/* This is the SAME card tile as everywhere else in the app (Explore, Owned,
+   Add Cards) — Storage/Analyzer/binder pickers used to render it in a
+   separate dark/hairline-border style left over from when Spaces was built
+   as its own visually-disconnected feature, so a card looked like a
+   different app depending which page you were on. Uses the same tokens
+   tracker.css's .thumb-wrap does, unscoped for the same reason: every page
+   that renders this needs it to look identical, not just the ones wrapped
+   in .page-tracker.spaces-concept. Binder pages and the Display Gallery are
+   the deliberate exceptions — a binder pocket and a lit display shelf are
+   supposed to look physically different from a loose card in a box. */
 .box-card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
   gap: 18px;
 }
 .box-card-tile {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
   text-align: center;
   padding: 10px 8px;
-  background: #171d20;
-  border: 1px solid #ffffff14;
-  border-radius: 10px;
+  background: var(--surface2);
+  border: var(--ink-w) solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 3px 3px 0 rgba(0,0,0,.28);
   /* These grids grow via "Load more" (box/binder/analyzer pickers) and
      never shrink back, so a big collection can end up with hundreds of
      tiles mounted at once. Each holo tile runs its own infinite shimmer
@@ -97,13 +109,13 @@
   content-visibility: auto;
   contain-intrinsic-size: 110px 210px;
 }
-.box-card-tile b { font-size: 12px; color: #fff; margin-top: 4px; }
-.box-card-tile small { font-size: 10px; color: #899394; }
+.box-card-tile b { font-size: 12px; color: var(--text); margin-top: 4px; }
+.box-card-tile small { font-size: 10px; color: var(--muted); }
 .box-card-tile-actions { display: flex; gap: 6px; margin-top: 6px; width: 100%; }
 .box-card-tile-actions button, .box-card-add {
   flex: 1;
-  background: #ffcb05;
-  color: #211a31;
+  background: var(--accent);
+  color: var(--border);
   border: 0;
   border-radius: 6px;
   padding: 6px 8px;
@@ -113,7 +125,28 @@
 }
 .box-card-tile-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
 .box-card-add { margin-top: 6px; width: 100%; }
-.box-card-tile.selected { outline: 2px solid var(--gold, #d6a958); outline-offset: 2px; }
+.box-card-tile.selected { outline: 2px solid var(--accent); outline-offset: 2px; }
+.box-card-select {
+  position: absolute; top: 6px; left: 6px; z-index: 6;
+  width: 20px; height: 20px; display: grid; place-items: center;
+  background: var(--border); border: 1px solid var(--surface3); border-radius: 5px;
+  cursor: pointer;
+}
+.box-card-select input { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+
+/* The physical divider the "Sort: Set" view groups cards behind — spans
+   the full grid row (not just one cell) so it reads as a barrier between
+   two sets, not another tile in the row. */
+.box-set-divider {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; gap: 10px;
+  margin: 4px 0 -4px;
+  padding-top: 10px;
+  border-top: var(--ink-w) dashed var(--border);
+  color: var(--accent-ink);
+  font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+}
+.box-set-divider:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
 
 /* Bulk "click to add another copy" tiles — same specificity fix as the
    empty display-slot buttons below (.page-tracker button would otherwise
@@ -121,14 +154,15 @@
 .box-card-grid .box-quick-add {
   display: flex; flex-direction: column; align-items: center; gap: 4px;
   text-align: center; padding: 10px 8px;
-  background: #171d20; border: 1px solid #ffffff14; border-radius: 10px;
+  background: var(--surface2); border: var(--ink-w) solid var(--border); border-radius: var(--radius-sm);
+  box-shadow: 3px 3px 0 rgba(0,0,0,.28);
   cursor: pointer; transition: transform .1s, border-color .15s;
 }
-.box-card-grid .box-quick-add:hover { border-color: #d6a95877; }
+.box-card-grid .box-quick-add:hover { border-color: var(--accent2); }
 .box-card-grid .box-quick-add:active { transform: scale(.97); }
-.box-card-grid .box-quick-add.queued { border-color: var(--gold, #d6a958); background: #24261a; }
+.box-card-grid .box-quick-add.queued { border-color: var(--accent); background: var(--surface3); }
 .box-quick-add-badge {
-  background: var(--gold, #d6a958); color: #211a31; font-weight: 800; font-size: 11px;
+  background: var(--accent); color: var(--border); font-weight: 800; font-size: 11px;
   padding: 2px 8px; border-radius: 99px;
 }
 
@@ -139,11 +173,11 @@
 .box-card-grid .box-card-tile-empty {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 6px; text-align: center; padding: 10px 8px; min-height: 128px;
-  background: #ffffff05; border: 1px dashed #ffffff28; border-radius: 10px;
+  background: var(--surface); border: var(--ink-w) dashed var(--border); border-radius: var(--radius-sm);
   cursor: pointer;
 }
-.box-card-grid .box-card-tile-empty:hover { border-color: #d6a95877; background: #ffffff08; }
-.box-card-grid .box-card-tile-empty.selected { outline: 2px solid var(--gold, #d6a958); outline-offset: 2px; }
+.box-card-grid .box-card-tile-empty:hover { border-color: var(--accent2); background: var(--surface2); }
+.box-card-grid .box-card-tile-empty.selected { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Display Gallery's flat (non-cabinet) layout — same shelving rhythm as
    Storage's .physical-shelving, since it's the same idea: real content in

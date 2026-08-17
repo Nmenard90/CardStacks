@@ -35,12 +35,23 @@ interface Props {
    *  (.box-card-add). 2+ = side-by-side row (.box-card-tile-actions). */
   actions?: Action[]
   selected?: boolean
+  /** Renders a corner checkbox synced to `selected` — bulk-select mode for
+   *  multi-card actions (e.g. a box's "Move selected"). Omit for tiles that
+   *  aren't part of a selectable group. */
+  onToggleSelect?: () => void
   className?: string
 }
 
-export function OwnedCardTile({ card, variant, preview, subtitle, actions = [], selected, className }: Props) {
+export function OwnedCardTile({ card, variant, preview, subtitle, actions = [], selected, onToggleSelect, className }: Props) {
   return (
     <div className={'box-card-tile' + (selected ? ' selected' : '') + (className ? ' ' + className : '')}>
+      {onToggleSelect && (
+        // stopPropagation: this tile's own click (hover-preview/etc.) shouldn't
+        // also fire when the user's just trying to check the box.
+        <label className="box-card-select" onClick={e => e.stopPropagation()}>
+          <input type="checkbox" checked={!!selected} onChange={onToggleSelect} />
+        </label>
+      )}
       <CardThumb card={card} variant={variant} preview={preview} />
       <b>{card.name}</b>
       <small>{subtitle}</small>

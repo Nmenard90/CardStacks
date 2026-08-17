@@ -35,7 +35,7 @@ import { CardThumb } from '../components/CardThumb'
 import { OwnedCardTile } from '../components/OwnedCardTile'
 import { usePagedList } from '../lib/usePagedList'
 import { createBinder, getBinder, listBinders, updateBinder } from '../api/binders'
-import { searchCards } from '../api/cards'
+import { getSets, searchCards } from '../api/cards'
 import { getOwnedCards, saveEntry } from '../api/collection'
 import {
   createDisplayCase, createSpace, createStorageUnit, getCaseAllocations,
@@ -61,6 +61,12 @@ function ZoomableCardImage({ card, preview }: { card: Card; preview: ReturnType<
 }
 
 type View = 'home' | 'storage' | 'binders' | 'displays'
+
+/** box_type carries the raw `auto_set:<setId>` sentinel the backend uses to
+ *  find/create a card's set box — never fit for showing to a person or for
+ *  use as a CSS class token (":" isn't a valid class-name character). */
+const humanizeBoxType = (boxType: string) => boxType.startsWith('auto_set:') ? 'auto-filed by set' : boxType
+const boxTypeClass = (boxType: string) => boxType.replace(':', '-')
 
 // ─── Presets ────────────────────────────────────────────────────────────────
 // Every "+ Add ___" flow picks from one of these instead of a window.prompt,
@@ -599,7 +605,7 @@ function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus
                             onDragEnd={() => setArmed('')}
                             onClick={() => { setOpening(box.id); window.setTimeout(() => setOpening(''), 650) }}
                             onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpening(box.id); window.setTimeout(() => setOpening(''), 650) } }}
-                            className={`physical-box box-model-${box.boxType || 'custom'} ${fillState} ${opening === box.id ? 'is-open opening-to-inventory' : ''}`}
+                            className={`physical-box box-model-${boxTypeClass(box.boxType || 'custom')} ${fillState} ${opening === box.id ? 'is-open opening-to-inventory' : ''}`}
                             style={{ '--chosen-box-color': box.color || '#d8d0c0' } as React.CSSProperties}
                           >
                             <span className="box-lid" />
@@ -641,7 +647,7 @@ function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus
             key={box.id}
           >
             <i style={{ background: box.color }} />
-            <span>{box.name}<small>{box.boxType} · drag onto a shelf, or tap Move below</small></span>
+            <span>{box.name}<small>{humanizeBoxType(box.boxType)} · drag onto a shelf, or tap Move below</small></span>
             <button type="button" className="box-move-btn inline" onClick={() => setArmed(box.id)}>⇅ Move</button>
           </div>
         ))}
@@ -707,9 +713,23 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   const [variantFilter, setVariantFilter] = useState('')
   const [setFilter, setSetFilter] = useState('')
   const [duplicatesOnly, setDuplicatesOnly] = useState(false)
-  const [sort, setSort] = useState<'name' | 'condition' | 'number'>('name')
+  const isAutoSetBox = box.boxType.startsWith('auto_set:')
+  // An auto-filed box holds exactly one set, so "sort by set" (which is for
+  // boxes mixing several) wouldn't show anything useful — collector number
+  // is how a single-set box actually gets organized by hand.
+  const [sort, setSort] = useState<'name' | 'condition' | 'number' | 'set'>(isAutoSetBox ? 'number' : 'name')
+  const [setNameById, setSetNameById] = useState<Record<string, string>>({})
   const [renaming, setRenaming] = useState(false)
   const [movingAllocation, setMovingAllocation] = useState<CardAllocation | null>(null)
+  // null = no bulk-move modal open. 'all' moves every card in the box;
+  // 'selected' moves only the checked ones — same modal, different source list.
+  const [bulkMoveScope, setBulkMoveScope] = useState<'all' | 'selected' | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const toggleSelect = (id: string) => setSelectedIds(prev => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    return next
+  })
   // Tracks the last name known to be saved (starts as the prop, then
   // whatever the box was last renamed to) — `box` itself is never mutated,
   // so this is what the "cancel edit" / failed-save paths revert to.
@@ -750,6 +770,15 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
     }
   }
   useEffect(() => { void load() }, [drawer.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => setSelectedIds(new Set()), [drawer.id])
+
+  // Only for the "Set" sort's divider labels/order — id alone ("sv3pt5")
+  // doesn't read as a set to a person filing cards by hand.
+  useEffect(() => { getSets().then(list => {
+    const m: Record<string, string> = {}
+    for (const s of list) m[s.id] = s.name
+    setSetNameById(m)
+  }).catch(() => {}) }, [])
 
   // Debounced catalog search, waiting a moment after typing stops — mirrors
   // the same pattern used everywhere else in the app (Explore, Convention).
@@ -875,6 +904,32 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
       setMessage(e instanceof Error ? `Removed from this box, but could not place it in ${target.name}: ${e.message}` : 'Could not move this copy.')
     }
   }
+  // Wholesale transfers out of an auto-filed box (or any box) into wherever
+  // the user actually wants it — "all" or a checked "selected" subset both
+  // land here, just with a different source list. One card at a time
+  // through the API is the only option available (no bulk endpoint), so
+  // this runs moveToBox's own remove-then-place sequence per allocation,
+  // reporting progress as it goes.
+  const moveManyToBox = async (toMove: CardAllocation[], target: StorageBox) => {
+    setBulkMoveScope(null)
+    let moved = 0
+    setMessage(`Moving 0 of ${toMove.length} to ${target.name}…`)
+    try {
+      const targetDrawer = target.drawers[0] || await createDrawer(target.id, 'Main compartment')
+      for (const allocation of toMove) {
+        await removePlacement(userId, allocation.id)
+        await placeCopies(userId, { lotId: allocation.lotId, drawerId: targetDrawer.id, quantity: allocation.quantity, protection: allocation.protection })
+        moved++
+        setMessage(`Moving ${moved} of ${toMove.length} to ${target.name}…`)
+      }
+      setSelectedIds(new Set())
+      await load()
+      setMessage(`Moved ${moved} card${moved === 1 ? '' : 's'} to ${target.name}.`)
+    } catch (e) {
+      await load()
+      setMessage(e instanceof Error ? `Moved ${moved} of ${toMove.length} before hitting a problem: ${e.message}` : 'Could not finish moving these cards.')
+    }
+  }
   const moveToBinder = async (allocation: CardAllocation, binder: Binder) => {
     setMovingAllocation(null)
     if (allocation.quantity !== 1) { setMessage('Only single-copy stacks can move into a binder slot.'); return }
@@ -954,6 +1009,12 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   const byChosenSort = (aLot?: InventoryLot, bLot?: InventoryLot) => {
     if (sort === 'condition') return (aLot?.condition || '').localeCompare(bLot?.condition || '')
     if (sort === 'number') return (cardFor(aLot?.cardId || '')?.number || '').localeCompare(cardFor(bLot?.cardId || '')?.number || '', undefined, { numeric: true })
+    if (sort === 'set') {
+      const aSet = cardFor(aLot?.cardId || '')?.setId || '', bSet = cardFor(bLot?.cardId || '')?.setId || ''
+      return aSet !== bSet
+        ? (setNameById[aSet] || aSet).localeCompare(setNameById[bSet] || bSet)
+        : (cardFor(aLot?.cardId || '')?.number || '').localeCompare(cardFor(bLot?.cardId || '')?.number || '', undefined, { numeric: true })
+    }
     return (cardFor(aLot?.cardId || '')?.name || '').localeCompare(cardFor(bLot?.cardId || '')?.name || '')
   }
 
@@ -990,8 +1051,14 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
           ) : (
             <h2 onClick={() => setRenaming(true)} title="Click to rename" style={{ cursor: 'pointer' }}>{savedName} <small style={{ fontSize: 11, opacity: 0.6 }}>✎ edit</small></h2>
           )}
-          <p>{box.boxType} · {placements.reduce((n, x) => n + x.quantity, 0)} of {box.capacity || 'custom'} cards tracked</p>
+          <p>{humanizeBoxType(box.boxType)} · {placements.reduce((n, x) => n + x.quantity, 0)} of {box.capacity || 'custom'} cards tracked</p>
         </div>
+        {selectedIds.size > 0 && otherBoxes.length > 0 && (
+          <button onClick={() => setBulkMoveScope('selected')}>📦 Move {selectedIds.size} selected to…</button>
+        )}
+        {placements.length > 0 && otherBoxes.length > 0 && (
+          <button onClick={() => setBulkMoveScope('all')}>📦 Move all to…</button>
+        )}
         <button onClick={() => void deleteThisBox()} style={{ color: '#fca5a5', borderColor: 'rgba(239,68,68,0.4)' }}>🗑 Delete box</button>
       </header>
 
@@ -1000,10 +1067,11 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
       <div className="box-toolbar">
         <label className="inventory-search"><span>🔍</span><input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search inside this box…" /></label>
         <div className="inventory-filters">
-          <select value={sort} onChange={e => setSort(e.target.value as 'name' | 'condition' | 'number')}>
+          <select value={sort} onChange={e => setSort(e.target.value as 'name' | 'condition' | 'number' | 'set')}>
             <option value="name">Sort: Name</option>
             <option value="number">Sort: Number</option>
             <option value="condition">Sort: Condition</option>
+            <option value="set">Sort: Set</option>
           </select>
           <select value={conditionFilter} onChange={e => setConditionFilter(e.target.value)}>
             <option value="">All conditions</option>
@@ -1019,7 +1087,7 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
           </select>
           <select value={setFilter} onChange={e => setSetFilter(e.target.value)}>
             <option value="">All sets</option>
-            {sets.map(s => <option key={s} value={s}>{s}</option>)}
+            {sets.map(s => <option key={s} value={s}>{setNameById[s] || s}</option>)}
           </select>
           <label className="inventory-duplicates-toggle">
             <input type="checkbox" checked={duplicatesOnly} onChange={e => setDuplicatesOnly(e.target.checked)} />
@@ -1030,40 +1098,71 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
 
       <section className="box-open-surface" style={{ '--box-color': box.color || '#d8d0c0' } as React.CSSProperties}>
         <h3>Inside this box{insideBox.length > 0 ? ` (${insideBox.length})` : ''}</h3>
+        {insideBoxPage.visible.length > 0 && (
+          <p className="box-empty-note">
+            <button
+              className="tb-btn" style={{ padding: '2px 8px', fontSize: 11 }}
+              onClick={() => setSelectedIds(new Set(insideBoxPage.visible.map(a => a.id)))}
+            >Select all visible ({insideBoxPage.visible.length})</button>
+            {' '}
+            {selectedIds.size > 0 && (
+              <button className="tb-btn" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => setSelectedIds(new Set())}>
+                Clear selection
+              </button>
+            )}
+          </p>
+        )}
         {!placements.length && <p className="box-empty-note">This box is empty. Add owned copies below.</p>}
         {placements.length > 0 && !insideBox.length && <p className="box-empty-note">Nothing here matches that search/filter.</p>}
         {insideBoxPage.visible.length > 0 && (
           <div className="box-card-grid">
-            {insideBoxPage.visible.map(allocation => {
+            {insideBoxPage.visible.map((allocation, i) => {
               const lot = lots.find(l => l.id === allocation.lotId)
               const card = lot && cardFor(lot.cardId)
-              if (!card) {
-                return (
-                  <div className="box-card-tile" key={allocation.id}>
-                    <div className="thumb-placeholder">🃏</div>
-                    <b>{lot?.cardId || 'Card'}</b>
-                    <small>{lot?.condition} · {lot?.variantKey}{allocation.quantity > 1 ? ` · ×${allocation.quantity}` : ''}</small>
-                    <div className="box-card-tile-actions">
-                      <button
-                        onClick={() => setMovingAllocation(allocation)}
-                        disabled={!otherBoxes.length && !binders.length && !displayCases.length}
-                        title="Move to another box, binder, or display case"
-                      >Move</button>
-                      <button onClick={() => void remove(allocation)}>Remove</button>
-                    </div>
+              // A barrier between sets, not just a sorted list — also labels
+              // the very first group (i===0) so every group is named, not
+              // just the seams between later ones.
+              const prevLot = i > 0 ? lots.find(l => l.id === insideBoxPage.visible[i - 1].lotId) : undefined
+              const prevSetId = prevLot && cardFor(prevLot.cardId)?.setId
+              const setId = card?.setId
+              const divider = sort === 'set' && (i === 0 || setId !== prevSetId)
+
+              const tile = !card ? (
+                <div className={'box-card-tile' + (selectedIds.has(allocation.id) ? ' selected' : '')} key={allocation.id}>
+                  <label className="box-card-select" onClick={e => e.stopPropagation()}>
+                    <input type="checkbox" checked={selectedIds.has(allocation.id)} onChange={() => toggleSelect(allocation.id)} />
+                  </label>
+                  <div className="thumb-placeholder">🃏</div>
+                  <b>{lot?.cardId || 'Card'}</b>
+                  <small>{lot?.condition} · {lot?.variantKey}{allocation.quantity > 1 ? ` · ×${allocation.quantity}` : ''}</small>
+                  <div className="box-card-tile-actions">
+                    <button
+                      onClick={() => setMovingAllocation(allocation)}
+                      disabled={!otherBoxes.length && !binders.length && !displayCases.length}
+                      title="Move to another box, binder, or display case"
+                    >Move</button>
+                    <button onClick={() => void remove(allocation)}>Remove</button>
                   </div>
-                )
-              }
-              return (
+                </div>
+              ) : (
                 <OwnedCardTile
                   key={allocation.id} card={card} preview={preview}
                   subtitle={`${lot?.condition} · ${lot?.variantKey}${allocation.quantity > 1 ? ` · ×${allocation.quantity}` : ''}`}
+                  selected={selectedIds.has(allocation.id)}
+                  onToggleSelect={() => toggleSelect(allocation.id)}
                   actions={[
                     { label: 'Move', onClick: () => setMovingAllocation(allocation), disabled: !otherBoxes.length && !binders.length && !displayCases.length },
                     { label: 'Remove', onClick: () => void remove(allocation) },
                   ]}
                 />
               )
+
+              return divider ? [
+                <div className="box-set-divider" key={`divider-${allocation.id}`}>
+                  <span>{(setId && setNameById[setId]) || setId || 'Unknown set'}</span>
+                </div>,
+                tile,
+              ] : tile
             })}
           </div>
         )}
@@ -1186,6 +1285,29 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
           </div>
         </div>
       )}
+
+      {bulkMoveScope && (() => {
+        const toMove = bulkMoveScope === 'all' ? placements : placements.filter(p => selectedIds.has(p.id))
+        return (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setBulkMoveScope(null) }}>
+          <div className="modal">
+            <h3>Move {bulkMoveScope === 'all' ? 'all' : 'the selected'} {toMove.length} card{toMove.length === 1 ? '' : 's'}</h3>
+            <p style={{ fontSize: 12, color: 'var(--muted)' }}>
+              {bulkMoveScope === 'all'
+                ? "Every card in this box moves to whichever box you pick below — search/filter above doesn't limit this."
+                : 'The cards you checked below move to whichever box you pick.'}
+            </p>
+            <p className="move-target-heading">Boxes</p>
+            <div className="move-target-list">
+              {otherBoxes.map(b => (
+                <button key={b.id} className="tb-btn" onClick={() => void moveManyToBox(toMove, b)}>{b.name}</button>
+              ))}
+            </div>
+            <div className="modal-btns"><button className="tb-btn" onClick={() => setBulkMoveScope(null)}>Cancel</button></div>
+          </div>
+        </div>
+        )
+      })()}
       {preview.overlay}
     </section>
   )
