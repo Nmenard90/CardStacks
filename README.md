@@ -11,7 +11,8 @@ from live market prices, and weigh trades before you make them.
 <!-- TODO: add a live demo link and a couple of screenshots here -->
 **Live demo:** no account needed — hit "Try the demo" on the login screen for a temporary account (cleared after 24h) · **API health check:** `GET /health`
 
----
+---<img width="1448" height="1086" alt="image" src="https://github.com/user-attachments/assets/bc73c8b9-9a47-4e2c-9d36-0408f9119692" />
+
 
 ## Overview
 
