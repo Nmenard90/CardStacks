@@ -157,11 +157,21 @@ export function CollectionPage() {
 
   // Loads page 0 of the whole-catalog browse whenever "All Sets" is picked
   // with no search typed, or the sort changes while already there.
+  const browseRequestKey = userId && activeSetId === ALL_SETS && search.trim().length < 2
+    ? JSON.stringify([userId, search, browseSort, browseDir])
+    : null
+  const [previousBrowseRequestKey, setPreviousBrowseRequestKey] = useState<string | null>(null)
+  if (browseRequestKey !== previousBrowseRequestKey) {
+    setPreviousBrowseRequestKey(browseRequestKey)
+    if (browseRequestKey) {
+      setBrowsePage(0)
+      setBrowseLoading(true)
+    }
+  }
+
   useEffect(() => {
-    if (!user || activeSetId !== ALL_SETS || search.trim().length >= 2) return
+    if (!userId || activeSetId !== ALL_SETS || search.trim().length >= 2) return
     let cancelled = false
-    setBrowsePage(0)
-    setBrowseLoading(true)
     browseCards({ sort: browseSort, dir: browseDir, page: 0, pageSize: BROWSE_PAGE_SIZE })
       // Defensive fallback, not just the happy path: an old/mismatched
       // backend responding to this route with something other than
@@ -171,7 +181,7 @@ export function CollectionPage() {
       .catch(() => { if (!cancelled) toast('Could not load the catalog.') })
       .finally(() => { if (!cancelled) setBrowseLoading(false) })
     return () => { cancelled = true }
-  }, [user, activeSetId, search, browseSort, browseDir]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [userId, activeSetId, search, browseSort, browseDir, toast])
 
   const loadMoreBrowse = () => {
     const nextPage = browsePage + 1

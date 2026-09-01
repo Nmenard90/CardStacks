@@ -9,16 +9,17 @@
  *   fetched once on mount. `view` switches which area renders without
  *   touching `loading` — only the initial load shows the full-page status
  *   screen; every later reload (after a mutation) is silent so the shell
- *   never blacks out. Each area owns its own local UI state (which shelf
- *   unit/display case is selected, which picker or modal is open) and
- *   calls back up to `reload` after a mutation.
+ *   never blacks out. Area-specific pickers and modals remain local, while
+ *   the selected shelf/display targets live at page level so header-search
+ *   actions can update them directly. Areas call back up to `reload` after
+ *   a mutation.
  *
  *   The header search is a client-side filter over the Spaces/boxes/
  *   binders/display-cases already loaded — it does not search inside card
  *   contents, since that would need a dedicated backend search endpoint.
- *   Picking a result switches to the right Space/area and, for boxes and
- *   display cases, passes a `focus*Id` down so that area jumps straight to
- *   the object instead of just opening the area.
+ *   Picking a result switches to the right Space/area and directly controls
+ *   the selected shelf/display target so the object opens in that same user
+ *   action instead of being copied into local state by a follow-up effect.
  *
  * DEPENDS ON: api/rooms, api/storage, api/binders, api/collection,
  *   components/CardPreview (site-wide card zoom overlay), components/Toast
@@ -129,6 +130,19 @@ function colorForBinder(id: string): string {
   return BINDER_SPINE_COLORS[Math.abs(hash) % BINDER_SPINE_COLORS.length]
 }
 
+/** Read-only request groups shared by dependency-driven effects and manual
+ *  refresh actions. Keeping retrieval separate lets effects apply results
+ *  only from asynchronous completion callbacks. */
+const fetchSpaceOverview = (userId: string) => Promise.all([
+  listSpaces(userId), listBoxes(userId), listBinders(userId),
+])
+const fetchBoxContents = (userId: string, drawerId: string) => Promise.all([
+  getSpaceInventory(userId), getDrawerPlacements(userId, drawerId), getOwnedCards(userId),
+])
+const fetchDisplayContents = (userId: string, displayId: string) => Promise.all([
+  getSpaceInventory(userId), getOwnedCards(userId), getCaseAllocations(userId, displayId),
+])
+
 // ─── Header search ──────────────────────────────────────────────────────────
 
 type SearchHit =
@@ -150,10 +164,11 @@ export function SpacesLivePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  // Passed down so Storage/Displays can jump straight to a search result
-  // instead of just opening the area it lives in.
-  const [focusBoxId, setFocusBoxId] = useState('')
-  const [focusCaseId, setFocusCaseId] = useState('')
+  // Storage and display selection live here so a header-search click can
+  // update the destination directly, in the same user action that opens it.
+  const [storageUnitId, setStorageUnitId] = useState('')
+  const [openingBoxId, setOpeningBoxId] = useState('')
+  const [displayCaseId, setDisplayCaseId] = useState('')
 
   const [addSpaceOpen, setAddSpaceOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -179,14 +194,23 @@ export function SpacesLivePage() {
   }, [])
   const enterView = (v: View) => {
     if (view === 'home' && v !== 'home') window.history.pushState({}, '', location.href)
+    if (v === 'storage' && view !== 'storage') { setStorageUnitId(''); setOpeningBoxId('') }
+    if (v === 'displays' && view !== 'displays') setDisplayCaseId('')
     setView(v)
+  }
+
+  const loadedUserId = user?.id || ''
+  const [previousLoadedUserId, setPreviousLoadedUserId] = useState(loadedUserId)
+  if (previousLoadedUserId !== loadedUserId) {
+    setPreviousLoadedUserId(loadedUserId)
+    setLoading(true)
   }
 
   const load = async (fullScreen = false) => {
     if (!user?.id) return
     if (fullScreen) setLoading(true)
     try {
-      const [s, b, bi] = await Promise.all([listSpaces(user.id), listBoxes(user.id), listBinders(user.id)])
+      const [s, b, bi] = await fetchSpaceOverview(user.id)
       setSpaces(s)
       setBoxes(b)
       setBinders(bi)
@@ -198,7 +222,22 @@ export function SpacesLivePage() {
       if (fullScreen) setLoading(false)
     }
   }
-  useEffect(() => { void load(true) }, [user?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!user?.id) return
+    let cancelled = false
+    fetchSpaceOverview(user.id)
+      .then(([nextSpaces, nextBoxes, nextBinders]) => {
+        if (cancelled) return
+        setSpaces(nextSpaces)
+        setBoxes(nextBoxes)
+        setBinders(nextBinders)
+        setSpaceId(id => id || nextSpaces.find(x => x.isDefault)?.id || nextSpaces[0]?.id || '')
+        setError('')
+      })
+      .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : 'Could not load spaces') })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [user?.id])
 
   const space = spaces.find(x => x.id === spaceId) || spaces[0]
   // Legacy boxes/binders created before Spaces existed have no spaceId — they
@@ -230,9 +269,21 @@ export function SpacesLivePage() {
     // selected Space, which may not be the default one.
     const defaultSpaceId = spaces.find(s => s.isDefault)?.id || space?.id || ''
     if (hit.kind === 'space') { setSpaceId(hit.id); setView('home') }
-    else if (hit.kind === 'box') { setSpaceId(hit.spaceId || defaultSpaceId); enterView('storage'); setFocusBoxId(hit.id) }
+    else if (hit.kind === 'box') {
+      const box = boxes.find(candidate => candidate.id === hit.id)
+      if (view === 'home') window.history.pushState({}, '', location.href)
+      setSpaceId(hit.spaceId || defaultSpaceId)
+      if (box?.storageUnitId) setStorageUnitId(box.storageUnitId)
+      setOpeningBoxId(hit.id)
+      setView('storage')
+    }
     else if (hit.kind === 'binder') navigate(`/binder/${hit.id}`)
-    else { setSpaceId(hit.spaceId); enterView('displays'); setFocusCaseId(hit.id) }
+    else {
+      if (view === 'home') window.history.pushState({}, '', location.href)
+      setSpaceId(hit.spaceId)
+      setDisplayCaseId(hit.id)
+      setView('displays')
+    }
   }
 
   const createNewSpace = async (name: string, spaceType: SpaceType) => {
@@ -311,7 +362,8 @@ export function SpacesLivePage() {
         ) : view === 'storage' ? (
           <Storage
             userId={user?.id || ''} space={space} boxes={roomBoxes} binders={roomBinders} reload={load}
-            focusBoxId={focusBoxId} clearFocus={() => setFocusBoxId('')}
+            unitId={storageUnitId} setUnitId={setStorageUnitId}
+            opening={openingBoxId} setOpening={setOpeningBoxId}
             registerBackHandler={fn => { closeBoxHandler.current = fn }}
           />
         ) : view === 'binders' ? (
@@ -319,7 +371,7 @@ export function SpacesLivePage() {
         ) : (
           <Displays
             userId={user?.id || ''} space={space} reload={load}
-            focusCaseId={focusCaseId} clearFocus={() => setFocusCaseId('')}
+            caseId={displayCaseId} setCaseId={setDisplayCaseId}
           />
         )}
       </div>
@@ -453,12 +505,12 @@ function Home({ space, spaces, boxes, binders, onView, onSelect, onAdd }: {
 
 // ─── Storage ────────────────────────────────────────────────────────────────
 
-function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus, registerBackHandler }: {
+function Storage({ userId, space, boxes, binders, reload, unitId, setUnitId, opening, setOpening, registerBackHandler }: {
   userId: string; space: CollectionSpace; boxes: StorageBox[]; binders: Binder[]; reload: () => Promise<void>
-  focusBoxId: string; clearFocus: () => void
+  unitId: string; setUnitId: (id: string) => void
+  opening: string; setOpening: (id: string) => void
   registerBackHandler: (fn: (() => boolean) | null) => void
 }) {
-  const [unitId, setUnitId] = useState(space.storageUnits[0]?.id || '')
   const [message, setMessage] = useState('')
   const [selected, setSelected] = useState<{ box: StorageBox; drawer: StorageDrawer } | null>(null)
 
@@ -474,7 +526,6 @@ function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus
     })
     return () => registerBackHandler(null)
   }, [selected]) // eslint-disable-line react-hooks/exhaustive-deps
-  const [opening, setOpening] = useState('')
   const [picking, setPicking] = useState(false)
   const [pickingUnit, setPickingUnit] = useState(false)
   // The box currently armed to be placed — set by an HTML5 drag, the
@@ -560,16 +611,6 @@ function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus
     while (used.has(level)) level++
     return level
   }
-
-  // A search result for a box jumps straight to its shelf unit and opens it.
-  useEffect(() => {
-    if (!focusBoxId) return
-    const box = boxes.find(x => x.id === focusBoxId)
-    if (!box) return
-    if (box.storageUnitId) setUnitId(box.storageUnitId)
-    setOpening(box.id)
-    clearFocus()
-  }, [focusBoxId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const createUnit = async (preset: ShelfPreset | { name: string; unitType: StorageUnitType; color: string; shelfCount: number; positionsPerShelf: number; maxStackHeight: number }) => {
     setPickingUnit(false)
@@ -862,6 +903,11 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   // 'selected' moves only the checked ones — same modal, different source list.
   const [bulkMoveScope, setBulkMoveScope] = useState<'all' | 'selected' | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [selectedDrawerId, setSelectedDrawerId] = useState(drawer.id)
+  if (selectedDrawerId !== drawer.id) {
+    setSelectedDrawerId(drawer.id)
+    setSelectedIds(new Set())
+  }
   const toggleSelect = (id: string) => setSelectedIds(prev => {
     const next = new Set(prev)
     if (next.has(id)) next.delete(id); else next.add(id)
@@ -902,16 +948,22 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
 
   const load = async () => {
     try {
-      const [nextLots, nextPlacements, nextOwned] = await Promise.all([
-        getSpaceInventory(userId), getDrawerPlacements(userId, drawer.id), getOwnedCards(userId),
-      ])
+      const [nextLots, nextPlacements, nextOwned] = await fetchBoxContents(userId, drawer.id)
       setLots(nextLots); setPlacements(nextPlacements); setOwned(nextOwned); setMessage('')
     } catch (e) {
       setMessage(e instanceof Error ? e.message : 'Could not load box inventory.')
     }
   }
-  useEffect(() => { void load() }, [drawer.id]) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => setSelectedIds(new Set()), [drawer.id])
+  useEffect(() => {
+    let cancelled = false
+    fetchBoxContents(userId, drawer.id)
+      .then(([nextLots, nextPlacements, nextOwned]) => {
+        if (cancelled) return
+        setLots(nextLots); setPlacements(nextPlacements); setOwned(nextOwned); setMessage('')
+      })
+      .catch(e => { if (!cancelled) setMessage(e instanceof Error ? e.message : 'Could not load box inventory.') })
+    return () => { cancelled = true }
+  }, [userId, drawer.id])
 
   // Only for the "Set" sort's divider labels/order — id alone ("sv3pt5")
   // doesn't read as a set to a person filing cards by hand.
@@ -935,6 +987,35 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
     }, 300)
     return () => { if (catalogTimer.current) clearTimeout(catalogTimer.current) }
   }, [catalogQuery])
+
+  /** Saving a card auto-files any newly-owned surplus straight into that
+   *  card's own "set" box on the backend (CollectionRepository.
+   *  reconcileAutoAllocation) — that's what makes the bulk Add Cards flow
+   *  discoverable, but it means a card added via THIS box's own search can
+   *  get silently claimed by that other (auto-filed) box before the
+   *  placeCopies call below ever runs, leaving nothing "free" to place and
+   *  the card nowhere the user was actually looking. This finds it in the
+   *  auto box and moves it here instead of leaving it stranded there.
+   *
+   *  Fetches a fresh box list rather than using the `otherBoxes` prop —
+   *  for a set with no existing box, the backend creates the auto box on
+   *  the fly as part of THIS save, so it wouldn't be in whatever list was
+   *  fetched when this component mounted. */
+  const rescueFromAutoBox = async (setId: string, lotId: string) => {
+    const freshBoxes = await listBoxes(userId)
+    const autoBox = freshBoxes.find(b => b.boxType === `auto_set:${setId}`)
+    if (!autoBox) return false
+    for (const d of autoBox.drawers) {
+      const placements = await getDrawerPlacements(userId, d.id)
+      const allocation = placements.find(a => a.lotId === lotId)
+      if (allocation) {
+        await removePlacement(userId, allocation.id)
+        await placeCopies(userId, { lotId, drawerId: drawer.id, quantity: allocation.quantity, protection: allocation.protection ?? 'raw' })
+        return true
+      }
+    }
+    return false
+  }
 
   // Flushes any still-queued bulk-add clicks if the box is closed mid-batch
   // (only cancelling the debounce timers, with no matching flush, would
@@ -966,35 +1047,6 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const cardFor = (cardId: string) => owned.find(x => x.cardId === cardId)?.card
-
-  /** Saving a card auto-files any newly-owned surplus straight into that
-   *  card's own "set" box on the backend (CollectionRepository.
-   *  reconcileAutoAllocation) — that's what makes the bulk Add Cards flow
-   *  discoverable, but it means a card added via THIS box's own search can
-   *  get silently claimed by that other (auto-filed) box before the
-   *  placeCopies call below ever runs, leaving nothing "free" to place and
-   *  the card nowhere the user was actually looking. This finds it in the
-   *  auto box and moves it here instead of leaving it stranded there.
-   *
-   *  Fetches a fresh box list rather than using the `otherBoxes` prop —
-   *  for a set with no existing box, the backend creates the auto box on
-   *  the fly as part of THIS save, so it wouldn't be in whatever list was
-   *  fetched when this component mounted. */
-  const rescueFromAutoBox = async (setId: string, lotId: string) => {
-    const freshBoxes = await listBoxes(userId)
-    const autoBox = freshBoxes.find(b => b.boxType === `auto_set:${setId}`)
-    if (!autoBox) return false
-    for (const d of autoBox.drawers) {
-      const placements = await getDrawerPlacements(userId, d.id)
-      const allocation = placements.find(a => a.lotId === lotId)
-      if (allocation) {
-        await removePlacement(userId, allocation.id)
-        await placeCopies(userId, { lotId, drawerId: drawer.id, quantity: allocation.quantity, protection: allocation.protection ?? 'raw' })
-        return true
-      }
-    }
-    return false
-  }
 
   /** The actual save + place for one card's queued batch — always reads
    *  fresh owned/lot state right before writing (never the component's
@@ -1642,10 +1694,10 @@ function AddBinderModal({ space, onCancel, onCreate }: {
 
 // ─── Display Gallery ────────────────────────────────────────────────────────
 
-function Displays({ userId, space, reload, focusCaseId, clearFocus }: {
-  userId: string; space: CollectionSpace; reload: () => Promise<void>; focusCaseId: string; clearFocus: () => void
+function Displays({ userId, space, reload, caseId, setCaseId }: {
+  userId: string; space: CollectionSpace; reload: () => Promise<void>
+  caseId: string; setCaseId: (id: string) => void
 }) {
-  const [caseId, setCaseId] = useState(space.displayCases[0]?.id || '')
   const [picking, setPicking] = useState(false)
   const [lots, setLots] = useState<InventoryLot[]>([])
   const [owned, setOwned] = useState<OwnedCard[]>([])
@@ -1655,23 +1707,28 @@ function Displays({ userId, space, reload, focusCaseId, clearFocus }: {
   const preview = usePreview()
 
   const display = space.displayCases.find(c => c.id === caseId) || space.displayCases[0]
-
-  useEffect(() => {
-    if (focusCaseId) { setCaseId(focusCaseId); clearFocus() }
-  }, [focusCaseId]) // eslint-disable-line react-hooks/exhaustive-deps
+  const displayId = display?.id
 
   const loadContents = async () => {
     if (!display) return
     try {
-      const [nextLots, nextOwned, nextPlacements] = await Promise.all([
-        getSpaceInventory(userId), getOwnedCards(userId), getCaseAllocations(userId, display.id),
-      ])
+      const [nextLots, nextOwned, nextPlacements] = await fetchDisplayContents(userId, display.id)
       setLots(nextLots); setOwned(nextOwned); setPlacements(nextPlacements)
     } catch (e) {
       setMessage(e instanceof Error ? e.message : 'Could not load this display case.')
     }
   }
-  useEffect(() => { void loadContents() }, [display?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!displayId) return
+    let cancelled = false
+    fetchDisplayContents(userId, displayId)
+      .then(([nextLots, nextOwned, nextPlacements]) => {
+        if (cancelled) return
+        setLots(nextLots); setOwned(nextOwned); setPlacements(nextPlacements)
+      })
+      .catch(e => { if (!cancelled) setMessage(e instanceof Error ? e.message : 'Could not load this display case.') })
+    return () => { cancelled = true }
+  }, [userId, displayId])
 
   const cardFor = (cardId: string) => owned.find(x => x.cardId === cardId)?.card
   const allocationFor = (slotId: string) => placements.find(a => a.displaySlotId === slotId)

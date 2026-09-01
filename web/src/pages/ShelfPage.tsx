@@ -38,8 +38,10 @@ export function ShelfPage() {
 
   useEffect(() => {
     if (!userId) return
+    let cancelled = false
     getOwnedCards(userId)
       .then((owned: OwnedCard[]) => {
+        if (cancelled) return
         setCards(owned.map(o => o.card))
 
         const m: Record<string, Entry> = {}
@@ -48,15 +50,31 @@ export function ShelfPage() {
           m[o.cardId] = { conds: fromCondList(o.conditions), selCond: o.selectedCond || 'NM' }
           if (o.drawerId) d[o.cardId] = o.drawerId
         }
+        if (cancelled) return
         setColl(m)
+        if (cancelled) return
         setDrawerOf(d)
+        if (cancelled) return
         setLoading(false)
       })
-      .catch(() => { toast('Could not load your collection.'); setLoading(false) })
-  }, [userId]) // eslint-disable-line react-hooks/exhaustive-deps
+      .catch(() => {
+        if (cancelled) return
+        toast('Could not load your collection.')
+        if (cancelled) return
+        setLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [userId, toast])
 
   const reloadShelf = () => { if (userId) getShelf(userId).then(setItems).catch(() => {}) }
-  useEffect(reloadShelf, [userId]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!userId) return
+    let cancelled = false
+    getShelf(userId)
+      .then(nextItems => { if (!cancelled) setItems(nextItems) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [userId])
 
   /** Reassigns (or unassigns, when drawerId is "") one card's storage location. */
   const setCardDrawer = async (cardId: string, drawerId: string) => {
