@@ -83,7 +83,11 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
   }
 
   const qty = totalQty(conds)
-  const price = basePrice(card, selectedVariant)
+  // Headline price follows whichever condition is actually selected (defaults
+  // to NM), not always NM — otherwise adding e.g. an LP copy shows the NM
+  // price up top while the Details breakdown below shows the real LP price,
+  // which reads as a bug even though both numbers are individually correct.
+  const price = condPrice(card, selCond, selectedVariant) || basePrice(card, selectedVariant)
   const priceStr = price > 0
     ? '$' + price.toFixed(2) + (qty > 1 ? ' · $' + cardValue(conds, card, selectedVariant).toFixed(2) : '')
     : 'no price'

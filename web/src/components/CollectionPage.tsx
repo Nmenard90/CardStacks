@@ -255,7 +255,7 @@ export function CollectionPage() {
     <div className="page-tracker">
       <div id="app" style={{ display: 'block' }}>
         <header>
-          <div className="logo">POKÉDEX <span>TRACKER</span></div>
+          <div className="logo">CARD<span>STACKS</span></div>
           <div className="user-badge">👤 <b>{user.username}</b></div>
           <input
             type="text"

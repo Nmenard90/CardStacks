@@ -158,6 +158,30 @@ export function SpacesLivePage() {
   const [addSpaceOpen, setAddSpaceOpen] = useState(false)
   const [query, setQuery] = useState('')
 
+  // Neither entering a Space's area (Storage/Binders/Displays) nor opening
+  // a box inside Storage ever changed the URL or touched browser history —
+  // the phone's hardware/gesture back button (and the desktop back button)
+  // had nothing of ours to undo, so it just left the app entirely instead
+  // of closing the box or area a person was actually looking at.
+  //
+  // Only one entry gets pushed for "left home", not one per sub-view — the
+  // three area tabs are lateral moves at the same depth, so switching
+  // between them shouldn't add extra steps to undo. A box open inside
+  // Storage pushes its own entry on top of that; Storage registers a
+  // "close the currently-open box, if any" handler here so a single
+  // popstate handler can give the innermost thing open first crack at
+  // handling back, regardless of which area is currently mounted.
+  const closeBoxHandler = useRef<(() => boolean) | null>(null)
+  useEffect(() => {
+    const onPopState = () => { if (!closeBoxHandler.current?.()) setView('home') }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+  const enterView = (v: View) => {
+    if (view === 'home' && v !== 'home') window.history.pushState({}, '', location.href)
+    setView(v)
+  }
+
   const load = async (fullScreen = false) => {
     if (!user?.id) return
     if (fullScreen) setLoading(true)
@@ -206,9 +230,9 @@ export function SpacesLivePage() {
     // selected Space, which may not be the default one.
     const defaultSpaceId = spaces.find(s => s.isDefault)?.id || space?.id || ''
     if (hit.kind === 'space') { setSpaceId(hit.id); setView('home') }
-    else if (hit.kind === 'box') { setSpaceId(hit.spaceId || defaultSpaceId); setView('storage'); setFocusBoxId(hit.id) }
+    else if (hit.kind === 'box') { setSpaceId(hit.spaceId || defaultSpaceId); enterView('storage'); setFocusBoxId(hit.id) }
     else if (hit.kind === 'binder') navigate(`/binder/${hit.id}`)
-    else { setSpaceId(hit.spaceId); setView('displays'); setFocusCaseId(hit.id) }
+    else { setSpaceId(hit.spaceId); enterView('displays'); setFocusCaseId(hit.id) }
   }
 
   const createNewSpace = async (name: string, spaceType: SpaceType) => {
@@ -267,13 +291,13 @@ export function SpacesLivePage() {
           <nav className="section-nav">
             <button onClick={() => setView('home')}>‹ All spaces</button>
             <div>
-              <button className={view === 'storage' ? 'active' : ''} onClick={() => setView('storage')}>
+              <button className={view === 'storage' ? 'active' : ''} onClick={() => enterView('storage')}>
                 <i>▦</i><span><b>Storage</b><small>{roomBoxes.length} boxes</small></span>
               </button>
-              <button className={view === 'binders' ? 'active' : ''} onClick={() => setView('binders')}>
+              <button className={view === 'binders' ? 'active' : ''} onClick={() => enterView('binders')}>
                 <i>▥</i><span><b>Binder Library</b><small>{roomBinders.length} binders</small></span>
               </button>
-              <button className={view === 'displays' ? 'active' : ''} onClick={() => setView('displays')}>
+              <button className={view === 'displays' ? 'active' : ''} onClick={() => enterView('displays')}>
                 <i>◇</i><span><b>Display Gallery</b><small>{space.displayCases.length} cases</small></span>
               </button>
             </div>
@@ -283,11 +307,12 @@ export function SpacesLivePage() {
         {!space ? (
           <div className="spaces-live-status"><h2>No spaces yet</h2><button onClick={() => setAddSpaceOpen(true)}>Create a space</button></div>
         ) : view === 'home' ? (
-          <Home space={space} spaces={spaces} boxes={roomBoxes} binders={roomBinders} onView={setView} onSelect={setSpaceId} onAdd={() => setAddSpaceOpen(true)} />
+          <Home space={space} spaces={spaces} boxes={roomBoxes} binders={roomBinders} onView={enterView} onSelect={setSpaceId} onAdd={() => setAddSpaceOpen(true)} />
         ) : view === 'storage' ? (
           <Storage
             userId={user?.id || ''} space={space} boxes={roomBoxes} binders={roomBinders} reload={load}
             focusBoxId={focusBoxId} clearFocus={() => setFocusBoxId('')}
+            registerBackHandler={fn => { closeBoxHandler.current = fn }}
           />
         ) : view === 'binders' ? (
           <Binders userId={user?.id || ''} space={space} binders={roomBinders} reload={load} open={id => navigate(`/spaces/${space.id}/binders/${id}`)} />
@@ -428,22 +453,113 @@ function Home({ space, spaces, boxes, binders, onView, onSelect, onAdd }: {
 
 // ─── Storage ────────────────────────────────────────────────────────────────
 
-function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus }: {
+function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus, registerBackHandler }: {
   userId: string; space: CollectionSpace; boxes: StorageBox[]; binders: Binder[]; reload: () => Promise<void>
   focusBoxId: string; clearFocus: () => void
+  registerBackHandler: (fn: (() => boolean) | null) => void
 }) {
   const [unitId, setUnitId] = useState(space.storageUnits[0]?.id || '')
   const [message, setMessage] = useState('')
   const [selected, setSelected] = useState<{ box: StorageBox; drawer: StorageDrawer } | null>(null)
+
+  // Lets the browser/hardware back button close an open box instead of
+  // leaving the whole page — see the matching popstate handler in
+  // SpacesLivePage, which calls whatever's registered here before falling
+  // back to its own "leave this area" handling.
+  useEffect(() => {
+    registerBackHandler(() => {
+      if (!selected) return false
+      setSelected(null)
+      return true
+    })
+    return () => registerBackHandler(null)
+  }, [selected]) // eslint-disable-line react-hooks/exhaustive-deps
   const [opening, setOpening] = useState('')
   const [picking, setPicking] = useState(false)
   const [pickingUnit, setPickingUnit] = useState(false)
-  // The box currently armed to be placed — set by either an HTML5 drag or
-  // the keyboard/tap-friendly "Move" button, so both paths share one drop().
+  // The box currently armed to be placed — set by an HTML5 drag, the
+  // "Move" button, or (on touch) a long-press on the box itself — so every
+  // path shares one drop().
   const [armed, setArmed] = useState('')
+
+  // Long-press-to-drag: one gesture, same on mouse and touch — press, hold
+  // briefly, drag while still holding, release over the target. Pointer
+  // Events unify both input types instead of running native HTML5 drag
+  // (mouse-only in practice, and never fires from touch input at all) next
+  // to a separate touch-only tap gesture.
+  //
+  // setPointerCapture on pointerdown is what makes tracking the drag
+  // possible: it keeps every subsequent pointermove/pointerup routed to
+  // THIS element (and suppresses pointerleave while the pointer wanders
+  // over other elements mid-drag), so the same handlers can track the
+  // whole gesture instead of it unravelling the moment the pointer leaves
+  // the box's own bounds.
+  //
+  // Before the hold threshold fires, movement cancels it (so an ordinary
+  // scroll/tap doesn't arm a drag); after it fires, movement no longer
+  // cancels anything — it's just tracked so pointerup can hit-test whatever
+  // shelf position is under the finger via elementFromPoint.
+  const LONG_PRESS_MS = 450
+  const MOVE_CANCEL_PX = 10
+  const pressTimer = useRef<number | null>(null)
+  const pressFired = useRef(false)
+  const pressStart = useRef<{ x: number; y: number } | null>(null)
+  const pressPos = useRef<{ x: number; y: number } | null>(null)
+
+  const cancelPress = () => {
+    if (pressTimer.current !== null) { window.clearTimeout(pressTimer.current); pressTimer.current = null }
+    pressStart.current = null
+  }
+  const startPress = (boxId: string) => (e: React.PointerEvent) => {
+    // Capture support is spotty on older mobile browsers — if it throws,
+    // the hold-to-arm timer below must still run. Losing capture only
+    // costs the "drag across other elements mid-gesture" tracking; without
+    // this try/catch a throw here would silently kill the timer entirely,
+    // and every press would just fall through to the plain click (open).
+    try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* see above */ }
+    pressStart.current = { x: e.clientX, y: e.clientY }
+    pressPos.current = { x: e.clientX, y: e.clientY }
+    pressFired.current = false
+    pressTimer.current = window.setTimeout(() => {
+      pressFired.current = true
+      setArmed(boxId)
+      navigator.vibrate?.(15)
+    }, LONG_PRESS_MS)
+  }
+  const trackPress = (e: React.PointerEvent) => {
+    pressPos.current = { x: e.clientX, y: e.clientY }
+    if (pressFired.current || !pressStart.current) return
+    const dx = e.clientX - pressStart.current.x, dy = e.clientY - pressStart.current.y
+    if (Math.hypot(dx, dy) > MOVE_CANCEL_PX) cancelPress()
+  }
+  /** Completes the drag on release: whatever shelf position is physically
+   *  under the finger right now (not wherever the box started) is the
+   *  drop target. Releasing off any position just leaves the box armed —
+   *  the existing "tap a position" banner/fallback still applies. */
+  const endPress = () => {
+    if (pressFired.current && pressPos.current) {
+      const target = document.elementFromPoint(pressPos.current.x, pressPos.current.y)
+      const posEl = target?.closest<HTMLElement>('[data-shelf]')
+      if (posEl) void drop(Number(posEl.dataset.shelf), Number(posEl.dataset.stack))
+    }
+    cancelPress()
+  }
 
   const unit = space.storageUnits.find(x => x.id === unitId) || space.storageUnits[0]
   const unplacedBoxes = boxes.filter(x => !x.storageUnitId)
+
+  /** The lowest level not already occupied in a stack — NOT `pile.length`,
+   *  which silently assumes levels are always contiguous from 0. A box
+   *  can end up sitting above a gap (e.g. the box below it was removed,
+   *  or a previous placement attempt landed above an empty level), and
+   *  `pile.length` would then recompute the very level that's already
+   *  taken, 400ing on the backend's collision check. */
+  const nextFreeLevel = (pile: StorageBox[]) => {
+    const used = new Set(pile.map(b => b.stackLevel || 0))
+    let level = 0
+    while (used.has(level)) level++
+    return level
+  }
 
   // A search result for a box jumps straight to its shelf unit and opens it.
   useEffect(() => {
@@ -478,11 +594,17 @@ function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus
         target = await createStorageUnit(userId, { spaceId: space.id, name: 'Collector Rack', unitType: 'rack', preset: 'collector_rack', color: '#76533A', shelfCount: 4, positionsPerShelf: 5, maxStackHeight: 3 })
         setUnitId(target.id)
       }
+      // Uses a fresh box list, not the `boxes` prop — that only catches up
+      // after this component's own reload(), so a slot computed from it
+      // can already be stale (e.g. a box placed moments ago elsewhere, or
+      // just created in a prior click) and collide with the backend's
+      // actual layout, 400ing on placement below.
+      const freshBoxes = await listBoxes(userId)
       let shelfIndex = -1, stackIndex = -1, stackLevel = 0
       for (let shelf = 0; shelf < target.shelfCount && shelfIndex < 0; shelf++) {
         for (let stack = 0; stack < target.positionsPerShelf; stack++) {
-          const pile = boxes.filter(x => x.storageUnitId === target!.id && x.shelfIndex === shelf && x.stackIndex === stack)
-          if (pile.length < target.maxStackHeight) { shelfIndex = shelf; stackIndex = stack; stackLevel = pile.length; break }
+          const pile = freshBoxes.filter(x => x.storageUnitId === target!.id && x.shelfIndex === shelf && x.stackIndex === stack)
+          if (pile.length < target.maxStackHeight) { shelfIndex = shelf; stackIndex = stack; stackLevel = nextFreeLevel(pile); break }
         }
       }
       if (shelfIndex < 0) throw new Error('This shelf unit is full. Add another shelf unit first.')
@@ -492,6 +614,10 @@ function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus
       await reload()
       setMessage(`${choice.name} was added to Shelf ${String.fromCharCode(65 + shelfIndex)}, stack ${stackIndex + 1}.`)
     } catch (e) {
+      // The box (and its drawer) may already exist server-side even though
+      // placement failed — reload so it shows up under "unplaced boxes"
+      // instead of vanishing from view entirely.
+      await reload()
       setMessage(e instanceof Error ? e.message : 'Could not add the box.')
     }
   }
@@ -505,7 +631,11 @@ function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus
     void (async () => {
       try {
         const drawer = box.drawers[0] || await createDrawer(box.id, 'Main compartment')
-        window.setTimeout(() => { setSelected({ box, drawer }); setOpening('') }, 520)
+        window.setTimeout(() => {
+          window.history.pushState({}, '', location.href)
+          setSelected({ box, drawer })
+          setOpening('')
+        }, 520)
       } catch (e) {
         setMessage(e instanceof Error ? e.message : 'Could not open this box.')
         setOpening('')
@@ -520,7 +650,7 @@ function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus
     const boxId = armed
     setArmed('')
     try {
-      await placeBox(userId, boxId, { spaceId: space.id, unitId: unit.id, shelfIndex: shelf, stackIndex: stack, stackLevel: current.length })
+      await placeBox(userId, boxId, { spaceId: space.id, unitId: unit.id, shelfIndex: shelf, stackIndex: stack, stackLevel: nextFreeLevel(current) })
       await reload()
     } catch (e) {
       setMessage(e instanceof Error ? e.message : 'Could not place that box there.')
@@ -533,7 +663,7 @@ function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus
         userId={userId} box={selected.box} drawer={selected.drawer}
         otherBoxes={boxes.filter(b => b.id !== selected.box.id)}
         binders={binders} displayCases={space.displayCases}
-        close={() => setSelected(null)} onRenamed={reload}
+        close={() => window.history.back()} onRenamed={reload}
       />
     )
   }
@@ -577,8 +707,9 @@ function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus
                   return (
                     <div
                       className={`stack-position ${armed ? 'drop-ready' : ''}`}
-                      onDragOver={e => e.preventDefault()}
-                      onDrop={() => void drop(shelf, stack)}
+                      data-shelf={shelf}
+                      data-stack={stack}
+                      onClick={() => { if (armed) void drop(shelf, stack) }}
                       key={stack}
                     >
                       {pile.map(box => {
@@ -592,19 +723,16 @@ function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus
                           <div
                             key={box.id}
                             role="button" tabIndex={0}
-                            draggable
-                            onDragStart={e => {
-                              // A native drag with no payload is a drag in
-                              // name only — some browsers silently refuse
-                              // to fire dragover/drop for the rest of the
-                              // gesture without this, so it looks like drag
-                              // support is just broken.
-                              e.dataTransfer.effectAllowed = 'move'
-                              e.dataTransfer.setData('text/plain', box.id)
-                              setArmed(box.id)
+                            onPointerDown={startPress(box.id)}
+                            onPointerMove={trackPress}
+                            onPointerUp={endPress}
+                            onPointerCancel={cancelPress}
+                            onClick={() => {
+                              // A long-press that just armed this box for
+                              // moving isn't also a tap to open it.
+                              if (pressFired.current) { pressFired.current = false; return }
+                              setOpening(box.id); window.setTimeout(() => setOpening(''), 650)
                             }}
-                            onDragEnd={() => setArmed('')}
-                            onClick={() => { setOpening(box.id); window.setTimeout(() => setOpening(''), 650) }}
                             onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpening(box.id); window.setTimeout(() => setOpening(''), 650) } }}
                             className={`physical-box box-model-${boxTypeClass(box.boxType || 'custom')} ${fillState} ${opening === box.id ? 'is-open opening-to-inventory' : ''}`}
                             style={{ '--chosen-box-color': box.color || '#d8d0c0' } as React.CSSProperties}
@@ -621,7 +749,9 @@ function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus
                               <strong>{box.name}</strong>
                               <small>{boxFilled} / {box.capacity || 'custom'} cards{fillState === 'box-over' ? ' · FULL' : fillState === 'box-near' ? ' · nearly full' : ''}</small>
                             </span>
-                            <span className="box-open-hint">{opening === box.id ? 'OPENING…' : `LEVEL ${(box.stackLevel || 0) + 1} · DRAG OR MOVE`}</span>
+                            <span className="box-open-hint">
+                              {opening === box.id ? 'OPENING…' : `LEVEL ${(box.stackLevel || 0) + 1} · HOLD TO MOVE`}
+                            </span>
                           </div>
                         )
                       })}
@@ -644,13 +774,15 @@ function Storage({ userId, space, boxes, binders, reload, focusBoxId, clearFocus
         <div className="unplaced-boxes-list">
         {unplacedBoxes.map(box => (
           <div
-            className="unplaced-box-row" draggable
-            onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', box.id); setArmed(box.id) }}
-            onDragEnd={() => setArmed('')}
+            className="unplaced-box-row"
+            onPointerDown={startPress(box.id)}
+            onPointerMove={trackPress}
+            onPointerUp={endPress}
+            onPointerCancel={cancelPress}
             key={box.id}
           >
             <i style={{ background: box.color }} />
-            <span>{box.name}<small>{humanizeBoxType(box.boxType)} · drag onto a shelf, or tap Move below</small></span>
+            <span>{box.name}<small>{humanizeBoxType(box.boxType)} · hold and drag onto a shelf, or tap Move below</small></span>
             <button type="button" className="box-move-btn inline" onClick={() => setArmed(box.id)}>⇅ Move</button>
           </div>
         ))}
@@ -755,6 +887,10 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   const [catalogSearching, setCatalogSearching] = useState(false)
   const [pendingAdds, setPendingAdds] = useState<Record<string, number>>({})
   const pendingRef = useRef<Record<string, number>>({})
+  // Keeps the full Card alongside pendingRef's quantity, so the unmount
+  // flush below (which has no per-call closure over `card` the way the
+  // normal flush timer does) can still run the same auto-box rescue.
+  const pendingCards = useRef<Record<string, Card>>({})
   const flushTimers = useRef<Record<string, number>>({})
   // Serializes flushes per card: if a second batch of clicks lands while
   // the first batch's save is still in flight, it waits for that save to
@@ -819,10 +955,11 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
           else conds.push({ condition: 'NM', quantity: qty })
           await saveEntry(userId, cardId, conds, 'NM')
           const freshLots = await getSpaceInventory(userId)
-          const lot = freshLots.find(l =>
-            l.cardId === cardId && l.condition === 'NM' && l.variantKey === 'standard' && l.quantity - l.allocated > 0,
-          )
-          if (lot) await placeCopies(userId, { lotId: lot.id, drawerId: drawer.id, quantity: Math.min(qty, lot.quantity - lot.allocated), protection: 'raw' })
+          const lot = freshLots.find(l => l.cardId === cardId && l.condition === 'NM' && l.variantKey === 'standard')
+          const free = lot ? lot.quantity - lot.allocated : 0
+          const setId = pendingCards.current[cardId]?.setId
+          if (lot && free > 0) await placeCopies(userId, { lotId: lot.id, drawerId: drawer.id, quantity: Math.min(qty, free), protection: 'raw' })
+          else if (lot && setId) await rescueFromAutoBox(setId, lot.id)
         } catch { /* best-effort on unmount — nothing left to show the user */ }
       })
     }
@@ -830,13 +967,43 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
 
   const cardFor = (cardId: string) => owned.find(x => x.cardId === cardId)?.card
 
+  /** Saving a card auto-files any newly-owned surplus straight into that
+   *  card's own "set" box on the backend (CollectionRepository.
+   *  reconcileAutoAllocation) — that's what makes the bulk Add Cards flow
+   *  discoverable, but it means a card added via THIS box's own search can
+   *  get silently claimed by that other (auto-filed) box before the
+   *  placeCopies call below ever runs, leaving nothing "free" to place and
+   *  the card nowhere the user was actually looking. This finds it in the
+   *  auto box and moves it here instead of leaving it stranded there.
+   *
+   *  Fetches a fresh box list rather than using the `otherBoxes` prop —
+   *  for a set with no existing box, the backend creates the auto box on
+   *  the fly as part of THIS save, so it wouldn't be in whatever list was
+   *  fetched when this component mounted. */
+  const rescueFromAutoBox = async (setId: string, lotId: string) => {
+    const freshBoxes = await listBoxes(userId)
+    const autoBox = freshBoxes.find(b => b.boxType === `auto_set:${setId}`)
+    if (!autoBox) return false
+    for (const d of autoBox.drawers) {
+      const placements = await getDrawerPlacements(userId, d.id)
+      const allocation = placements.find(a => a.lotId === lotId)
+      if (allocation) {
+        await removePlacement(userId, allocation.id)
+        await placeCopies(userId, { lotId, drawerId: drawer.id, quantity: allocation.quantity, protection: allocation.protection ?? 'raw' })
+        return true
+      }
+    }
+    return false
+  }
+
   /** The actual save + place for one card's queued batch — always reads
    *  fresh owned/lot state right before writing (never the component's
    *  `owned` state, which could be stale mid-batch) and only ever runs one
    *  at a time per card via flushChain, so two overlapping batches for the
    *  same card can't read-before-the-other's-write and clobber each other. */
-  const commitNewCard = async (cardId: string, qty: number, cardName: string) => {
-    setMessage(`Adding ${qty} × ${cardName}…`)
+  const commitNewCard = async (card: Card, qty: number) => {
+    const cardId = card.id
+    setMessage(`Adding ${qty} × ${card.name}…`)
     try {
       const freshOwned = await getOwnedCards(userId)
       const existing = freshOwned.find(o => o.cardId === cardId)
@@ -847,16 +1014,19 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
       await saveEntry(userId, cardId, conds, 'NM')
 
       const freshLots = await getSpaceInventory(userId)
-      const lot = freshLots.find(l =>
-        l.cardId === cardId && l.condition === 'NM' && l.variantKey === 'standard' && l.quantity - l.allocated > 0,
-      )
-      if (lot) {
-        await placeCopies(userId, { lotId: lot.id, drawerId: drawer.id, quantity: Math.min(qty, lot.quantity - lot.allocated), protection: 'raw' })
+      const lot = freshLots.find(l => l.cardId === cardId && l.condition === 'NM' && l.variantKey === 'standard')
+      const free = lot ? lot.quantity - lot.allocated : 0
+
+      if (lot && free > 0) {
+        await placeCopies(userId, { lotId: lot.id, drawerId: drawer.id, quantity: Math.min(qty, free), protection: 'raw' })
         await load()
-        setMessage(`Added ${qty} × ${cardName}.`)
+        setMessage(`Added ${qty} × ${card.name}.`)
+      } else if (lot && await rescueFromAutoBox(card.setId, lot.id)) {
+        await load()
+        setMessage(`Added ${qty} × ${card.name}.`)
       } else {
         await load()
-        setMessage(`${cardName} is now in your collection, but couldn't be auto-placed — add it from "Available owned copies" below.`)
+        setMessage(`${card.name} is now in your collection, but couldn't be auto-placed — add it from "Available owned copies" below.`)
       }
     } catch (e) {
       await load()
@@ -869,15 +1039,17 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
    *  times as you're dropping copies in the box, exactly like Quick Add. */
   const bumpNewCard = (card: Card) => {
     pendingRef.current[card.id] = (pendingRef.current[card.id] ?? 0) + 1
+    pendingCards.current[card.id] = card
     setPendingAdds({ ...pendingRef.current })
     if (flushTimers.current[card.id]) window.clearTimeout(flushTimers.current[card.id])
     flushTimers.current[card.id] = window.setTimeout(() => {
       const qty = pendingRef.current[card.id]
       if (!qty) return
       delete pendingRef.current[card.id]
+      delete pendingCards.current[card.id]
       setPendingAdds({ ...pendingRef.current })
       flushChain.current[card.id] = (flushChain.current[card.id] ?? Promise.resolve())
-        .then(() => commitNewCard(card.id, qty, card.name))
+        .then(() => commitNewCard(card, qty))
     }, 700)
   }
 

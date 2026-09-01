@@ -23,6 +23,7 @@ import { AnalyzerPage } from './pages/AnalyzerPage'
 import { ConventionModePage } from './pages/ConventionModePage'
 import { BulkAddPage } from './pages/BulkAddPage'
 import { SpacesLivePage } from './pages/SpacesLivePage'
+import { LegalPage } from './pages/LegalPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -52,6 +53,8 @@ export default function App() {
               <Route path="/spaces/:spaceId/binders/:binderId" element={<BinderViewPage />} />
               <Route path="/analyzer"          element={<AnalyzerPage />} />
               <Route path="/convention"        element={<ConventionModePage />} />
+              <Route path="/privacy"           element={<LegalPage page="privacy" />} />
+              <Route path="/terms"             element={<LegalPage page="terms" />} />
               <Route path="/shelf"             element={<Navigate to="/" replace />} />
               <Route path="/bulk"              element={<Navigate to="/add" replace />} />
               <Route path="/spaces/default/add" element={<Navigate to="/add" replace />} />

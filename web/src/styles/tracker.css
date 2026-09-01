@@ -136,6 +136,7 @@
   }
   .page-tracker select:focus,.page-tracker input[type="text"]:focus{border-color:var(--accent2);}
   .page-tracker .header-search{width:260px;}
+  @media (min-width:721px){ .page-tracker .header-search-wide{width:300px;} }
 
   /* Custom set selector with symbols */
   .page-tracker .set-selector{position:relative;min-width:260px;}

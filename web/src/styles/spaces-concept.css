@@ -390,6 +390,28 @@
   cursor: pointer;
 }
 .box-move-btn:focus-visible { outline: 2px solid var(--gold, #d6a958); outline-offset: 1px; }
+/* Without this, a real (trusted) press-and-hold gets hijacked before the
+   custom drag logic ever sees a clean gesture: on desktop, holding the
+   mouse down and moving over the box's own text starts a native text
+   selection instead of a drag; on a touchscreen, holding still fires the
+   OS's own text-selection callout/magnifier, which eats the gesture (and
+   the eventual pointerup often never reaches this element at all).
+   dispatchEvent-based testing never surfaces this, because both browser
+   behaviors only trigger for real (isTrusted) input. */
+.physical-box, .unplaced-box-row {
+  user-select: none; -webkit-user-select: none;
+  -webkit-touch-callout: none; -webkit-user-drag: none;
+}
+@media (max-width:850px){
+  /* Long-press-on-the-box is the primary touch path now; this button is
+     just the fallback for anyone who doesn't hold long enough — worth a
+     bigger, easier-to-land target than the desktop corner icon. */
+  .box-move-btn{ width:30px; height:30px; font-size:15px; }
+  /* Without this, the browser can claim the press-and-hold as the start of
+     a page scroll/pan before the long-press timer ever fires, or fight the
+     drag once it's underway. */
+  .physical-box{ touch-action: none; }
+}
 .box-move-btn.inline {
   position: static;
   width: auto;
@@ -701,3 +723,26 @@
   background: #3a3f42;
   box-shadow: none;
 }
+
+/* .spaces-live-status's 80px margin (set way above, for desktop) reads as
+   a big dead gap above the empty-state card on a phone-height viewport. */
+@media (max-width: 850px) {
+  .spaces-live-status { margin: 20px auto; padding: 22px; }
+}
+
+/* .binder-bookcase's `span { writing-mode: vertical-rl }` rule (for real
+   binder-spine labels) was also grabbing this empty-state message's <span>,
+   rendering "Add your first binder." sideways instead of as body text. */
+.binder-empty {
+  width: 100%;
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #fff;
+  text-align: center;
+  padding: 20px;
+}
+.binder-empty span { writing-mode: horizontal-tb; }

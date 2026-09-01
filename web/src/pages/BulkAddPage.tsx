@@ -627,7 +627,7 @@ export function BulkAddPage() {
                         <b>{card.name}{have > 0 && <span className="bhave">×{have} in session</span>}</b>
                         <small>#{card.number} · {setName.get(card.setId) ?? card.setId}</small>
                       </span>
-                      <span className="bp">{condPrice(card, 'NM') > 0 ? '$' + condPrice(card, 'NM').toFixed(2) : '—'}</span>
+                      <span className="bp">{condPrice(card, cond) > 0 ? '$' + condPrice(card, cond).toFixed(2) : '—'}</span>
                     </button>
                   )
                 })}

@@ -391,8 +391,8 @@ export function CollectionPage() {
           {/* Primary way to find a card: searches every set, no set required. */}
           <input
             type="text"
+            className="header-search header-search-wide"
             placeholder={allSets ? 'Search every set by name or number' : `Search within ${set?.name ?? 'this set'}`}
-            style={{ width: 300 }}
             value={search}
             onChange={e => setSearch(e.target.value)}
           />

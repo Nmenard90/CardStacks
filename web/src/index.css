@@ -139,6 +139,16 @@ body{font-family:'Nunito',sans-serif;font-size:var(--fs-base);background:var(--b
   .page-tracker #main{padding-bottom:76px;}
   .page-binder .bottom-nav{display:none;}
 
+  /* .tools-dropdown-up's desktop centering (left:50%, translateX(-50%))
+     centers on the Tools *tab*, which sits at the far right of the bottom
+     bar — a 200px-wide menu centered there runs off the right edge of the
+     screen, clipping "Convention Mode" mid-word. `position:fixed` with
+     insets from the screen edges (not `absolute`, which would still
+     resolve left/right against the narrow flex-item trigger rather than
+     the viewport) guarantees it never overflows, regardless of which tab
+     it's opened from. */
+  .tools-dropdown-up{position:fixed;left:12px;right:12px;top:auto;bottom:86px;transform:none;min-width:0;}
+
   /* The header/stats/toolbar stack were all sized for a desktop-width
      window. Unshrunk, that stack (logo row + 3-4 padded stat tiles +
      a sort row) ran past 3/4 of a phone screen before a single card

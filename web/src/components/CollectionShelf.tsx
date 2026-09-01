@@ -323,7 +323,7 @@ export function CollectionShelf({
   return (
     <div className="shelf-app">
       <header className="page-head">
-        <div className="brand">Poké<span>Tracker</span></div>
+        <div className="brand">Card<span>Stacks</span></div>
         <div className="title">My Collection Shelf</div>
         <div className="tools">
           <button className={'tool' + (editMode ? ' active' : '')} title={editMode ? 'Done editing' : 'Edit layout'} onClick={() => setEditMode(e => !e)}>✎</button>
