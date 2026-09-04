@@ -1,7 +1,7 @@
 /**
  * Card-condition system shared by every page: the five grading tiers,
- * their display colors, price fallback multipliers, and helpers for
- * reading/writing a card's per-condition price and ownership state.
+ * their display colors, and helpers for reading/writing a card's
+ * per-condition price and ownership state.
  *
  * USED BY: CollectionPage, AnalyzerPage, RecentSidebar, CardTile
  */
@@ -13,11 +13,6 @@ export type Cond = (typeof CONDS)[number]
 
 export const COND_COLORS: Record<Cond, string> = {
   NM: '#22c55e', LP: '#84cc16', MP: '#eab308', HP: '#f97316', DMG: '#ef4444',
-}
-
-/** Applied to NM price when the API has no real per-condition price. */
-export const COND_MULT: Record<Cond, number> = {
-  NM: 1, LP: 0.85, MP: 0.7, HP: 0.5, DMG: 0.3,
 }
 
 /** Condition key (may include " 1st Ed") → quantity owned. */
@@ -45,16 +40,14 @@ export function basePrice(card: Card | undefined, variant?: string): number {
   return p.nm ?? p.lp ?? p.mp ?? p.hp ?? p.dmg ?? 0
 }
 
-/** Uses the API's real per-condition price when available; otherwise
- *  estimates from NM × COND_MULT, since the API doesn't price every tier. */
+/** Only ever a real per-condition price from the API — never synthesized.
+ *  Returns 0 (rendered as "no price" by callers) when the source has no
+ *  real quote for this specific condition. */
 export function condPrice(card: Card | undefined, key: string, variant?: string): number {
   const cond = baseCond(key)
   const p = pricesForVariant(card, variant)
   const direct = p?.[cond.toLowerCase() as 'nm' | 'lp' | 'mp' | 'hp' | 'dmg']
-  if (direct && direct > 0) return direct
-
-  const nm = basePrice(card, variant)
-  return nm > 0 ? +(nm * COND_MULT[cond]).toFixed(2) : 0
+  return direct && direct > 0 ? direct : 0
 }
 
 export interface PurchaseInfo { price: number; purchasedAt?: string }

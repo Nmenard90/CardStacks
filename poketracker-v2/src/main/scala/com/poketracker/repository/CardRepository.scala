@@ -283,10 +283,14 @@ object CardRepository:
         .update.run.void.transact(xa)
 
     /**
-     * pokemontcg.io's bundled price is the PRIMARY source for `nm` — it's
-     * free with the same request that fetches card details, so it
-     * unconditionally overwrites whatever TCGTracking found. Cards with no
-     * fallback price are left untouched (TCGTracking's `nm` stands).
+     * TCGTracking's per-condition `nm` is authoritative whenever it has one
+     * — it's the source that actually breaks prices out by condition, so a
+     * real TCGTracking `nm` must never be replaced by a coarser number.
+     * pokemontcg.io's bundled price only fills a genuinely empty `nm` (a
+     * card TCGTracking has no data for at all), which is exactly what the
+     * `WHERE card_prices.price_nm IS NULL` guard on the upsert enforces —
+     * previously this ran unconditionally and clobbered real TCGTracking
+     * prices with the coarser fallback on every refresh.
      * lp/mp/hp/dmg always stay TCGTracking's — pokemontcg.io only ever
      * gives one reference price, never a price per condition.
      */
@@ -297,6 +301,7 @@ object CardRepository:
         WHERE set_id = $setId AND fallback_price_nm IS NOT NULL
         ON CONFLICT (card_id) DO UPDATE SET
           price_nm = EXCLUDED.price_nm
+        WHERE card_prices.price_nm IS NULL
       """
         .update.run.transact(xa)
 

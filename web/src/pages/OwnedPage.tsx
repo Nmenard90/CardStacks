@@ -12,7 +12,8 @@
  * DEPENDS ON: api/collection
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { getOwnedCards, saveEntry } from '../api/collection'
 import { CardTile } from '../components/CardTile'
@@ -33,6 +34,7 @@ export function OwnedPage() {
   const { user } = useUser()
   const toast = useToast()
   const preview = usePreview()
+  const qc = useQueryClient()
 
   const [cards, setCards] = useState<Card[]>([])
 
@@ -46,25 +48,65 @@ export function OwnedPage() {
 
   const userId = user?.id ?? ''
 
-  // Loads the user's whole collection once, when this page first loads.
-  useEffect(() => {
-    if (!userId) return
-    getOwnedCards(userId)
-      .then((owned: OwnedCard[]) => {
-        setCards(owned.map(o => o.card))
+  // Reads through the same ['owned', userId] cache entry AnalyzerPage and
+  // BinderViewPage use, so this page can't show a different price snapshot
+  // for a card than they do.
+  const { data: owned, isError: ownedError } = useQuery({
+    queryKey: ['owned', userId],
+    queryFn: () => getOwnedCards(userId),
+    enabled: !!userId,
+  })
 
-        const m: Record<string, Entry> = {}
-        const p: Record<string, PurchaseMap> = {}
-        for (const o of owned) {
-          m[o.cardId] = { conds: fromCondList(o.conditions), selCond: o.selectedCond || 'NM' }
-          p[o.cardId] = fromPurchaseList(o.conditions)
-        }
-        setColl(m)
-        setPurchases(p)
-        setLoading(false)
-      })
-      .catch(() => { toast('Could not load your collection.'); setLoading(false) })
-  }, [userId]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Local state (cards/coll/purchases) still drives the page, so the
+  // existing optimistic +/- and delete-on-zero-qty logic below is
+  // untouched — this re-syncs it whenever the shared query's data changes
+  // (including a refresh triggered from another page). Done as a
+  // render-time comparison, not an effect, to avoid re-triggering the
+  // set-state-in-effect issue already fixed elsewhere in this codebase.
+  const [syncedOwned, setSyncedOwned] = useState<OwnedCard[] | undefined>(undefined)
+  if (owned && owned !== syncedOwned) {
+    setSyncedOwned(owned)
+    setCards(owned.map(o => o.card))
+
+    const m: Record<string, Entry> = {}
+    const p: Record<string, PurchaseMap> = {}
+    for (const o of owned) {
+      m[o.cardId] = { conds: fromCondList(o.conditions), selCond: o.selectedCond || 'NM' }
+      p[o.cardId] = fromPurchaseList(o.conditions)
+    }
+    setColl(m)
+    setPurchases(p)
+    setLoading(false)
+  }
+
+  // Same render-time-comparison treatment as the sync block above. Keyed by
+  // userId (not a plain boolean) so switching accounts after a failed fetch
+  // can still show a fresh error for the new account instead of staying
+  // silently suppressed.
+  const [erroredOwned, setErroredOwned] = useState<string | null>(null)
+  if (ownedError && erroredOwned !== userId) {
+    setErroredOwned(userId)
+    toast('Could not load your collection.')
+    setLoading(false)
+  }
+
+  /** Writes a local edit into the shared ['owned', userId] cache entry too
+   *  (the same key AnalyzerPage/BinderViewPage read), so a sibling page's
+   *  refetch landing between this edit and its saveEntry persistence can't
+   *  push a stale snapshot back over it the next time this page re-syncs
+   *  from that cache. */
+  const syncCache = (card: Card, entry: Entry, purchaseMap: PurchaseMap) => {
+    qc.setQueryData<OwnedCard[]>(['owned', userId], prev => {
+      if (!prev) return prev
+      if (totalQty(entry.conds) === 0) return prev.filter(o => o.cardId !== card.id)
+      const conditions = toCondList(entry.conds, card, purchaseMap)
+      const existing = prev.find(o => o.cardId === card.id)
+      const updated: OwnedCard = existing
+        ? { ...existing, conditions, selectedCond: entry.selCond }
+        : { cardId: card.id, conditions, selectedCond: entry.selCond, updatedAt: new Date().toISOString(), card }
+      return existing ? prev.map(o => (o.cardId === card.id ? updated : o)) : [...prev, updated]
+    })
+  }
 
   const persist = (card: Card, entry: Entry) => {
     saveEntry(userId, card.id, toCondList(entry.conds, card, purchases[card.id]), entry.selCond)
@@ -78,6 +120,7 @@ export function OwnedPage() {
       const entry = coll[card.id] ?? { conds: {}, selCond: 'NM' }
       saveEntry(userId, card.id, toCondList(entry.conds, card, next[card.id]), entry.selCond)
         .catch(() => toast('Save failed — purchase price not stored.'))
+      syncCache(card, entry, next[card.id])
       return next
     })
   }
@@ -88,6 +131,7 @@ export function OwnedPage() {
       const cur = prev[card.id] ?? { conds: {}, selCond: 'NM' }
       const next = fn({ conds: { ...cur.conds }, selCond: cur.selCond })
       persist(card, next)
+      syncCache(card, next, purchases[card.id])
 
       if (totalQty(next.conds) === 0) {
         setCards(cs => cs.filter(c => c.id !== card.id))

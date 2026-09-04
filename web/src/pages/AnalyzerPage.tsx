@@ -18,7 +18,7 @@
  * DEPENDS ON: api/cards, api/collection, lib/conditions
  */
 
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getCards, getSets, searchCards } from '../api/cards'
 import { getOwnedCards } from '../api/collection'
@@ -51,6 +51,7 @@ const itemPrice = (item: TradeItem): number => {
 export function AnalyzerPage() {
   const { user } = useUser()
   const preview = usePreview()
+  const qc = useQueryClient()
 
   const [give, setGive] = useState<TradeItem[]>([])
   const [get, setGet] = useState<TradeItem[]>([])
@@ -100,7 +101,14 @@ export function AnalyzerPage() {
 
       setResults([]); setSearchMsg('Searching…')
       try {
-        let cards = q ? await searchCards(q) : await getCards(filterSetId)
+        // Browsing a set (no name typed) reads through the same cache entry
+        // CollectionPage/BinderViewPage use for that set, so this page can
+        // never show a different snapshot of a card's price than they do.
+        // Name search has no equivalent shared key elsewhere — it stays a
+        // direct, always-live call.
+        let cards = q
+          ? await searchCards(q)
+          : await qc.fetchQuery({ queryKey: ['cards', filterSetId], queryFn: () => getCards(filterSetId) })
         // Name search ignores the set filter server-side, so apply it here.
         if (q && filterSetId) cards = cards.filter(c => c.setId === filterSetId)
 
@@ -111,7 +119,7 @@ export function AnalyzerPage() {
         setSearchMsg('Search failed — check your connection')
       }
     }, 350)
-  }, [query, filterSetId, modalSide])
+  }, [query, filterSetId, modalSide, qc])
 
   const openModal = (side: Side) => {
     setModalSide(side)

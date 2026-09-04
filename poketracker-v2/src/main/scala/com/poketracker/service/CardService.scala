@@ -288,28 +288,29 @@ object CardService:
 
     def getCardsBySet(setId: String): Task[List[Card]] =
       repo.findCardsBySet(setId).flatMap {
-        case cards if cards.nonEmpty && cards.forall(_.prices.nonEmpty) =>
-          ZIO.succeed(cards)
-
-        // Cached but under-priced: refresh only if stale (>6h), so cards
-        // TCGTracking genuinely has no data for don't retry every load.
+        // Cached: always check staleness (>6h), even when every card already
+        // has some price — a fully-priced set must keep refreshing on the
+        // same timer as an under-priced one, or its prices freeze forever
+        // the moment TCGTracking first covers every card.
         case cards if cards.nonEmpty =>
           for
-            stale  <- repo.isPricesFetchStale(setId)
-                        .catchAll(_ => ZIO.succeed(true))  // fail open on the check itself
-            _      <- ZIO.when(stale)(
-                        repo.findSetById(setId).flatMap {
-                          case Some(set) =>
-                            // Price fetch failures are logged, never block the page load.
-                            priceService.fetchAndStorePrices(set, cards)
-                              .catchAll(e => ZIO.logWarning(s"Price fetch failed for cached $setId: ${e.getMessage}"))
-                              *> repo.markPricesFetched(setId)
-                              *> repo.applyFallbackPrices(setId)
-                                   .catchAll(e => ZIO.logWarning(s"applyFallbackPrices failed for $setId: ${e.getMessage}"))
-                          case None => ZIO.unit
-                        }
-                      )
-            updated <- repo.findCardsBySet(setId)
+            stale   <- repo.isPricesFetchStale(setId)
+                         .catchAll(_ => ZIO.succeed(true))  // fail open on the check itself
+            _       <- ZIO.when(stale)(
+                         repo.findSetById(setId).flatMap {
+                           case Some(set) =>
+                             // Price fetch failures are logged, never block the page load.
+                             priceService.fetchAndStorePrices(set, cards)
+                               .catchAll(e => ZIO.logWarning(s"Price fetch failed for cached $setId: ${e.getMessage}"))
+                               *> repo.markPricesFetched(setId)
+                               *> repo.applyFallbackPrices(setId)
+                                    .catchAll(e => ZIO.logWarning(s"applyFallbackPrices failed for $setId: ${e.getMessage}"))
+                           case None => ZIO.unit
+                         }
+                       )
+            // Only re-read when a refresh may have changed something —
+            // avoids a redundant DB round-trip on the common not-stale path.
+            updated <- if stale then repo.findCardsBySet(setId) else ZIO.succeed(cards)
           yield updated
 
         case _ =>
