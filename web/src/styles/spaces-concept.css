@@ -150,7 +150,14 @@ div.box-card-tile > .thumb-placeholder {
 div.box-card-tile > b,
 div.box-card-tile > small { max-width: 100%; overflow-wrap: anywhere; }
 div.box-card-tile .box-card-tile-actions { flex-wrap: wrap; }
-div.box-card-tile .box-card-tile-actions button { min-width: 0; padding: 6px 4px; }
+/* No min-width:0 here — a button's min-content width is its label, so when
+   Move + Remove can't both fit, flex-wrap stacks them instead of letting
+   "Remove" spill past its own border. */
+div.box-card-tile .box-card-tile-actions button { padding: 6px 4px; white-space: nowrap; }
+/* The price sticker normally sits on the art's top-left corner, which is
+   exactly where a box tile's select checkbox goes (and the ×N badge owns
+   top-right) — drop it to the bottom-left so all three stay readable. */
+div.box-card-tile .price-ribbon { top: auto; bottom: 6px; transform: rotate(-6deg); transform-origin: left bottom; }
 .box-card-add { margin-top: 6px; width: 100%; }
 .box-card-tile.selected { outline: 2px solid var(--accent); outline-offset: 2px; }
 .box-card-select {
