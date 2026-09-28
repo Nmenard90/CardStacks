@@ -603,6 +603,9 @@ CREATE TABLE IF NOT EXISTS storage_drawers (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_storage_drawers_box_id ON storage_drawers(box_id);
+-- Set this compartment auto-files into (see migration_013_drawer_auto_set.sql).
+ALTER TABLE storage_drawers ADD COLUMN IF NOT EXISTS auto_set_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_storage_drawers_auto_set ON storage_drawers(auto_set_id) WHERE auto_set_id IS NOT NULL;
 
 ALTER TABLE collection_entries
   ADD COLUMN IF NOT EXISTS drawer_id TEXT REFERENCES storage_drawers(id) ON DELETE SET NULL;

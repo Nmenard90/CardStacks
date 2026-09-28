@@ -181,6 +181,67 @@ div.box-card-tile .price-ribbon { top: auto; bottom: 6px; transform: rotate(-6de
   font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
 }
 .box-set-divider:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+/* A compartment wall inside a multi-compartment box — heavier than a set
+   divider (solid, accent-coloured, with its own count) so the two never
+   read as the same level of grouping. */
+.box-compartment-divider {
+  justify-content: space-between;
+  border-top-style: solid;
+  color: var(--accent);
+  font-size: 12px;
+}
+.box-compartment-divider small { color: var(--muted); font-weight: 700; letter-spacing: 0; text-transform: none; }
+
+/* Compartment chips: tap one to make it where new cards go; its rename /
+   delete tools only appear on the active chip to keep the bar compact. */
+.compartment-bar {
+  max-width: 1250px;
+  margin: 16px auto 0;
+  padding: 0 28px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+}
+.compartment-bar-label {
+  font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+  margin-right: 4px;
+}
+.compartment-chip {
+  display: inline-flex; align-items: center;
+  background: var(--surface2);
+  border: 2px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.compartment-chip.active { background: var(--accent); }
+.compartment-chip button,
+.compartment-add {
+  background: transparent; border: 0; color: var(--text);
+  font: 800 12px 'Nunito', sans-serif;
+  padding: 6px 12px; cursor: pointer; white-space: nowrap;
+}
+.compartment-chip.active button { color: var(--border); }
+.compartment-chip small { opacity: .7; margin-left: 4px; }
+.compartment-chip .compartment-tool { padding: 6px 8px; border-left: 2px solid var(--border); }
+.compartment-add {
+  border: 2px dashed var(--muted); border-radius: 999px; color: var(--muted);
+}
+.compartment-add:hover { color: var(--text); border-color: var(--text); }
+.compartment-name-input {
+  font: 800 12px 'Nunito', sans-serif;
+  padding: 6px 12px; border-radius: 999px;
+  border: 2px solid var(--accent); background: var(--surface); color: var(--text);
+  min-width: 140px;
+}
+
+/* "Merge boxes in" picker */
+.merge-pick-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; margin: 12px 0; }
+.merge-pick {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  background: var(--surface2); border: 2px solid var(--border); border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.merge-pick span { display: flex; flex-direction: column; font-weight: 800; }
+.merge-pick small { font-weight: 600; color: var(--muted); font-size: 11px; }
 
 /* Bulk "click to add another copy" tiles — same specificity fix as the
    empty display-slot buttons below (.page-tracker button would otherwise
@@ -323,6 +384,7 @@ div.box-card-tile .price-ribbon { top: auto; bottom: 6px; transform: rotate(-6de
   .box-toolbar { padding: 10px; }
   .box-open-surface { margin: 12px 8px; padding: 16px; }
   .box-card-grid { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 12px; }
+  .compartment-bar { padding: 0 8px; margin-top: 12px; }
 }
 
 /* ── Header search ──────────────────────────────────────────────────────── */

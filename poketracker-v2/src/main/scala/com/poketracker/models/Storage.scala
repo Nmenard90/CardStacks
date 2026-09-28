@@ -11,13 +11,17 @@ package com.poketracker.models
 import zio.json.*
 import java.time.Instant
 
-/** @param cardCount  Computed fresh on read, never stored — can't go stale. */
+/** @param cardCount  Computed fresh on read, never stored — can't go stale.
+ *  @param autoSetId  The set this compartment auto-files new copies into,
+ *                    if any. Lives on the compartment (not the box) so it
+ *                    survives the compartment being merged into another box. */
 final case class StorageDrawer(
   id:        String,
   boxId:     String,
   name:      String,
   position:  Int,
   cardCount: Int,
+  autoSetId: Option[String],
   createdAt: Instant,
   updatedAt: Instant
 )

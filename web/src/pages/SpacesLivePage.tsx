@@ -46,7 +46,7 @@ import {
   getDrawerPlacements, getSpaceInventory, listSpaces, placeBinder, placeBox,
   placeCopies, placeInBinderSlot, removePlacement, setDisplayLights,
 } from '../api/rooms'
-import { createBox, createDrawer, deleteBox, listBoxes, updateBox } from '../api/storage'
+import { createBox, createDrawer, deleteBox, deleteDrawer, listBoxes, mergeBoxes, updateBox, updateDrawer } from '../api/storage'
 import type {
   Binder, Card, CardAllocation, CollectionSpace, DisplayCase, DisplayCaseType,
   DisplaySlot, InventoryLot, OwnedCard, PocketSize, SpaceType, StorageBox,
@@ -139,9 +139,17 @@ function colorForBinder(id: string): string {
 const fetchSpaceOverview = (userId: string) => Promise.all([
   listSpaces(userId), listBoxes(userId), listBinders(userId),
 ])
-const fetchBoxContents = (userId: string, drawerId: string) => Promise.all([
-  getSpaceInventory(userId), getDrawerPlacements(userId, drawerId), getOwnedCards(userId),
+/** Every compartment's placements, flattened — a box is read as a whole. */
+const fetchBoxContents = (userId: string, drawerIds: string[]) => Promise.all([
+  getSpaceInventory(userId),
+  Promise.all(drawerIds.map(id => getDrawerPlacements(userId, id))).then(lists => lists.flat()),
+  getOwnedCards(userId),
 ])
+const byPosition = (ds: StorageDrawer[]) => [...ds].sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt))
+
+/** Somewhere a stack can be moved to: a whole box (its first compartment)
+ *  or one specific compartment of a multi-compartment box. */
+interface MoveTarget { key: string; label: string; box: StorageBox; drawer?: StorageDrawer }
 const fetchDisplayContents = (userId: string, displayId: string) => Promise.all([
   getSpaceInventory(userId), getOwnedCards(userId), getCaseAllocations(userId, displayId),
 ])
@@ -918,6 +926,22 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   const [name, setName] = useState(box.name)
   const preview = usePreview()
 
+  // Compartments (drawers). The ref mirrors state for async paths — queued
+  // bulk-add flushes and the unmount flush run long after the render that
+  // scheduled them, and must use whatever compartment is current THEN.
+  const [drawers, setDrawersState] = useState<StorageDrawer[]>(() => byPosition(box.drawers.length ? box.drawers : [drawer]))
+  const drawersRef = useRef(drawers)
+  const setDrawers = (ds: StorageDrawer[]) => { drawersRef.current = ds; setDrawersState(ds) }
+  // Which compartment "Add a new card" / "+ Add one" drops copies into.
+  const [targetDrawerId, setTargetDrawerIdState] = useState(drawer.id)
+  const targetRef = useRef(drawer.id)
+  const setTargetDrawerId = (id: string) => { targetRef.current = id; setTargetDrawerIdState(id) }
+  const [editingDrawerId, setEditingDrawerId] = useState<string | null>(null)
+  const [drawerName, setDrawerName] = useState('')
+  const [merging, setMerging] = useState(false)
+  const [mergePicks, setMergePicks] = useState<Set<string>>(new Set())
+
+
   // Adding cards — the same Bulk Add form as the Add Cards page, but each
   // add goes straight into this box (and the collection). Adds are queued
   // per card+condition and flushed together a moment after the last one,
@@ -966,7 +990,7 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
    *  count replaces it, so the number never flickers back in between. */
   const load = async (onLoaded?: () => void) => {
     try {
-      const [nextLots, nextPlacements, nextOwned] = await fetchBoxContents(userId, drawer.id)
+      const [nextLots, nextPlacements, nextOwned] = await fetchBoxContents(userId, drawersRef.current.map(d => d.id))
       setLots(nextLots); setPlacements(nextPlacements); setOwned(nextOwned); setMessage('')
       onLoaded?.()
     } catch (e) {
@@ -974,9 +998,18 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
       onLoaded?.()
     }
   }
+  /** Re-reads this box's compartment list (after add/rename/delete/merge)
+   *  and then its contents. Keeps the add-target valid if it was deleted. */
+  const refreshDrawers = async () => {
+    const fresh = await listBoxes(userId)
+    const ds = byPosition(fresh.find(b => b.id === box.id)?.drawers ?? [])
+    setDrawers(ds)
+    if (ds.length && !ds.some(d => d.id === targetRef.current)) setTargetDrawerId(ds[0].id)
+    await load()
+  }
   useEffect(() => {
     let cancelled = false
-    fetchBoxContents(userId, drawer.id)
+    fetchBoxContents(userId, drawersRef.current.map(d => d.id))
       .then(([nextLots, nextPlacements, nextOwned]) => {
         if (cancelled) return
         setLots(nextLots); setPlacements(nextPlacements); setOwned(nextOwned); setMessage('')
@@ -1008,14 +1041,20 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
    *  fetched when this component mounted. */
   const rescueFromAutoBox = async (setId: string, lotId: string) => {
     const freshBoxes = await listBoxes(userId)
-    const autoBox = freshBoxes.find(b => b.boxType === `auto_set:${setId}`)
-    if (!autoBox) return false
-    for (const d of autoBox.drawers) {
+    // The set's auto-filing compartment may now live inside a merged box,
+    // so look it up by its compartment tag first, then the legacy box type.
+    const autoDrawers = [
+      ...freshBoxes.flatMap(b => b.drawers).filter(d => d.autoSetId === setId),
+      ...(freshBoxes.find(b => b.boxType === `auto_set:${setId}`)?.drawers ?? []),
+    ]
+    for (const d of autoDrawers) {
       const placements = await getDrawerPlacements(userId, d.id)
       const allocation = placements.find(a => a.lotId === lotId)
       if (allocation) {
+        // Auto-filing already put it exactly where it was being added.
+        if (d.id === targetRef.current) return true
         await removePlacement(userId, allocation.id)
-        await placeCopies(userId, { lotId, drawerId: drawer.id, quantity: allocation.quantity, protection: allocation.protection ?? 'raw' })
+        await placeCopies(userId, { lotId, drawerId: targetRef.current, quantity: allocation.quantity, protection: allocation.protection ?? 'raw' })
         return true
       }
     }
@@ -1044,7 +1083,7 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
     const lot = freshLots.find(l => lotMatches(l, card.id, condKey))
     const free = lot ? lot.quantity - lot.allocated : 0
     if (lot && free > 0) {
-      await placeCopies(userId, { lotId: lot.id, drawerId: drawer.id, quantity: Math.min(qty, free), protection: 'raw' })
+      await placeCopies(userId, { lotId: lot.id, drawerId: targetRef.current, quantity: Math.min(qty, free), protection: 'raw' })
       return true
     }
     return !!lot && await rescueFromAutoBox(card.setId, lot.id)
@@ -1105,13 +1144,17 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   /** Removes `k` copies from this box AND the collection (sold, traded,
    *  lost). Copies come out of the box first, so the owned count can then
    *  drop without ever going below what's placed. */
-  const removeCopies = async (card: Card, condKey: string, k: number) => {
+  const removeCopies = async (card: Card, condKey: string, k: number, fromDrawerId?: string) => {
     setMessage(`Removing ${k} × ${card.name} (${condKey})…`)
     const settle = () => shiftOptimistic(`${card.id}|${condKey}`, k)
     try {
-      const [freshLots, freshPlacements] = await Promise.all([getSpaceInventory(userId), getDrawerPlacements(userId, drawer.id)])
+      const [freshLots, perDrawer] = await Promise.all([
+        getSpaceInventory(userId),
+        Promise.all(drawersRef.current.map(d => getDrawerPlacements(userId, d.id))),
+      ])
       const lotIds = new Set(freshLots.filter(l => lotMatches(l, card.id, condKey)).map(l => l.id))
-      const mine = freshPlacements.filter(a => lotIds.has(a.lotId))
+      const mine = perDrawer.flat().filter(a => lotIds.has(a.lotId))
+        .sort((a, b) => Number(b.drawerId === fromDrawerId) - Number(a.drawerId === fromDrawerId))
       const removed = Math.min(k, mine.reduce((n, a) => n + a.quantity, 0))
       if (!removed) { await load(settle); setMessage(''); return }
 
@@ -1120,7 +1163,7 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
         if (!left) break
         await removePlacement(userId, a.id)
         if (a.quantity > left) {
-          await placeCopies(userId, { lotId: a.lotId, drawerId: drawer.id, quantity: a.quantity - left, protection: a.protection })
+          await placeCopies(userId, { lotId: a.lotId, drawerId: a.drawerId ?? drawer.id, quantity: a.quantity - left, protection: a.protection })
           left = 0
         } else left -= a.quantity
       }
@@ -1141,7 +1184,7 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
 
   /** A tile's −/+ (or right-click on a condition badge). Removing first
    *  cancels any still-queued adds before touching saved copies. */
-  const changeQty = (card: Card, condKey: string, delta: number) => {
+  const changeQty = (card: Card, condKey: string, delta: number, fromDrawerId?: string) => {
     if (delta > 0) { queueAdd(card, condKey, delta); return }
     const key = `${card.id}|${condKey}`
     const queued = pendingRef.current[key] ?? 0
@@ -1154,7 +1197,7 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
     const rest = -delta - cancel
     if (rest > 0) {
       shiftOptimistic(key, -rest)
-      chainFor(card.id, () => removeCopies(card, condKey, rest))
+      chainFor(card.id, () => removeCopies(card, condKey, rest, fromDrawerId))
     }
   }
 
@@ -1186,25 +1229,27 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
 
   const add = async (lot: InventoryLot) => {
     setMessage('Placing one copy…')
-    try { await placeCopies(userId, { lotId: lot.id, drawerId: drawer.id, quantity: 1, protection: 'raw' }); await load() }
+    try { await placeCopies(userId, { lotId: lot.id, drawerId: targetRef.current, quantity: 1, protection: 'raw' }); await load() }
     catch (e) { setMessage(e instanceof Error ? e.message : 'Could not place this copy.') }
   }
   // Every move below shares the same shape: remove first, then place, so the
   // in-flight total never briefly double-counts this copy as over-allocated.
   // If the placement step fails, the copy is left unplaced (with a clear
   // message) rather than silently duplicated or lost.
-  const moveToBox = async (allocation: CardAllocation, target: StorageBox) => {
+  const drawerFor = async (target: MoveTarget) =>
+    target.drawer ?? byPosition(target.box.drawers)[0] ?? await createDrawer(target.box.id, 'Main compartment')
+  const moveToBox = async (allocation: CardAllocation, target: MoveTarget) => {
     setMovingAllocation(null)
-    setMessage(`Moving to ${target.name}…`)
+    setMessage(`Moving to ${target.label}…`)
     try {
       await removePlacement(userId, allocation.id)
-      const targetDrawer = target.drawers[0] || await createDrawer(target.id, 'Main compartment')
+      const targetDrawer = await drawerFor(target)
       await placeCopies(userId, { lotId: allocation.lotId, drawerId: targetDrawer.id, quantity: allocation.quantity, protection: allocation.protection })
       await load()
-      setMessage(`Moved to ${target.name}.`)
+      setMessage(`Moved to ${target.label}.`)
     } catch (e) {
       await load()
-      setMessage(e instanceof Error ? `Removed from this box, but could not place it in ${target.name}: ${e.message}` : 'Could not move this copy.')
+      setMessage(e instanceof Error ? `Removed from this box, but could not place it in ${target.label}: ${e.message}` : 'Could not move this copy.')
     }
   }
   // Wholesale transfers out of an auto-filed box (or any box) into wherever
@@ -1213,21 +1258,23 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   // through the API is the only option available (no bulk endpoint), so
   // this runs moveToBox's own remove-then-place sequence per allocation,
   // reporting progress as it goes.
-  const moveManyToBox = async (toMove: CardAllocation[], target: StorageBox) => {
+  const moveManyToBox = async (toMove: CardAllocation[], target: MoveTarget) => {
     setBulkMoveScope(null)
     let moved = 0
-    setMessage(`Moving 0 of ${toMove.length} to ${target.name}…`)
+    setMessage(`Moving 0 of ${toMove.length} to ${target.label}…`)
     try {
-      const targetDrawer = target.drawers[0] || await createDrawer(target.id, 'Main compartment')
+      const targetDrawer = await drawerFor(target)
       for (const allocation of toMove) {
+        // Already in that compartment — nothing to do for this one.
+        if (allocation.drawerId === targetDrawer.id) { moved++; continue }
         await removePlacement(userId, allocation.id)
         await placeCopies(userId, { lotId: allocation.lotId, drawerId: targetDrawer.id, quantity: allocation.quantity, protection: allocation.protection })
         moved++
-        setMessage(`Moving ${moved} of ${toMove.length} to ${target.name}…`)
+        setMessage(`Moving ${moved} of ${toMove.length} to ${target.label}…`)
       }
       setSelectedIds(new Set())
       await load()
-      setMessage(`Moved ${moved} card${moved === 1 ? '' : 's'} to ${target.name}.`)
+      setMessage(`Moved ${moved} card${moved === 1 ? '' : 's'} to ${target.label}.`)
     } catch (e) {
       await load()
       setMessage(e instanceof Error ? `Moved ${moved} of ${toMove.length} before hitting a problem: ${e.message}` : 'Could not finish moving these cards.')
@@ -1276,6 +1323,50 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
     if (!trimmed || trimmed === savedName) { setName(savedName); return }
     try { await updateBox(box.id, { name: trimmed }); setSavedName(trimmed); await onRenamed() }
     catch { setMessage('Could not rename this box.'); setName(savedName) }
+  }
+
+  const addCompartment = async () => {
+    try {
+      const made = await createDrawer(box.id, `Compartment ${drawers.length + 1}`)
+      await refreshDrawers()
+      setTargetDrawerId(made.id)
+      setDrawerName(made.name); setEditingDrawerId(made.id)
+    } catch (e) { setMessage(e instanceof Error ? e.message : 'Could not add a compartment.') }
+  }
+  const saveDrawerName = async (d: StorageDrawer) => {
+    const trimmed = drawerName.trim()
+    setEditingDrawerId(null)
+    if (!trimmed || trimmed === d.name) return
+    try { await updateDrawer(d.id, { name: trimmed }); await refreshDrawers() }
+    catch { setMessage('Could not rename that compartment.') }
+  }
+  /** Deleting a compartment un-places its cards (they stay owned, and show
+   *  up under "Available owned copies") — the backend cascades placements. */
+  const deleteCompartment = async (d: StorageDrawer) => {
+    if (drawers.length <= 1) { setMessage('A box needs at least one compartment — delete the box instead.'); return }
+    const n = placements.filter(p => p.drawerId === d.id).reduce((sum, p) => sum + p.quantity, 0)
+    const warning = n > 0
+      ? `Delete compartment "${d.name}"? Its ${n} card${n === 1 ? '' : 's'} stay in your collection, just no longer placed in this box.`
+      : `Delete compartment "${d.name}"?`
+    if (!window.confirm(warning)) return
+    try { await deleteDrawer(d.id); await refreshDrawers() }
+    catch { setMessage('Could not delete that compartment.') }
+  }
+  const mergeCandidates = otherBoxes.filter(b => (b.kind ?? 'box') === 'box')
+  const mergeIn = async () => {
+    const ids = [...mergePicks]
+    setMerging(false); setMergePicks(new Set())
+    if (!ids.length) return
+    setMessage(`Merging ${ids.length} box${ids.length === 1 ? '' : 'es'} into ${savedName}…`)
+    try {
+      const { movedCompartments } = await mergeBoxes(box.id, ids)
+      await refreshDrawers()
+      await onRenamed()
+      setMessage(`Merged — ${movedCompartments} compartment${movedCompartments === 1 ? '' : 's'} moved into ${savedName}. Their cards came along.`)
+    } catch (e) {
+      await refreshDrawers()
+      setMessage(e instanceof Error ? e.message : 'Could not merge those boxes.')
+    }
   }
 
   /** The backend cascades to drawers and un-assigns cards (not deletes them —
@@ -1328,38 +1419,65 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   // filter honest without pulling in a full set catalog fetch just for it.
   const sets = [...new Set(lots.map(l => cardFor(l.cardId)?.setId).filter((s): s is string => !!s))].sort()
 
+  const multiCompartment = drawers.length > 1
+  const drawerOrder = new Map(drawers.map((d, i) => [d.id, i]))
+  const drawerById = new Map(drawers.map(d => [d.id, d]))
+  const countIn = (drawerId: string) => placements.filter(p => p.drawerId === drawerId).reduce((n, p) => n + p.quantity, 0)
+  const targetDrawer = drawerById.get(targetDrawerId)
+
+  // Everywhere a stack can go: this box's other compartments, then other
+  // boxes — as a whole if they have one compartment, per compartment if more.
+  const moveTargetsFor = (fromDrawerId?: string): MoveTarget[] => [
+    ...(multiCompartment ? drawers.filter(d => d.id !== fromDrawerId).map(d => ({ key: d.id, label: `${savedName} › ${d.name}`, box, drawer: d })) : []),
+    ...otherBoxes.flatMap(b => b.drawers.length > 1
+      ? byPosition(b.drawers).map(d => ({ key: d.id, label: `${b.name} › ${d.name}`, box: b, drawer: d }))
+      : [{ key: b.id, label: b.name, box: b }]),
+  ]
+  const canMoveAnywhere = multiCompartment || otherBoxes.length > 0 || binders.length > 0 || displayCases.length > 0
+
   const insideBox = placements.filter(matchesAllocation).sort((a, b) => byChosenSort(lots.find(l => l.id === a.lotId), lots.find(l => l.id === b.lotId)))
   // One tile per card (not per stack): every stack of a card in this box —
   // NM, LP, 1st Ed… — folds into one Bulk Add-style tile with a condition
-  // breakdown, in the same order the filtered/sorted stacks came in.
-  type CardGroup = { cardId: string; card?: Card; allocations: CardAllocation[]; conds: CondMap }
+  // breakdown, in the same order the filtered/sorted stacks came in. With
+  // several compartments it's one tile per card per compartment.
+  type CardGroup = { key: string; cardId: string; drawerId?: string; card?: Card; allocations: CardAllocation[]; conds: CondMap }
+  const groupKey = (cardId: string, drawerId?: string) => multiCompartment ? `${drawerId ?? ''}|${cardId}` : cardId
   const groupMap = new Map<string, CardGroup>()
   for (const a of insideBox) {
     const lot = lots.find(l => l.id === a.lotId)
     if (!lot) continue
     const key = lot.edition === 'first_edition' ? `${lot.condition} 1st Ed` : lot.condition
-    let g = groupMap.get(lot.cardId)
-    if (!g) { g = { cardId: lot.cardId, card: cardFor(lot.cardId), allocations: [], conds: {} }; groupMap.set(lot.cardId, g) }
+    const gk = groupKey(lot.cardId, a.drawerId ?? undefined)
+    let g = groupMap.get(gk)
+    if (!g) { g = { key: gk, cardId: lot.cardId, drawerId: a.drawerId ?? undefined, card: cardFor(lot.cardId), allocations: [], conds: {} }; groupMap.set(gk, g) }
     g.allocations.push(a)
     g.conds[key] = (g.conds[key] ?? 0) + a.quantity
   }
-  // Cards just added from the form show up immediately, before their save lands.
+  // Cards just added from the form show up immediately (in the compartment
+  // they're going into), before their save lands.
   for (const [key, qty] of Object.entries(pendingAdds)) {
     const card = pendingCardMap[key]
-    if (!qty || !card || groupMap.has(card.id)) continue
-    groupMap.set(card.id, { cardId: card.id, card, allocations: [], conds: {} })
+    if (!qty || !card) continue
+    const gk = groupKey(card.id, targetDrawerId)
+    if (groupMap.has(gk)) continue
+    groupMap.set(gk, { key: gk, cardId: card.id, drawerId: targetDrawerId, card, allocations: [], conds: {} })
   }
   // A box holding more than one set is always grouped by set (with a
   // divider per set, below), whatever the sort — the chosen sort still
-  // orders cards within each set (Array.sort is stable).
+  // orders cards within each set (Array.sort is stable). Compartments
+  // outrank sets: each compartment is grouped on its own.
   const multiSetBox = new Set([...groupMap.values()].map(g => g.card?.setId)).size > 1
   const setLabel = (setId?: string) => (setId && setNameById[setId]) || setId || ''
   const insideGroups = [...groupMap.values()]
-  if (multiSetBox) insideGroups.sort((a, b) => setLabel(a.card?.setId).localeCompare(setLabel(b.card?.setId)))
+  insideGroups.sort((a, b) =>
+    (multiCompartment ? (drawerOrder.get(a.drawerId ?? '') ?? 0) - (drawerOrder.get(b.drawerId ?? '') ?? 0) : 0)
+    || (multiSetBox ? setLabel(a.card?.setId).localeCompare(setLabel(b.card?.setId)) : 0))
   /** What a tile shows: saved copies + still-queued adds, with any
-   *  half-typed quantity shown as typed. */
+   *  half-typed quantity shown as typed. Queued adds and typing only show
+   *  on the tile in the compartment they're going into. */
   const tileConds = (g: CardGroup): CondMap => {
     const conds: CondMap = { ...g.conds }
+    if (multiCompartment && g.drawerId !== targetDrawerId) return conds
     for (const [key, qty] of Object.entries(pendingAdds)) {
       if (!key.startsWith(g.cardId + '|')) continue
       const condKey = key.slice(g.cardId.length + 1)
@@ -1370,10 +1488,9 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
     }
     return conds
   }
-  const inBoxCount = (cardId: string) => {
-    const g = groupMap.get(cardId)
-    return g ? Object.values(tileConds(g)).reduce((n, q) => n + q, 0) : 0
-  }
+  const inBoxCount = (cardId: string) =>
+    [...groupMap.values()].filter(g => g.cardId === cardId)
+      .reduce((n, g) => n + Object.values(tileConds(g)).reduce((m, q) => m + q, 0), 0)
   const available = lots.filter(lot => lot.quantity - lot.allocated > 0 && matchesLot(lot)).sort(byChosenSort)
   // "Load more" pagination, not a hard cutoff — a bulk box or a collection
   // in the hundreds of thousands must stay browsable instead of silently
@@ -1401,11 +1518,14 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
           )}
           <p>{humanizeBoxType(box.boxType)} · {placements.reduce((n, x) => n + x.quantity, 0)} of {box.capacity || 'custom'} cards tracked</p>
         </div>
-        {selectedIds.size > 0 && otherBoxes.length > 0 && (
+        {selectedIds.size > 0 && moveTargetsFor().length > 0 && (
           <button onClick={() => setBulkMoveScope('selected')}>📦 Move {selectedIds.size} selected to…</button>
         )}
-        {placements.length > 0 && otherBoxes.length > 0 && (
+        {placements.length > 0 && moveTargetsFor().length > 0 && (
           <button onClick={() => setBulkMoveScope('all')}>📦 Move all to…</button>
+        )}
+        {mergeCandidates.length > 0 && (
+          <button onClick={() => setMerging(true)} title="Fold other boxes into this one as compartments">⧉ Merge boxes in…</button>
         )}
         <button onClick={() => void deleteThisBox()} style={{ color: '#fca5a5', borderColor: 'rgba(239,68,68,0.4)' }}>🗑 Delete box</button>
       </header>
@@ -1444,8 +1564,33 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
         </div>
       </div>
 
+      <div className="compartment-bar">
+        <span className="compartment-bar-label">Compartments</span>
+        {drawers.map(d => editingDrawerId === d.id ? (
+          <input
+            key={d.id} className="compartment-name-input" autoFocus value={drawerName}
+            onChange={e => setDrawerName(e.target.value)}
+            onBlur={() => void saveDrawerName(d)}
+            onKeyDown={e => { if (e.key === 'Enter') void saveDrawerName(d); if (e.key === 'Escape') setEditingDrawerId(null) }}
+          />
+        ) : (
+          <span key={d.id} className={'compartment-chip' + (d.id === targetDrawerId ? ' active' : '')}>
+            <button onClick={() => setTargetDrawerId(d.id)} title="New cards you add go into this compartment">
+              {d.name} <small>{countIn(d.id)}</small>
+            </button>
+            {d.id === targetDrawerId && (
+              <>
+                <button className="compartment-tool" title="Rename" onClick={() => { setDrawerName(d.name); setEditingDrawerId(d.id) }}>✎</button>
+                {multiCompartment && <button className="compartment-tool" title="Delete compartment" onClick={() => void deleteCompartment(d)}>🗑</button>}
+              </>
+            )}
+          </span>
+        ))}
+        <button className="compartment-add" onClick={() => void addCompartment()}>+ Compartment</button>
+      </div>
+
       <section className="box-open-surface">
-        <h3>Add cards to this box</h3>
+        <h3>Add cards to this box{multiCompartment && targetDrawer ? ` → ${targetDrawer.name}` : ''}</h3>
         <p className="box-empty-note">Same as Bulk Add — every add goes straight into this box and your collection, saved a moment after you stop.</p>
         {/* .page-tracker gives the shared form and card tiles their Bulk Add
             look; its full-page height/background are switched off here. */}
@@ -1483,17 +1628,24 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
                 const card = group.card
                 // A barrier between sets, not just a sorted list — also labels
                 // the very first group (i===0) so every group is named.
-                const prevSetId = i > 0 ? insideBoxPage.visible[i - 1].card?.setId : undefined
+                const prev = i > 0 ? insideBoxPage.visible[i - 1] : undefined
                 const setId = card?.setId
-                const divider = (sort === 'set' || multiSetBox) && (i === 0 || setId !== prevSetId)
+                // Compartment walls outrank set dividers: a new compartment
+                // always gets its own header, and restarts set grouping.
+                const newCompartment = multiCompartment && (i === 0 || group.drawerId !== prev?.drawerId)
+                const divider = (sort === 'set' || multiSetBox) && (i === 0 || newCompartment || setId !== prev?.card?.setId)
+                const compartment = group.drawerId ? drawerById.get(group.drawerId) : undefined
+                // +/− on a tile works on that tile's compartment.
+                const aimHere = () => { if (multiCompartment && group.drawerId) setTargetDrawerId(group.drawerId) }
                 const ids = group.allocations.map(a => a.id)
                 const allSelected = ids.length > 0 && ids.every(id => selectedIds.has(id))
                 const conds = tileConds(group)
                 const selCond = selConds[group.cardId] ?? (Object.keys(conds).find(k => conds[k] > 0) ?? 'NM')
-                const current = (group.conds[selCond] ?? 0) + (pendingAdds[`${group.cardId}|${selCond}`] ?? 0)
+                const current = (group.conds[selCond] ?? 0)
+                  + (multiCompartment && group.drawerId !== targetDrawerId ? 0 : pendingAdds[`${group.cardId}|${selCond}`] ?? 0)
 
                 const tile = !card ? (
-                  <div className="box-card-tile" key={group.cardId}>
+                  <div className="box-card-tile" key={group.key}>
                     <div className="thumb-placeholder">🃏</div>
                     <b>{group.cardId}</b>
                     <small>{Object.entries(group.conds).map(([k, n]) => `${k} ×${n}`).join(' · ')}</small>
@@ -1501,12 +1653,12 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
                   </div>
                 ) : (
                     <CardTile
-                      key={group.cardId} card={card} conds={conds} selCond={selCond}
+                      key={group.key} card={card} conds={conds} selCond={selCond}
                       setName={setNameById[card.setId]}
-                      onAdj={d => changeQty(card, selCond, d)}
-                      onSetQty={q => typeQty(card, selCond, current, q)}
+                      onAdj={d => { aimHere(); changeQty(card, selCond, d, group.drawerId) }}
+                      onSetQty={q => { aimHere(); typeQty(card, selCond, current, q) }}
                       onSelectCond={c => setSelConds(s => ({ ...s, [group.cardId]: c }))}
-                      onAdjCond={(c, d) => changeQty(card, c, d)}
+                      onAdjCond={(c, d) => { aimHere(); changeQty(card, c, d, group.drawerId) }}
                       onPreview={(src, opts) => (src ? preview.show(src, opts) : preview.hide())}
                       selected={allSelected}
                       onToggleSelect={ids.length ? () => setSelectedIds(prev => {
@@ -1516,8 +1668,8 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
                       }) : undefined}
                       actions={ids.length ? [
                         {
-                          label: 'Move', title: 'Move this card to another box, binder or display case',
-                          disabled: !otherBoxes.length && !binders.length && !displayCases.length,
+                          label: 'Move', title: 'Move this card to another compartment, box, binder or display case',
+                          disabled: !canMoveAnywhere,
                           // One stack can go anywhere; several stacks (e.g. NM + LP)
                           // use the box-to-box mover for all of them at once.
                           onClick: () => {
@@ -1530,12 +1682,20 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
                     />
                 )
 
-                return divider ? [
-                  <div className="box-set-divider" key={`divider-${group.cardId}`}>
-                    <span>{(setId && setNameById[setId]) || setId || 'Unknown set'}</span>
-                  </div>,
+                return [
+                  newCompartment && (
+                    <div className="box-set-divider box-compartment-divider" key={`compartment-${group.key}`}>
+                      <span>▤ {compartment?.name ?? 'Compartment'}</span>
+                      <small>{group.drawerId ? countIn(group.drawerId) : 0} cards</small>
+                    </div>
+                  ),
+                  divider && (
+                    <div className="box-set-divider" key={`divider-${group.key}`}>
+                      <span>{(setId && setNameById[setId]) || setId || 'Unknown set'}</span>
+                    </div>
+                  ),
                   tile,
-                ] : tile
+                ]
               })}
             </div>
           </div>
@@ -1548,7 +1708,7 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
       </section>
 
       <section className="box-open-surface">
-        <h3>Available owned copies{available.length > 0 ? ` (${available.length})` : ''}</h3>
+        <h3>Available owned copies{available.length > 0 ? ` (${available.length})` : ''}{multiCompartment && targetDrawer ? ` → ${targetDrawer.name}` : ''}</h3>
         {!available.length && <p className="box-empty-note">Nothing available to add — everything owned is already placed somewhere, or nothing matches the current search/filter.</p>}
         {availablePage.visible.length > 0 && (
           <div className="box-card-grid">
@@ -1586,12 +1746,12 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
               <p style={{ fontSize: 12, color: 'var(--muted)' }}>This is a stack of {movingAllocation.quantity} — only another box can take the whole stack. Binder and display slots hold exactly one copy.</p>
             )}
 
-            {otherBoxes.length > 0 && (
+            {moveTargetsFor(movingAllocation.drawerId).length > 0 && (
               <>
-                <p className="move-target-heading">Boxes</p>
+                <p className="move-target-heading">Boxes &amp; compartments</p>
                 <div className="move-target-list">
-                  {otherBoxes.map(b => (
-                    <button key={b.id} className="tb-btn" onClick={() => void moveToBox(movingAllocation, b)}>{b.name}</button>
+                  {moveTargetsFor(movingAllocation.drawerId).map(t => (
+                    <button key={t.key} className="tb-btn" onClick={() => void moveToBox(movingAllocation, t)}>{t.label}</button>
                   ))}
                 </div>
               </>
@@ -1619,7 +1779,7 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
               </>
             )}
 
-            {!otherBoxes.length && !binders.length && !displayCases.length && <p>Nothing else in this space to move it to yet.</p>}
+            {!canMoveAnywhere && <p>Nothing else in this space to move it to yet.</p>}
 
             <div className="modal-btns"><button className="tb-btn" onClick={() => setMovingAllocation(null)}>Cancel</button></div>
           </div>
@@ -1637,10 +1797,10 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
                 ? "Every card in this box moves to whichever box you pick below — search/filter above doesn't limit this."
                 : 'The cards you checked below move to whichever box you pick.'}
             </p>
-            <p className="move-target-heading">Boxes</p>
+            <p className="move-target-heading">Boxes &amp; compartments</p>
             <div className="move-target-list">
-              {otherBoxes.map(b => (
-                <button key={b.id} className="tb-btn" onClick={() => void moveManyToBox(toMove, b)}>{b.name}</button>
+              {moveTargetsFor().map(t => (
+                <button key={t.key} className="tb-btn" onClick={() => void moveManyToBox(toMove, t)}>{t.label}</button>
               ))}
             </div>
             <div className="modal-btns"><button className="tb-btn" onClick={() => setBulkMoveScope(null)}>Cancel</button></div>
@@ -1648,6 +1808,38 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
         </div>
         )
       })()}
+
+      {merging && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setMerging(false) }}>
+          <div className="modal">
+            <h3>Merge boxes into {savedName}</h3>
+            <p style={{ fontSize: 12, color: 'var(--muted)' }}>
+              Each box you pick becomes a compartment in this one, named after it. All its cards come along with their
+              quantities, then the empty box is removed. Auto-filing keeps sending new cards of that set to its compartment.
+            </p>
+            <div className="merge-pick-list">
+              {mergeCandidates.map(b => {
+                const n = b.drawers.reduce((sum, d) => sum + d.cardCount, 0)
+                return (
+                  <label key={b.id} className="merge-pick">
+                    <input
+                      type="checkbox" checked={mergePicks.has(b.id)}
+                      onChange={() => setMergePicks(prev => { const next = new Set(prev); if (next.has(b.id)) next.delete(b.id); else next.add(b.id); return next })}
+                    />
+                    <span>{b.name}<small>{n} card{n === 1 ? '' : 's'}{b.drawers.length > 1 ? ` · ${b.drawers.length} compartments` : ''}</small></span>
+                  </label>
+                )
+              })}
+            </div>
+            <div className="modal-btns">
+              <button className="tb-btn" onClick={() => { setMerging(false); setMergePicks(new Set()) }}>Cancel</button>
+              <button className="tb-btn primary" disabled={!mergePicks.size} onClick={() => void mergeIn()}>
+                Merge {mergePicks.size || ''} box{mergePicks.size === 1 ? '' : 'es'} in
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {preview.overlay}
     </section>
   )

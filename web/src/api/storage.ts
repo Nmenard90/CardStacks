@@ -27,6 +27,11 @@ export const createDrawer = (boxId: string, name: string) =>
 export const updateDrawer = (drawerId: string, patch: { name?: string; position?: number }) =>
   api.put(`/api/storage/drawers/${drawerId}`, patch).then(r => r.data)
 
+/** Folds each of `boxIds` into `targetBoxId` as compartments — cards come
+ *  along untouched — then deletes those now-empty boxes. */
+export const mergeBoxes = (targetBoxId: string, boxIds: string[]) =>
+  api.post<{ movedCompartments: number }>(`/api/storage/boxes/${targetBoxId}/merge`, { boxIds }).then(r => r.data)
+
 /** Cards inside become unassigned, not deleted. */
 export const deleteDrawer = (drawerId: string) =>
   api.delete(`/api/storage/drawers/${drawerId}`).then(r => r.data)

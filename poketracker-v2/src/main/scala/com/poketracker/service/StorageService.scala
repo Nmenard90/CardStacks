@@ -34,6 +34,7 @@ trait StorageService:
   def renameDrawer(userId: String, id: String, name: String): Task[Unit]
   def reorderDrawer(userId: String, id: String, position: Int): Task[Unit]
   def deleteDrawer(userId: String, id: String): Task[Unit]
+  def mergeBoxes(userId: String, targetBoxId: String, sourceBoxIds: List[String]): Task[Int]
 
   def getDrawerCards(userId: String, drawerId: String): Task[List[OwnedCard]]
   def getUnassignedCards(userId: String): Task[List[OwnedCard]]
@@ -88,6 +89,9 @@ object StorageService:
 
     def reorderDrawer(userId: String, id: String, position: Int): Task[Unit] = repo.reorderDrawer(userId, id, position)
     def deleteDrawer(userId: String, id: String): Task[Unit] = repo.deleteDrawer(userId, id)
+    def mergeBoxes(userId: String, targetBoxId: String, sourceBoxIds: List[String]): Task[Int] =
+      if sourceBoxIds.isEmpty then ZIO.fail(IllegalArgumentException("Pick at least one box to merge in"))
+      else repo.mergeBoxes(userId, targetBoxId, sourceBoxIds)
 
     def getDrawerCards(userId: String, drawerId: String): Task[List[OwnedCard]] =
       repo.findDrawerCards(userId, drawerId)

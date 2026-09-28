@@ -129,6 +129,8 @@ export interface StorageDrawer {
   name: string
   position: number
   cardCount: number   // computed by the backend on read, not stored — never stale
+  /** Set this compartment auto-files new copies into, if any. */
+  autoSetId?: string | null
   createdAt: string
   updatedAt: string
 }

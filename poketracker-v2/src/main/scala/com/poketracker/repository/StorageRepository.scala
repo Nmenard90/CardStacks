@@ -39,6 +39,12 @@ trait StorageRepository:
   /** Cards in this drawer become unassigned, not deleted. */
   def deleteDrawer(userId: String, id: String): Task[Unit]
 
+  /** Moves every compartment of each source box into `targetBoxId`, then
+   *  deletes the (now empty) source boxes. Cards never move — they're
+   *  allocated to compartments, so they simply come along. Returns how
+   *  many compartments were moved. */
+  def mergeBoxes(userId: String, targetBoxId: String, sourceBoxIds: List[String]): Task[Int]
+
   def findDrawerCards(userId: String, drawerId: String): Task[List[OwnedCard]]
   def findUnassignedCards(userId: String): Task[List[OwnedCard]]
 
@@ -75,15 +81,15 @@ object StorageRepository:
 
       val drawersQuery =
         sql"""
-          SELECT d.id, d.box_id, d.name, d.position, COUNT(ce.card_id), d.created_at, d.updated_at
+          SELECT d.id, d.box_id, d.name, d.position,
+                 COALESCE((SELECT SUM(a.quantity) FROM card_allocations a WHERE a.drawer_id = d.id), 0)::int,
+                 d.auto_set_id, d.created_at, d.updated_at
           FROM storage_drawers d
           JOIN storage_boxes b ON b.id = d.box_id
-          LEFT JOIN collection_entries ce ON ce.drawer_id = d.id
           WHERE b.user_id = $userId
-          GROUP BY d.id
           ORDER BY d.box_id, d.position, d.created_at
         """
-          .query[(String, String, String, Int, Int, Instant, Instant)]
+          .query[(String, String, String, Int, Int, Option[String], Instant, Instant)]
           .to[List]
 
       (for
@@ -91,8 +97,8 @@ object StorageRepository:
         drawers <- drawersQuery
       yield
         val drawersByBox = drawers
-          .map { case (id, boxId, name, pos, count, createdAt, updatedAt) =>
-            StorageDrawer(id, boxId, name, pos, count, createdAt, updatedAt)
+          .map { case (id, boxId, name, pos, count, autoSetId, createdAt, updatedAt) =>
+            StorageDrawer(id, boxId, name, pos, count, autoSetId, createdAt, updatedAt)
           }
           .groupBy(_.boxId)
 
@@ -140,7 +146,7 @@ object StorageRepository:
         RETURNING position
       """.query[Int].option.transact(xa)
         .someOrFail(new IllegalArgumentException("Box not found"))
-        .map(nextPos => StorageDrawer(id, boxId, name, nextPos, 0, now, now))
+        .map(nextPos => StorageDrawer(id, boxId, name, nextPos, 0, None, now, now))
 
     def renameDrawer(userId: String, id: String, name: String): Task[Unit] =
       sql"""
@@ -164,6 +170,42 @@ object StorageRepository:
         USING storage_boxes b
         WHERE d.id = $id AND b.id = d.box_id AND b.user_id = $userId
       """.update.run.void.transact(xa)
+
+    def mergeBoxes(userId: String, targetBoxId: String, sourceBoxIds: List[String]): Task[Int] =
+      val sources = sourceBoxIds.distinct.filterNot(_ == targetBoxId)
+      val owns = (boxId: String) =>
+        sql"SELECT name FROM storage_boxes WHERE id = $boxId AND user_id = $userId".query[String].option
+      (for
+        _ <- owns(targetBoxId).flatMap(o => FC.raiseError[Unit](IllegalArgumentException("Target box not found")).whenA(o.isEmpty))
+        // A fresh box's lone, still-empty, untagged "Main compartment" is a
+        // placeholder, not something the user filed — drop it so the merged
+        // box shows just the incoming compartments.
+        _ <- sql"""DELETE FROM storage_drawers d
+               WHERE d.box_id = $targetBoxId AND d.auto_set_id IS NULL AND d.name = 'Main compartment'
+                 AND (SELECT COUNT(*) FROM storage_drawers x WHERE x.box_id = $targetBoxId) = 1
+                 AND NOT EXISTS (SELECT 1 FROM card_allocations a WHERE a.drawer_id = d.id)""".update.run
+        moved <- sources.foldLeftM(0) { (total, sourceId) =>
+          owns(sourceId).flatMap {
+            case None => FC.raiseError[Int](IllegalArgumentException("Box not found"))
+            case Some(sourceName) =>
+              for
+                // A one-compartment box becomes a compartment named after the
+                // box ("Jungle"); a multi-row box keeps its row names, prefixed
+                // ("Jungle · Row 2") so they stay recognisable side by side.
+                count <- sql"SELECT COUNT(*) FROM storage_drawers WHERE box_id = $sourceId".query[Int].unique
+                base  <- sql"SELECT COALESCE(MAX(position) + 1, 0) FROM storage_drawers WHERE box_id = $targetBoxId".query[Int].unique
+                n     <- sql"""UPDATE storage_drawers d
+                           SET box_id = $targetBoxId,
+                               name = CASE WHEN $count = 1 THEN $sourceName ELSE $sourceName || ' · ' || d.name END,
+                               position = $base + d.position,
+                               updated_at = NOW()
+                           WHERE d.box_id = $sourceId""".update.run
+                _     <- sql"DELETE FROM storage_boxes WHERE id = $sourceId AND user_id = $userId".update.run
+              yield total + n
+          }
+        }
+        _ <- sql"UPDATE storage_boxes SET updated_at = NOW() WHERE id = $targetBoxId".update.run
+      yield moved).transact(xa)
 
     /**
      * Base SELECT shared by findDrawerCards/findUnassignedCards, extended

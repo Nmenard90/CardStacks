@@ -38,14 +38,16 @@ object CollectionRepository:
 
   final class Live(xa: Transactor[Task]) extends CollectionRepository:
 
-    /** Every set a user owns any card from gets its own lazily-created box —
-      * box_type=`auto_set:<setId>` (a free-text sentinel on an existing
-      * column, so this needs no migration), named after the real set so it
-      * reads as "Scarlet & Violet", not a generic catch-all "Unsorted" box.
-      * Picks the oldest such box if more than one ever exists (e.g. a rare
-      * concurrent-create race) so the system converges on one over time.
-      * Falls back to the set's id as the box name if the sets table lookup
-      * somehow misses (a card whose set was deleted after being owned). */
+    /** Every set a user owns any card from auto-files into one compartment
+      * tagged `auto_set_id=<setId>`. The tag lives on the compartment, not
+      * the box, so it keeps working after that compartment is merged into a
+      * bigger box. If there isn't one yet, a box named after the real set
+      * ("Scarlet & Violet", not a generic "Unsorted") is created lazily —
+      * box_type=`auto_set:<setId>` still marks it as auto-created for the
+      * UI. An untagged compartment in such a box (one created before
+      * migration 013's backfill) is adopted and tagged rather than
+      * duplicated. Picks the oldest match if more than one ever exists (e.g.
+      * a rare concurrent-create race) so the system converges on one. */
     private def ensureSetDrawer(userId: String, cardId: String): ConnectionIO[Option[String]] =
       sql"SELECT c.set_id, cs.name FROM cards c LEFT JOIN card_sets cs ON cs.id=c.set_id WHERE c.id=$cardId"
         .query[(String, Option[String])].option.flatMap {
@@ -54,19 +56,26 @@ object CollectionRepository:
             val boxType = s"auto_set:$setId"
             val boxName = setNameOpt.getOrElse(setId)
             sql"""SELECT d.id FROM storage_drawers d JOIN storage_boxes b ON b.id=d.box_id
-              WHERE b.user_id=$userId AND b.box_type=$boxType ORDER BY d.created_at LIMIT 1"""
+              WHERE b.user_id=$userId AND d.auto_set_id=$setId ORDER BY d.created_at LIMIT 1"""
               .query[String].option.flatMap {
                 case Some(id) => Some(id).pure[ConnectionIO]
                 case None =>
-                  val boxId = java.util.UUID.randomUUID().toString
-                  val drawerId = java.util.UUID.randomUUID().toString
-                  for
-                    nextPos <- sql"SELECT COALESCE(MAX(position)+1,0) FROM storage_boxes WHERE user_id=$userId".query[Int].unique
-                    _ <- sql"""INSERT INTO storage_boxes(id,user_id,name,kind,box_type,capacity,color,position,created_at,updated_at)
-                      VALUES($boxId,$userId,$boxName,'box',$boxType,0,'#B99B67',$nextPos,NOW(),NOW())""".update.run
-                    _ <- sql"""INSERT INTO storage_drawers(id,box_id,name,position,created_at,updated_at)
-                      VALUES($drawerId,$boxId,'Main compartment',0,NOW(),NOW())""".update.run
-                  yield Some(drawerId)
+                  sql"""SELECT d.id FROM storage_drawers d JOIN storage_boxes b ON b.id=d.box_id
+                    WHERE b.user_id=$userId AND b.box_type=$boxType ORDER BY d.created_at LIMIT 1"""
+                    .query[String].option.flatMap {
+                      case Some(id) =>
+                        sql"UPDATE storage_drawers SET auto_set_id=$setId WHERE id=$id".update.run.as(Some(id))
+                      case None =>
+                        val boxId = java.util.UUID.randomUUID().toString
+                        val drawerId = java.util.UUID.randomUUID().toString
+                        for
+                          nextPos <- sql"SELECT COALESCE(MAX(position)+1,0) FROM storage_boxes WHERE user_id=$userId".query[Int].unique
+                          _ <- sql"""INSERT INTO storage_boxes(id,user_id,name,kind,box_type,capacity,color,position,created_at,updated_at)
+                            VALUES($boxId,$userId,$boxName,'box',$boxType,0,'#B99B67',$nextPos,NOW(),NOW())""".update.run
+                          _ <- sql"""INSERT INTO storage_drawers(id,box_id,name,position,auto_set_id,created_at,updated_at)
+                            VALUES($drawerId,$boxId,'Main compartment',0,$setId,NOW(),NOW())""".update.run
+                        yield Some(drawerId)
+                    }
               }
         }
 

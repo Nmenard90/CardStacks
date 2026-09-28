@@ -43,6 +43,9 @@ object StorageRoutes:
   private case class AssignRequest(cardIds: List[String], drawerId: String)
   private given JsonDecoder[AssignRequest] = DeriveJsonDecoder.gen
 
+  private case class MergeRequest(boxIds: List[String])
+  private given JsonDecoder[MergeRequest] = DeriveJsonDecoder.gen
+
   val routes: Routes[StorageService & User, Nothing] = Routes(
 
     Method.GET / "api" / "storage" / string("userId") / "boxes" -> handler {
@@ -85,6 +88,19 @@ object StorageRoutes:
         yield ())
           .map(_ => Response.json("""{"ok": true}"""))
           .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
+    },
+
+    // Folds other boxes into this one as compartments (their cards come along).
+    Method.POST / "api" / "storage" / "boxes" / string("boxId") / "merge" -> handler {
+      (boxId: String, req: Request) =>
+        (for
+          body   <- req.body.asString
+          parsed <- ZIO.fromEither(body.fromJson[MergeRequest])
+                      .mapError(e => RuntimeException(s"Bad request: $e"))
+          user   <- ZIO.service[User]
+          moved  <- ZIO.serviceWithZIO[StorageService](_.mergeBoxes(user.id, boxId, parsed.boxIds))
+        yield Response.json(s"""{"movedCompartments": $moved}""")
+        ).catchAll(e => ZIO.succeed(Response.badRequest(e.getMessage)))
     },
 
     Method.POST / "api" / "storage" / "boxes" / string("boxId") / "drawers" -> handler {
