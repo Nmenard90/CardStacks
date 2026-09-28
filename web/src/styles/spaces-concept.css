@@ -111,6 +111,17 @@
 }
 .box-card-tile b { font-size: 12px; color: var(--text); margin-top: 4px; }
 .box-card-tile small { font-size: 10px; color: var(--muted); }
+/* Always-visible copy count, pinned over the card art's top-right corner
+   (left corner belongs to .box-card-select's checkbox). */
+.box-card-qty {
+  position: absolute; top: 6px; right: 6px; z-index: 2;
+  min-width: 26px; padding: 2px 6px;
+  font: 800 12px/1.2 'Space Mono', monospace;
+  color: var(--border); background: var(--accent);
+  border: 2px solid var(--border); border-radius: 999px;
+  box-shadow: 2px 2px 0 rgba(0,0,0,.3);
+  pointer-events: none;
+}
 .box-card-tile-actions { display: flex; gap: 6px; margin-top: 6px; width: 100%; }
 .box-card-tile-actions button, .box-card-add {
   flex: 1;
@@ -124,6 +135,22 @@
   cursor: pointer;
 }
 .box-card-tile-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
+/* Fit-to-cell: .thumb-wrap is a fixed 92px wide (tracker.css), but a
+   phone's minmax(92px) column leaves only ~72px inside the tile's padding —
+   and .box-card-tile's content-visibility:auto implies paint containment,
+   which clips whatever overflows instead of letting it spill. So the art
+   scales down (same card proportions) and names/buttons wrap rather than
+   getting sliced off at the tile edge. Tag-qualified to outrank
+   .page-tracker .thumb-wrap without !important. */
+div.box-card-tile { min-width: 0; }
+div.box-card-tile > .thumb-wrap,
+div.box-card-tile > .thumb-placeholder {
+  width: 100%; max-width: 92px; height: auto; aspect-ratio: 92 / 128; flex-shrink: 1;
+}
+div.box-card-tile > b,
+div.box-card-tile > small { max-width: 100%; overflow-wrap: anywhere; }
+div.box-card-tile .box-card-tile-actions { flex-wrap: wrap; }
+div.box-card-tile .box-card-tile-actions button { min-width: 0; padding: 6px 4px; }
 .box-card-add { margin-top: 6px; width: 100%; }
 .box-card-tile.selected { outline: 2px solid var(--accent); outline-offset: 2px; }
 .box-card-select {

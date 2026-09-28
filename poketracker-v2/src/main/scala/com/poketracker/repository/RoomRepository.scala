@@ -264,10 +264,28 @@ object RoomRepository:
               occupied <- sql"SELECT COUNT(*) FROM card_allocations WHERE display_slot_id=$ds".query[Int].unique
               _ <- if occupied == 0 then ().pure[ConnectionIO] else FC.raiseError(RuntimeException("That display slot is already occupied"))
             yield ()
-        _ <- sql"""INSERT INTO card_allocations(id,lot_id,drawer_id,binder_slot_id,display_slot_id,
-          quantity,protection,notes,created_at,updated_at)
-          VALUES($id,$lotId,$drawerId,$binderSlotId,$displaySlotId,$quantity,$protection,$notes,$now,$now)""".update.run
-      yield CardAllocation(id,lotId,drawerId,binderSlotId,displaySlotId,quantity,protection,notes,now,now)).transact(xa)
+        // A box drawer holds loose stacks, so adding more of a card that's
+        // already in there tops up that stack instead of starting a second
+        // one — otherwise every "add one more" click became its own ×1 tile.
+        // Binder/display slots never match: they have no drawer_id.
+        existing <- drawerId match
+          case Some(d) =>
+            sql"""SELECT id, quantity FROM card_allocations
+              WHERE lot_id=$lotId AND drawer_id=$d
+                AND protection IS NOT DISTINCT FROM $protection
+                AND notes IS NOT DISTINCT FROM $notes
+              ORDER BY created_at LIMIT 1 FOR UPDATE""".query[(String, Int)].option
+          case None => Option.empty[(String, Int)].pure[ConnectionIO]
+        placed <- existing match
+          case Some((existingId, current)) =>
+            sql"UPDATE card_allocations SET quantity=${current + quantity},updated_at=$now WHERE id=$existingId"
+              .update.run.as(CardAllocation(existingId,lotId,drawerId,None,None,current + quantity,protection,notes,now,now))
+          case None =>
+            sql"""INSERT INTO card_allocations(id,lot_id,drawer_id,binder_slot_id,display_slot_id,
+              quantity,protection,notes,created_at,updated_at)
+              VALUES($id,$lotId,$drawerId,$binderSlotId,$displaySlotId,$quantity,$protection,$notes,$now,$now)"""
+              .update.run.as(CardAllocation(id,lotId,drawerId,binderSlotId,displaySlotId,quantity,protection,notes,now,now))
+      yield placed).transact(xa)
 
     def placeInBinderSlot(userId: String, binderId: String, slotIndex: Int, lotId: String,
       quantity: Int, protection: Option[String], notes: Option[String]): Task[CardAllocation] =

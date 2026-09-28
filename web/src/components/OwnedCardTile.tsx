@@ -31,6 +31,8 @@ interface Props {
   preview?: PreviewControls
   /** e.g. "NM · standard · 4 available", "LP · 1st Ed · ×2 owned" */
   subtitle: string
+  /** Copies in this stack, shown as a corner badge. Omit to hide it. */
+  qty?: number
   /** 0 actions = purely informational tile. 1 = full-width button
    *  (.box-card-add). 2+ = side-by-side row (.box-card-tile-actions). */
   actions?: Action[]
@@ -42,7 +44,7 @@ interface Props {
   className?: string
 }
 
-export function OwnedCardTile({ card, variant, preview, subtitle, actions = [], selected, onToggleSelect, className }: Props) {
+export function OwnedCardTile({ card, variant, preview, subtitle, qty, actions = [], selected, onToggleSelect, className }: Props) {
   return (
     <div className={'box-card-tile' + (selected ? ' selected' : '') + (className ? ' ' + className : '')}>
       {onToggleSelect && (
@@ -53,6 +55,7 @@ export function OwnedCardTile({ card, variant, preview, subtitle, actions = [], 
         </label>
       )}
       <CardThumb card={card} variant={variant} preview={preview} />
+      {qty !== undefined && <span className="box-card-qty">×{qty}</span>}
       <b>{card.name}</b>
       <small>{subtitle}</small>
       {actions.length === 1 && (

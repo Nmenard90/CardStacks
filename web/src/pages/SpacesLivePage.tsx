@@ -1362,8 +1362,9 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
                     <input type="checkbox" checked={selectedIds.has(allocation.id)} onChange={() => toggleSelect(allocation.id)} />
                   </label>
                   <div className="thumb-placeholder">🃏</div>
+                  <span className="box-card-qty">×{allocation.quantity}</span>
                   <b>{lot?.cardId || 'Card'}</b>
-                  <small>{lot?.condition} · {lot?.variantKey}{allocation.quantity > 1 ? ` · ×${allocation.quantity}` : ''}</small>
+                  <small>{lot?.condition} · {lot?.variantKey}</small>
                   <div className="box-card-tile-actions">
                     <button
                       onClick={() => setMovingAllocation(allocation)}
@@ -1376,7 +1377,8 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
               ) : (
                 <OwnedCardTile
                   key={allocation.id} card={card} preview={preview}
-                  subtitle={`${lot?.condition} · ${lot?.variantKey}${allocation.quantity > 1 ? ` · ×${allocation.quantity}` : ''}`}
+                  subtitle={`${lot?.condition} · ${lot?.variantKey}`}
+                  qty={allocation.quantity}
                   selected={selectedIds.has(allocation.id)}
                   onToggleSelect={() => toggleSelect(allocation.id)}
                   actions={[
