@@ -98,16 +98,27 @@ object CollectionRepository:
                 for
                   elsewhere <- sql"""SELECT COALESCE(SUM(quantity),0) FROM card_allocations
                     WHERE lot_id=$lotId AND drawer_id IS DISTINCT FROM $autoDrawer""".query[Int].unique
-                  current   <- sql"SELECT id,quantity FROM card_allocations WHERE lot_id=$lotId AND drawer_id=$autoDrawer"
-                    .query[(String,Int)].option
+                  // ORDER BY + LIMIT 1: production may already hold a pre-fix duplicate
+                  // (one NULL-protection row from before this fix, one 'raw' row created
+                  // alongside it) for a card touched before this change deployed — without
+                  // this, .option throws on >1 row and the whole save fails. Picks the
+                  // oldest deterministically; a leftover second row just stops being
+                  // touched by this reconcile pass instead of blocking it.
+                  current   <- sql"""SELECT id,quantity FROM card_allocations WHERE lot_id=$lotId AND drawer_id=$autoDrawer
+                    ORDER BY created_at LIMIT 1""".query[(String,Int)].option
                   target     = math.max(0, totalQty - elsewhere)
                   desired    = if shrinkOnly then math.min(current.map(_._2).getOrElse(0), target) else target
                   _ <- (current, desired) match
                     case (None, 0)               => ().pure[ConnectionIO]
                     case (None, d)                =>
                       val id = java.util.UUID.randomUUID().toString
-                      sql"""INSERT INTO card_allocations(id,lot_id,drawer_id,quantity,created_at,updated_at)
-                        VALUES($id,$lotId,$autoDrawer,$d,NOW(),NOW())""".update.run.void
+                      // protection must match what placeCopies' merge-lookup treats as
+                      // the default ('raw') — leaving this NULL made every auto-filed
+                      // stack invisible to that dedup check, so any later explicit
+                      // placement (protection='raw') for the same card+drawer created a
+                      // second, un-merged row instead of topping this one up.
+                      sql"""INSERT INTO card_allocations(id,lot_id,drawer_id,quantity,protection,created_at,updated_at)
+                        VALUES($id,$lotId,$autoDrawer,$d,'raw',NOW(),NOW())""".update.run.void
                     case (Some((_, cur)), d) if cur == d => ().pure[ConnectionIO]
                     case (Some((id, _)), 0)      => sql"DELETE FROM card_allocations WHERE id=$id".update.run.void
                     case (Some((id, _)), d)      => sql"UPDATE card_allocations SET quantity=$d,updated_at=NOW() WHERE id=$id".update.run.void
