@@ -21,6 +21,17 @@ export type CondMap = Record<string, number>
 export const baseCond = (key: string): Cond =>
   (key.replace(' 1st Ed', '') as Cond)
 
+/** True Pokémon 1st Edition print runs ended with the WOTC era — Neo
+ *  Destiny (2002-02-28) was the last set to have one; every set since
+ *  (e-Card series onward) never printed a 1st Edition stamp. Callers use
+ *  this to stop a "1st Ed" toggle from tagging a modern card into its own
+ *  separate (and non-existent) 1st-edition lot — that split showed up as
+ *  a same-looking card sitting in two stacks with different quantities,
+ *  since the UI doesn't otherwise distinguish edition in its subtitle.
+ *  `releaseDate` is the set's ISO `YYYY-MM-DD` string. */
+export const supportsFirstEdition = (releaseDate: string | undefined): boolean =>
+  !!releaseDate && releaseDate < '2002-03-01'
+
 /**
  * Falls back to the card's default `prices` if no variant is requested,
  * the card predates variant tracking, or the requested variant isn't priced.
