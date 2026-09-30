@@ -31,7 +31,7 @@ import { SetSelector, ALL_SETS } from '../components/SetSelector'
 import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
 import {
-  baseCond, cardValue, condPrice, CONDS, fromCondList, toCondList, totalQty, type CondMap,
+  baseCond, cardValue, condPrice, CONDS, fromCondList, supportsFirstEdition, toCondList, totalQty, type CondMap,
 } from '../lib/conditions'
 import type { Card } from '../types'
 
@@ -267,6 +267,7 @@ export function BulkAddPage() {
   const [step, setStep] = useState(1)
   const [lastAdded, setLastAdded] = useState('')
 
+
   // NUMBER ENTRY — one box. Accepts a bare number ("7") when a set is
   // picked, or "number/total" ("080/198") to find the set globally — same
   // "N/D" parsing the Name search box already does, so there's only ever
@@ -344,9 +345,17 @@ export function BulkAddPage() {
 
   const activeSet = setId && setId !== ALL_SETS ? sets.find(s => s.id === setId) : undefined
 
-  /** Add `step` copies of a card in the current condition to the session. */
+  /** Add `step` copies of a card in the current condition to the session.
+   *  The 1st Ed toggle is one persistent checkbox for the whole session
+   *  (it doesn't reset per card, and `.` on the numpad flips it too), so a
+   *  stray toggle silently tags every card added afterward into its own
+   *  separate first_edition lot — invisible in the tile subtitle, so it
+   *  just looks like the same card split across two stacks with different
+   *  counts. Ignoring the toggle for a card whose set never had a real 1st
+   *  Edition print run closes that off at the source. */
   const addCard = (card: Card) => {
-    const condKey = firstEd ? `${cond} 1st Ed` : cond
+    const eligible = supportsFirstEdition(sets.find(s => s.id === card.setId)?.releaseDate)
+    const condKey = firstEd && eligible ? `${cond} 1st Ed` : cond
     dispatch({ type: 'add', card, condKey, step })
     setLastAdded(`+${step} ${card.name} (${condKey})`)
   }
@@ -537,7 +546,15 @@ export function BulkAddPage() {
         {/* ── Set picker — scopes the number entry to one set ─────────────────── */}
         <div className="toolbar" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <span className="sort-label">Set:</span>
-          <SetSelector sets={sets} selectedId={setId} onSelect={setSetId} />
+          <SetSelector sets={sets} selectedId={setId} onSelect={id => {
+            setSetId(id)
+            // 1st Ed doesn't apply to a set that never had a real 1st
+            // Edition print run (see supportsFirstEdition) — clearing it
+            // here avoids a checkbox that reads "on" but is actually
+            // disabled and doing nothing for whatever gets added next.
+            const set = id && id !== ALL_SETS ? sets.find(s => s.id === id) : undefined
+            if (set && !supportsFirstEdition(set.releaseDate)) setFirstEd(false)
+          }} />
           {activeSet && (
             <span style={{ color: 'var(--muted)', fontSize: 12 }}>
               {setCards.length} cards{activeSet.printedTotal ? ` · /${activeSet.printedTotal}` : ''}
@@ -551,8 +568,17 @@ export function BulkAddPage() {
           <select value={cond} onChange={e => setCond(e.target.value as (typeof CONDS)[number])}>
             {CONDS.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
-          <label className="tb-btn" style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-            <input type="checkbox" checked={firstEd} onChange={e => setFirstEd(e.target.checked)} /> 1st Ed
+          <label
+            className="tb-btn"
+            style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
+            title={activeSet && !supportsFirstEdition(activeSet.releaseDate)
+              ? `${activeSet.name} was never printed with a 1st Edition stamp — this won't apply to it.`
+              : undefined}
+          >
+            <input
+              type="checkbox" checked={firstEd} onChange={e => setFirstEd(e.target.checked)}
+              disabled={!!activeSet && !supportsFirstEdition(activeSet.releaseDate)}
+            /> 1st Ed
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--muted)' }}>
             ×<input type="number" min={1} value={step} style={{ width: 54 }}
