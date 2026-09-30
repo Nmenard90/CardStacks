@@ -63,10 +63,10 @@ function ZoomableCardImage({ card, preview }: { card: Card; preview: ReturnType<
 
 type View = 'home' | 'storage' | 'binders' | 'displays'
 
-/** box_type carries the raw `auto_set:<setId>` sentinel the backend uses to
- *  find/create a card's set box — never fit for showing to a person or for
- *  use as a CSS class token (":" isn't a valid class-name character). */
-const humanizeBoxType = (boxType: string | undefined) => !boxType ? 'custom' : boxType.startsWith('auto_set:') ? 'auto-filed by set' : boxType
+/** box_type carries the raw `unsorted` sentinel the backend uses to
+ *  find/create the auto-filing holding box — never fit for showing to a
+ *  person as-is. */
+const humanizeBoxType = (boxType: string | undefined) => !boxType ? 'custom' : boxType === 'unsorted' ? 'auto-filed, unsorted' : boxType
 const boxTypeClass = (boxType: string | undefined) => (boxType || 'custom').replace(':', '-')
 
 // ─── Presets ────────────────────────────────────────────────────────────────
@@ -891,11 +891,11 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   const [variantFilter, setVariantFilter] = useState('')
   const [setFilter, setSetFilter] = useState('')
   const [duplicatesOnly, setDuplicatesOnly] = useState(false)
-  const isAutoSetBox = (box.boxType || '').startsWith('auto_set:')
-  // An auto-filed box holds exactly one set, so "sort by set" (which is for
-  // boxes mixing several) wouldn't show anything useful — collector number
-  // is how a single-set box actually gets organized by hand.
-  const [sort, setSort] = useState<'name' | 'condition' | 'number' | 'set'>(isAutoSetBox ? 'number' : 'name')
+  const isUnsortedBox = box.boxType === 'unsorted'
+  // The Unsorted box mixes cards from every set the user owns, so sorting
+  // by set is what makes it actually workable — that's the grouping used
+  // to bulk-select-and-move a set's worth of cards into their real box.
+  const [sort, setSort] = useState<'name' | 'condition' | 'number' | 'set'>(isUnsortedBox ? 'set' : 'name')
   const [setNameById, setSetNameById] = useState<Record<string, string>>({})
   const [renaming, setRenaming] = useState(false)
   const [movingAllocation, setMovingAllocation] = useState<CardAllocation | null>(null)
@@ -933,10 +933,6 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   const [catalogSearching, setCatalogSearching] = useState(false)
   const [pendingAdds, setPendingAdds] = useState<Record<string, number>>({})
   const pendingRef = useRef<Record<string, number>>({})
-  // Keeps the full Card alongside pendingRef's quantity, so the unmount
-  // flush below (which has no per-call closure over `card` the way the
-  // normal flush timer does) can still run the same auto-box rescue.
-  const pendingCards = useRef<Record<string, Card>>({})
   const flushTimers = useRef<Record<string, number>>({})
   // Serializes flushes per card: if a second batch of clicks lands while
   // the first batch's save is still in flight, it waits for that save to
@@ -988,22 +984,22 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
     return () => { if (catalogTimer.current) clearTimeout(catalogTimer.current) }
   }, [catalogQuery])
 
-  /** Saving a card auto-files any newly-owned surplus straight into that
-   *  card's own "set" box on the backend (CollectionRepository.
+  /** Saving a card auto-files any newly-owned surplus straight into the
+   *  single Unsorted holding box on the backend (CollectionRepository.
    *  reconcileAutoAllocation) — that's what makes the bulk Add Cards flow
    *  discoverable, but it means a card added via THIS box's own search can
-   *  get silently claimed by that other (auto-filed) box before the
-   *  placeCopies call below ever runs, leaving nothing "free" to place and
-   *  the card nowhere the user was actually looking. This finds it in the
-   *  auto box and moves it here instead of leaving it stranded there.
+   *  get silently claimed by Unsorted before the placeCopies call below
+   *  ever runs, leaving nothing "free" to place and the card nowhere the
+   *  user was actually looking. This finds it in Unsorted and moves it
+   *  here instead of leaving it stranded there.
    *
    *  Fetches a fresh box list rather than using the `otherBoxes` prop —
-   *  for a set with no existing box, the backend creates the auto box on
-   *  the fly as part of THIS save, so it wouldn't be in whatever list was
-   *  fetched when this component mounted. */
-  const rescueFromAutoBox = async (setId: string, lotId: string) => {
+   *  the backend creates Unsorted on the fly the first time any card is
+   *  auto-filed, so it wouldn't be in whatever list was fetched when this
+   *  component mounted. */
+  const rescueFromUnsorted = async (lotId: string) => {
     const freshBoxes = await listBoxes(userId)
-    const autoBox = freshBoxes.find(b => b.boxType === `auto_set:${setId}`)
+    const autoBox = freshBoxes.find(b => b.boxType === 'unsorted')
     if (!autoBox) return false
     for (const d of autoBox.drawers) {
       const placements = await getDrawerPlacements(userId, d.id)
@@ -1038,9 +1034,8 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
           const freshLots = await getSpaceInventory(userId)
           const lot = freshLots.find(l => l.cardId === cardId && l.condition === 'NM' && l.variantKey === 'standard')
           const free = lot ? lot.quantity - lot.allocated : 0
-          const setId = pendingCards.current[cardId]?.setId
           if (lot && free > 0) await placeCopies(userId, { lotId: lot.id, drawerId: drawer.id, quantity: Math.min(qty, free), protection: 'raw' })
-          else if (lot && setId) await rescueFromAutoBox(setId, lot.id)
+          else if (lot) await rescueFromUnsorted(lot.id)
         } catch { /* best-effort on unmount — nothing left to show the user */ }
       })
     }
@@ -1073,7 +1068,7 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
         await placeCopies(userId, { lotId: lot.id, drawerId: drawer.id, quantity: Math.min(qty, free), protection: 'raw' })
         await load()
         setMessage(`Added ${qty} × ${card.name}.`)
-      } else if (lot && await rescueFromAutoBox(card.setId, lot.id)) {
+      } else if (lot && await rescueFromUnsorted(lot.id)) {
         await load()
         setMessage(`Added ${qty} × ${card.name}.`)
       } else {
@@ -1091,14 +1086,12 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
    *  times as you're dropping copies in the box, exactly like Quick Add. */
   const bumpNewCard = (card: Card) => {
     pendingRef.current[card.id] = (pendingRef.current[card.id] ?? 0) + 1
-    pendingCards.current[card.id] = card
     setPendingAdds({ ...pendingRef.current })
     if (flushTimers.current[card.id]) window.clearTimeout(flushTimers.current[card.id])
     flushTimers.current[card.id] = window.setTimeout(() => {
       const qty = pendingRef.current[card.id]
       if (!qty) return
       delete pendingRef.current[card.id]
-      delete pendingCards.current[card.id]
       setPendingAdds({ ...pendingRef.current })
       flushChain.current[card.id] = (flushChain.current[card.id] ?? Promise.resolve())
         .then(() => commitNewCard(card, qty))
