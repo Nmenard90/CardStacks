@@ -928,9 +928,24 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   // flush below (which has no per-call closure over `card` the way the
   // normal flush timer does) can still run the same auto-box rescue.
   const pendingCards = useRef<Record<string, Card>>({})
+  // What tiles add on top of the loaded data: +n for adds queued or still
+  // saving, −n for removals still saving. Unlike pendingRef (the queue),
+  // an entry only clears once the reloaded data already includes it.
+  const optimisticRef = useRef<Record<string, number>>({})
   // Render-side copy of the queued cards (refs can't be read while rendering).
   const [pendingCardMap, setPendingCardMap] = useState<Record<string, Card>>({})
-  const syncPending = () => { setPendingAdds({ ...pendingRef.current }); setPendingCardMap({ ...pendingCards.current }) }
+  const syncPending = () => { setPendingAdds({ ...optimisticRef.current }); setPendingCardMap({ ...pendingCards.current }) }
+  /** Shifts a tile's optimistic count; at zero it's fully reflected in the
+   *  loaded data and is dropped. */
+  const shiftOptimistic = (key: string, delta: number) => {
+    const next = (optimisticRef.current[key] ?? 0) + delta
+    if (next) optimisticRef.current[key] = next
+    else {
+      delete optimisticRef.current[key]
+      if (!pendingRef.current[key]) delete pendingCards.current[key]
+    }
+    syncPending()
+  }
   const flushTimers = useRef<Record<string, number>>({})
   // Serializes saves per card: saveEntry is a full REPLACE of the card's
   // condition list, so two overlapping saves for the same card (an add
@@ -946,12 +961,17 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   const [qtyDrafts, setQtyDrafts] = useState<Record<string, number>>({})
   const draftTimers = useRef<Record<string, number>>({})
 
-  const load = async () => {
+  /** @param onLoaded Runs in the same render as the fresh data lands — used
+   *  to retire a tile's optimistic count at exactly the moment the saved
+   *  count replaces it, so the number never flickers back in between. */
+  const load = async (onLoaded?: () => void) => {
     try {
       const [nextLots, nextPlacements, nextOwned] = await fetchBoxContents(userId, drawer.id)
       setLots(nextLots); setPlacements(nextPlacements); setOwned(nextOwned); setMessage('')
+      onLoaded?.()
     } catch (e) {
       setMessage(e instanceof Error ? e.message : 'Could not load box inventory.')
+      onLoaded?.()
     }
   }
   useEffect(() => {
@@ -1051,14 +1071,15 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   /** One queued batch: save + place, with progress shown in the box. */
   const commitNewCard = async (card: Card, condKey: string, qty: number) => {
     setMessage(`Adding ${qty} × ${card.name} (${condKey})…`)
+    const settle = () => shiftOptimistic(`${card.id}|${condKey}`, -qty)
     try {
       const placed = await saveAndPlace(card, condKey, qty)
-      await load()
+      await load(settle)
       setMessage(placed
         ? `Added ${qty} × ${card.name} (${condKey}).`
         : `${card.name} is now in your collection, but couldn't be auto-placed — add it from "Available owned copies" below.`)
     } catch (e) {
-      await load()
+      await load(settle)
       setMessage(e instanceof Error ? e.message : 'Could not add that card.')
     }
   }
@@ -1069,14 +1090,14 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
     const key = `${card.id}|${condKey}`
     pendingRef.current[key] = (pendingRef.current[key] ?? 0) + qty
     pendingCards.current[key] = card
-    syncPending()
+    shiftOptimistic(key, qty)
     if (flushTimers.current[key]) window.clearTimeout(flushTimers.current[key])
     flushTimers.current[key] = window.setTimeout(() => {
       const n = pendingRef.current[key]
       if (!n) return
+      // Leaves the queue but stays on the tile (optimistic) until the
+      // reload that includes it — that gap is what used to flicker.
       delete pendingRef.current[key]
-      delete pendingCards.current[key]
-      syncPending()
       chainFor(card.id, () => commitNewCard(card, condKey, n))
     }, 700)
   }
@@ -1086,12 +1107,13 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
    *  drop without ever going below what's placed. */
   const removeCopies = async (card: Card, condKey: string, k: number) => {
     setMessage(`Removing ${k} × ${card.name} (${condKey})…`)
+    const settle = () => shiftOptimistic(`${card.id}|${condKey}`, k)
     try {
       const [freshLots, freshPlacements] = await Promise.all([getSpaceInventory(userId), getDrawerPlacements(userId, drawer.id)])
       const lotIds = new Set(freshLots.filter(l => lotMatches(l, card.id, condKey)).map(l => l.id))
       const mine = freshPlacements.filter(a => lotIds.has(a.lotId))
       const removed = Math.min(k, mine.reduce((n, a) => n + a.quantity, 0))
-      if (!removed) { await load(); setMessage(''); return }
+      if (!removed) { await load(settle); setMessage(''); return }
 
       let left = removed
       for (const a of mine) {
@@ -1109,10 +1131,10 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
       const entry = conds.find(c => c.condition === condKey)
       if (entry) entry.quantity = Math.max(0, entry.quantity - removed)
       await saveEntry(userId, card.id, conds.filter(c => c.quantity > 0), existing?.selectedCond ?? baseCond(condKey))
-      await load()
+      await load(settle)
       setMessage(`Removed ${removed} × ${card.name} (${condKey}) from this box and your collection.`)
     } catch (e) {
-      await load()
+      await load(settle)
       setMessage(e instanceof Error ? e.message : 'Could not remove that card.')
     }
   }
@@ -1126,11 +1148,14 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
     const cancel = Math.min(queued, -delta)
     if (cancel) {
       if (queued - cancel) pendingRef.current[key] = queued - cancel
-      else { delete pendingRef.current[key]; delete pendingCards.current[key]; window.clearTimeout(flushTimers.current[key]) }
-      syncPending()
+      else { delete pendingRef.current[key]; window.clearTimeout(flushTimers.current[key]) }
+      shiftOptimistic(key, -cancel)
     }
     const rest = -delta - cancel
-    if (rest > 0) chainFor(card.id, () => removeCopies(card, condKey, rest))
+    if (rest > 0) {
+      shiftOptimistic(key, -rest)
+      chainFor(card.id, () => removeCopies(card, condKey, rest))
+    }
   }
 
   /** Typing a quantity into a tile — applied once typing pauses, so
@@ -1332,7 +1357,7 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
     for (const [key, qty] of Object.entries(pendingAdds)) {
       if (!key.startsWith(g.cardId + '|')) continue
       const condKey = key.slice(g.cardId.length + 1)
-      conds[condKey] = (conds[condKey] ?? 0) + qty
+      conds[condKey] = Math.max(0, (conds[condKey] ?? 0) + qty)
     }
     for (const [key, qty] of Object.entries(qtyDrafts)) {
       if (key.startsWith(g.cardId + '|')) conds[key.slice(g.cardId.length + 1)] = qty
