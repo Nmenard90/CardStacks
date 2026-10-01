@@ -21,6 +21,13 @@ export type CondMap = Record<string, number>
 export const baseCond = (key: string): Cond =>
   (key.replace(' 1st Ed', '') as Cond)
 
+/** The only sets ever printed with a 1st Edition stamp (pokemontcg.io ids):
+ *  Base, Jungle, Fossil, Team Rocket, Gym Heroes/Challenge, Neo 1–4. */
+const FIRST_EDITION_SETS = new Set(['base1', 'base2', 'base3', 'base5', 'gym1', 'gym2', 'neo1', 'neo2', 'neo3', 'neo4'])
+
+export const hasFirstEdition = (setId: string | undefined): boolean =>
+  !!setId && FIRST_EDITION_SETS.has(setId)
+
 /**
  * Falls back to the card's default `prices` if no variant is requested,
  * the card predates variant tracking, or the requested variant isn't priced.

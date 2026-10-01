@@ -34,9 +34,12 @@ import { useToast } from '../components/Toast'
 import { usePreview } from '../components/CardPreview'
 import { CardThumb } from '../components/CardThumb'
 import { OwnedCardTile } from '../components/OwnedCardTile'
+import { CardTile } from '../components/CardTile'
+import { BulkAddControls } from '../components/BulkAddControls'
+import { baseCond, type CondMap } from '../lib/conditions'
 import { usePagedList } from '../lib/usePagedList'
 import { createBinder, getBinder, listBinders, updateBinder } from '../api/binders'
-import { getSets, searchCards } from '../api/cards'
+import { getSets } from '../api/cards'
 import { getOwnedCards, saveEntry } from '../api/collection'
 import {
   createDisplayCase, createSpace, createStorageUnit, getCaseAllocations,
@@ -908,11 +911,6 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
     setSelectedDrawerId(drawer.id)
     setSelectedIds(new Set())
   }
-  const toggleSelect = (id: string) => setSelectedIds(prev => {
-    const next = new Set(prev)
-    if (next.has(id)) next.delete(id); else next.add(id)
-    return next
-  })
   // Tracks the last name known to be saved (starts as the prop, then
   // whatever the box was last renamed to) — `box` itself is never mutated,
   // so this is what the "cancel edit" / failed-save paths revert to.
@@ -920,31 +918,33 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   const [name, setName] = useState(box.name)
   const preview = usePreview()
 
-  // "Add a new card" — searches the whole catalog (not just what's already
-  // owned-but-unplaced), so a card that isn't owned yet at all can be added
-  // straight into this box instead of needing a trip to Add Cards first.
-  // Boxes are specifically for bulk, so this needs to support rapid repeat
-  // clicks the way Quick Add does — clicking a tile bumps a local counter
-  // immediately (no network wait per click) and a short pause after the
-  // last click flushes the whole queued count in one save + one placement,
-  // instead of one full round trip per copy.
-  const [catalogQuery, setCatalogQuery] = useState('')
-  const [catalogHits, setCatalogHits] = useState<Card[]>([])
-  const [catalogSearching, setCatalogSearching] = useState(false)
+  // Adding cards — the same Bulk Add form as the Add Cards page, but each
+  // add goes straight into this box (and the collection). Adds are queued
+  // per card+condition and flushed together a moment after the last one,
+  // so rapid entry is one save + one placement per card, not one per copy.
   const [pendingAdds, setPendingAdds] = useState<Record<string, number>>({})
   const pendingRef = useRef<Record<string, number>>({})
   // Keeps the full Card alongside pendingRef's quantity, so the unmount
   // flush below (which has no per-call closure over `card` the way the
   // normal flush timer does) can still run the same auto-box rescue.
   const pendingCards = useRef<Record<string, Card>>({})
+  // Render-side copy of the queued cards (refs can't be read while rendering).
+  const [pendingCardMap, setPendingCardMap] = useState<Record<string, Card>>({})
+  const syncPending = () => { setPendingAdds({ ...pendingRef.current }); setPendingCardMap({ ...pendingCards.current }) }
   const flushTimers = useRef<Record<string, number>>({})
-  // Serializes flushes per card: if a second batch of clicks lands while
-  // the first batch's save is still in flight, it waits for that save to
-  // actually land instead of reading pre-save owned/lot state and racing
-  // it — saveEntry is a full REPLACE, so two concurrent flushes for the
-  // same card would otherwise silently overwrite each other.
+  // Serializes saves per card: saveEntry is a full REPLACE of the card's
+  // condition list, so two overlapping saves for the same card (an add
+  // and a remove, or two batches) would otherwise silently overwrite
+  // each other. Every write for a card waits for the previous one.
   const flushChain = useRef<Record<string, Promise<void>>>({})
-  const catalogTimer = useRef<number | null>(null)
+  const chainFor = (cardId: string, work: () => Promise<void>) => {
+    flushChain.current[cardId] = (flushChain.current[cardId] ?? Promise.resolve()).then(work)
+  }
+  // Which condition each tile's −/+ edits, and typed-but-not-yet-applied
+  // quantities (applied a moment after typing stops, not per keystroke).
+  const [selConds, setSelConds] = useState<Record<string, string>>({})
+  const [qtyDrafts, setQtyDrafts] = useState<Record<string, number>>({})
+  const draftTimers = useRef<Record<string, number>>({})
 
   const load = async () => {
     try {
@@ -972,21 +972,6 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
     for (const s of list) m[s.id] = s.name
     setSetNameById(m)
   }).catch(() => {}) }, [])
-
-  // Debounced catalog search, waiting a moment after typing stops — mirrors
-  // the same pattern used everywhere else in the app (Explore, Convention).
-  useEffect(() => {
-    if (catalogTimer.current) clearTimeout(catalogTimer.current)
-    const q = catalogQuery.trim()
-    catalogTimer.current = window.setTimeout(async () => {
-      if (q.length < 2) { setCatalogHits([]); setCatalogSearching(false); return }
-      setCatalogSearching(true)
-      try { setCatalogHits(await searchCards(q)) }
-      catch { setCatalogHits([]) }
-      finally { setCatalogSearching(false) }
-    }, 300)
-    return () => { if (catalogTimer.current) clearTimeout(catalogTimer.current) }
-  }, [catalogQuery])
 
   /** Saving a card auto-files any newly-owned surplus straight into that
    *  card's own "set" box on the backend (CollectionRepository.
@@ -1017,103 +1002,167 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
     return false
   }
 
-  // Flushes any still-queued bulk-add clicks if the box is closed mid-batch
-  // (only cancelling the debounce timers, with no matching flush, would
-  // silently drop clicks the badge already promised were queued). No
-  // component setState here — it's already unmounting — this is the raw
-  // save+place work with no UI feedback to show afterward.
+  /** Does this lot hold copies of `cardId` under condition key `condKey`
+   *  ("NM", or "NM 1st Ed" for the 1st Edition lot)? */
+  const lotMatches = (l: InventoryLot, cardId: string, condKey: string) =>
+    l.cardId === cardId && l.variantKey === 'standard' && l.condition === baseCond(condKey)
+    && l.edition === (condKey.endsWith(' 1st Ed') ? 'first_edition' : 'unlimited')
+
+  /** Adds `qty` owned copies of a card and places them in this box. Always
+   *  reads fresh owned/lot state right before writing (never this
+   *  component's possibly-stale state). Returns whether they got placed. */
+  const saveAndPlace = async (card: Card, condKey: string, qty: number) => {
+    const freshOwned = await getOwnedCards(userId)
+    const existing = freshOwned.find(o => o.cardId === card.id)
+    const conds = existing ? existing.conditions.map(c => ({ ...c })) : []
+    const entry = conds.find(c => c.condition === condKey)
+    if (entry) entry.quantity += qty
+    else conds.push({ condition: condKey, quantity: qty })
+    await saveEntry(userId, card.id, conds, existing?.selectedCond ?? baseCond(condKey))
+
+    const freshLots = await getSpaceInventory(userId)
+    const lot = freshLots.find(l => lotMatches(l, card.id, condKey))
+    const free = lot ? lot.quantity - lot.allocated : 0
+    if (lot && free > 0) {
+      await placeCopies(userId, { lotId: lot.id, drawerId: drawer.id, quantity: Math.min(qty, free), protection: 'raw' })
+      return true
+    }
+    return !!lot && await rescueFromAutoBox(card.setId, lot.id)
+  }
+
+  // Flushes any still-queued adds if the box is closed mid-batch (only
+  // cancelling the debounce timers, with no matching flush, would silently
+  // drop adds the tiles already showed). No setState here — it's already
+  // unmounting — just the raw save+place work.
   useEffect(() => () => {
     Object.values(flushTimers.current).forEach(t => window.clearTimeout(t))
-    for (const [cardId, qty] of Object.entries(pendingRef.current)) {
-      if (!qty) continue
-      flushChain.current[cardId] = (flushChain.current[cardId] ?? Promise.resolve()).then(async () => {
-        try {
-          const freshOwned = await getOwnedCards(userId)
-          const existing = freshOwned.find(o => o.cardId === cardId)
-          const conds = existing ? existing.conditions.map(c => ({ ...c })) : []
-          const nm = conds.find(c => c.condition === 'NM')
-          if (nm) nm.quantity += qty
-          else conds.push({ condition: 'NM', quantity: qty })
-          await saveEntry(userId, cardId, conds, 'NM')
-          const freshLots = await getSpaceInventory(userId)
-          const lot = freshLots.find(l => l.cardId === cardId && l.condition === 'NM' && l.variantKey === 'standard')
-          const free = lot ? lot.quantity - lot.allocated : 0
-          const setId = pendingCards.current[cardId]?.setId
-          if (lot && free > 0) await placeCopies(userId, { lotId: lot.id, drawerId: drawer.id, quantity: Math.min(qty, free), protection: 'raw' })
-          else if (lot && setId) await rescueFromAutoBox(setId, lot.id)
-        } catch { /* best-effort on unmount — nothing left to show the user */ }
+    for (const [key, qty] of Object.entries(pendingRef.current)) {
+      const card = pendingCards.current[key]
+      if (!qty || !card) continue
+      const condKey = key.slice(card.id.length + 1)
+      chainFor(card.id, async () => {
+        try { await saveAndPlace(card, condKey, qty) } catch { /* best-effort on unmount */ }
       })
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const cardFor = (cardId: string) => owned.find(x => x.cardId === cardId)?.card
 
-  /** The actual save + place for one card's queued batch — always reads
-   *  fresh owned/lot state right before writing (never the component's
-   *  `owned` state, which could be stale mid-batch) and only ever runs one
-   *  at a time per card via flushChain, so two overlapping batches for the
-   *  same card can't read-before-the-other's-write and clobber each other. */
-  const commitNewCard = async (card: Card, qty: number) => {
-    const cardId = card.id
-    setMessage(`Adding ${qty} × ${card.name}…`)
+  /** One queued batch: save + place, with progress shown in the box. */
+  const commitNewCard = async (card: Card, condKey: string, qty: number) => {
+    setMessage(`Adding ${qty} × ${card.name} (${condKey})…`)
     try {
-      const freshOwned = await getOwnedCards(userId)
-      const existing = freshOwned.find(o => o.cardId === cardId)
-      const conds = existing ? existing.conditions.map(c => ({ ...c })) : []
-      const nm = conds.find(c => c.condition === 'NM')
-      if (nm) nm.quantity += qty
-      else conds.push({ condition: 'NM', quantity: qty })
-      await saveEntry(userId, cardId, conds, 'NM')
-
-      const freshLots = await getSpaceInventory(userId)
-      const lot = freshLots.find(l => l.cardId === cardId && l.condition === 'NM' && l.variantKey === 'standard')
-      const free = lot ? lot.quantity - lot.allocated : 0
-
-      if (lot && free > 0) {
-        await placeCopies(userId, { lotId: lot.id, drawerId: drawer.id, quantity: Math.min(qty, free), protection: 'raw' })
-        await load()
-        setMessage(`Added ${qty} × ${card.name}.`)
-      } else if (lot && await rescueFromAutoBox(card.setId, lot.id)) {
-        await load()
-        setMessage(`Added ${qty} × ${card.name}.`)
-      } else {
-        await load()
-        setMessage(`${card.name} is now in your collection, but couldn't be auto-placed — add it from "Available owned copies" below.`)
-      }
+      const placed = await saveAndPlace(card, condKey, qty)
+      await load()
+      setMessage(placed
+        ? `Added ${qty} × ${card.name} (${condKey}).`
+        : `${card.name} is now in your collection, but couldn't be auto-placed — add it from "Available owned copies" below.`)
     } catch (e) {
       await load()
       setMessage(e instanceof Error ? e.message : 'Could not add that card.')
     }
   }
 
-  /** One click = one more copy queued, instantly (the badge updates from
-   *  pendingRef, not a network response) — click the same card as many
-   *  times as you're dropping copies in the box, exactly like Quick Add. */
-  const bumpNewCard = (card: Card) => {
-    pendingRef.current[card.id] = (pendingRef.current[card.id] ?? 0) + 1
-    pendingCards.current[card.id] = card
-    setPendingAdds({ ...pendingRef.current })
-    if (flushTimers.current[card.id]) window.clearTimeout(flushTimers.current[card.id])
-    flushTimers.current[card.id] = window.setTimeout(() => {
-      const qty = pendingRef.current[card.id]
-      if (!qty) return
-      delete pendingRef.current[card.id]
-      delete pendingCards.current[card.id]
-      setPendingAdds({ ...pendingRef.current })
-      flushChain.current[card.id] = (flushChain.current[card.id] ?? Promise.resolve())
-        .then(() => commitNewCard(card, qty))
+  /** Queues `qty` more copies (shown on the tile instantly) and saves them
+   *  together a moment after the last add for that card+condition. */
+  const queueAdd = (card: Card, condKey: string, qty: number) => {
+    const key = `${card.id}|${condKey}`
+    pendingRef.current[key] = (pendingRef.current[key] ?? 0) + qty
+    pendingCards.current[key] = card
+    syncPending()
+    if (flushTimers.current[key]) window.clearTimeout(flushTimers.current[key])
+    flushTimers.current[key] = window.setTimeout(() => {
+      const n = pendingRef.current[key]
+      if (!n) return
+      delete pendingRef.current[key]
+      delete pendingCards.current[key]
+      syncPending()
+      chainFor(card.id, () => commitNewCard(card, condKey, n))
     }, 700)
+  }
+
+  /** Removes `k` copies from this box AND the collection (sold, traded,
+   *  lost). Copies come out of the box first, so the owned count can then
+   *  drop without ever going below what's placed. */
+  const removeCopies = async (card: Card, condKey: string, k: number) => {
+    setMessage(`Removing ${k} × ${card.name} (${condKey})…`)
+    try {
+      const [freshLots, freshPlacements] = await Promise.all([getSpaceInventory(userId), getDrawerPlacements(userId, drawer.id)])
+      const lotIds = new Set(freshLots.filter(l => lotMatches(l, card.id, condKey)).map(l => l.id))
+      const mine = freshPlacements.filter(a => lotIds.has(a.lotId))
+      const removed = Math.min(k, mine.reduce((n, a) => n + a.quantity, 0))
+      if (!removed) { await load(); setMessage(''); return }
+
+      let left = removed
+      for (const a of mine) {
+        if (!left) break
+        await removePlacement(userId, a.id)
+        if (a.quantity > left) {
+          await placeCopies(userId, { lotId: a.lotId, drawerId: drawer.id, quantity: a.quantity - left, protection: a.protection })
+          left = 0
+        } else left -= a.quantity
+      }
+
+      const freshOwned = await getOwnedCards(userId)
+      const existing = freshOwned.find(o => o.cardId === card.id)
+      const conds = (existing?.conditions ?? []).map(c => ({ ...c }))
+      const entry = conds.find(c => c.condition === condKey)
+      if (entry) entry.quantity = Math.max(0, entry.quantity - removed)
+      await saveEntry(userId, card.id, conds.filter(c => c.quantity > 0), existing?.selectedCond ?? baseCond(condKey))
+      await load()
+      setMessage(`Removed ${removed} × ${card.name} (${condKey}) from this box and your collection.`)
+    } catch (e) {
+      await load()
+      setMessage(e instanceof Error ? e.message : 'Could not remove that card.')
+    }
+  }
+
+  /** A tile's −/+ (or right-click on a condition badge). Removing first
+   *  cancels any still-queued adds before touching saved copies. */
+  const changeQty = (card: Card, condKey: string, delta: number) => {
+    if (delta > 0) { queueAdd(card, condKey, delta); return }
+    const key = `${card.id}|${condKey}`
+    const queued = pendingRef.current[key] ?? 0
+    const cancel = Math.min(queued, -delta)
+    if (cancel) {
+      if (queued - cancel) pendingRef.current[key] = queued - cancel
+      else { delete pendingRef.current[key]; delete pendingCards.current[key]; window.clearTimeout(flushTimers.current[key]) }
+      syncPending()
+    }
+    const rest = -delta - cancel
+    if (rest > 0) chainFor(card.id, () => removeCopies(card, condKey, rest))
+  }
+
+  /** Typing a quantity into a tile — applied once typing pauses, so
+   *  typing "12" doesn't first apply "1". */
+  const typeQty = (card: Card, condKey: string, current: number, target: number) => {
+    const key = `${card.id}|${condKey}`
+    setQtyDrafts(d => ({ ...d, [key]: target }))
+    window.clearTimeout(draftTimers.current[key])
+    draftTimers.current[key] = window.setTimeout(() => {
+      setQtyDrafts(d => { const next = { ...d }; delete next[key]; return next })
+      if (target !== current) changeQty(card, condKey, target - current)
+    }, 900)
+  }
+
+  /** "Remove from box" — un-places every copy of the card here; it stays
+   *  in the collection (same as the old per-stack Remove). */
+  const unplaceAll = async (allocations: CardAllocation[]) => {
+    setMessage('Taking out of this box…')
+    try {
+      for (const a of allocations) await removePlacement(userId, a.id)
+      await load()
+      setMessage('Taken out of this box — still in your collection.')
+    } catch (e) {
+      await load()
+      setMessage(e instanceof Error ? e.message : 'Could not take this card out.')
+    }
   }
 
   const add = async (lot: InventoryLot) => {
     setMessage('Placing one copy…')
     try { await placeCopies(userId, { lotId: lot.id, drawerId: drawer.id, quantity: 1, protection: 'raw' }); await load() }
     catch (e) { setMessage(e instanceof Error ? e.message : 'Could not place this copy.') }
-  }
-  const remove = async (allocation: CardAllocation) => {
-    setMessage('Removing copy…')
-    try { await removePlacement(userId, allocation.id); await load() }
-    catch (e) { setMessage(e instanceof Error ? e.message : 'Could not remove this copy.') }
   }
   // Every move below shares the same shape: remove first, then place, so the
   // in-flight total never briefly double-counts this copy as over-allocated.
@@ -1255,12 +1304,51 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   const sets = [...new Set(lots.map(l => cardFor(l.cardId)?.setId).filter((s): s is string => !!s))].sort()
 
   const insideBox = placements.filter(matchesAllocation).sort((a, b) => byChosenSort(lots.find(l => l.id === a.lotId), lots.find(l => l.id === b.lotId)))
+  // One tile per card (not per stack): every stack of a card in this box —
+  // NM, LP, 1st Ed… — folds into one Bulk Add-style tile with a condition
+  // breakdown, in the same order the filtered/sorted stacks came in.
+  type CardGroup = { cardId: string; card?: Card; allocations: CardAllocation[]; conds: CondMap }
+  const groupMap = new Map<string, CardGroup>()
+  for (const a of insideBox) {
+    const lot = lots.find(l => l.id === a.lotId)
+    if (!lot) continue
+    const key = lot.edition === 'first_edition' ? `${lot.condition} 1st Ed` : lot.condition
+    let g = groupMap.get(lot.cardId)
+    if (!g) { g = { cardId: lot.cardId, card: cardFor(lot.cardId), allocations: [], conds: {} }; groupMap.set(lot.cardId, g) }
+    g.allocations.push(a)
+    g.conds[key] = (g.conds[key] ?? 0) + a.quantity
+  }
+  // Cards just added from the form show up immediately, before their save lands.
+  for (const [key, qty] of Object.entries(pendingAdds)) {
+    const card = pendingCardMap[key]
+    if (!qty || !card || groupMap.has(card.id)) continue
+    groupMap.set(card.id, { cardId: card.id, card, allocations: [], conds: {} })
+  }
+  const insideGroups = [...groupMap.values()]
+  /** What a tile shows: saved copies + still-queued adds, with any
+   *  half-typed quantity shown as typed. */
+  const tileConds = (g: CardGroup): CondMap => {
+    const conds: CondMap = { ...g.conds }
+    for (const [key, qty] of Object.entries(pendingAdds)) {
+      if (!key.startsWith(g.cardId + '|')) continue
+      const condKey = key.slice(g.cardId.length + 1)
+      conds[condKey] = (conds[condKey] ?? 0) + qty
+    }
+    for (const [key, qty] of Object.entries(qtyDrafts)) {
+      if (key.startsWith(g.cardId + '|')) conds[key.slice(g.cardId.length + 1)] = qty
+    }
+    return conds
+  }
+  const inBoxCount = (cardId: string) => {
+    const g = groupMap.get(cardId)
+    return g ? Object.values(tileConds(g)).reduce((n, q) => n + q, 0) : 0
+  }
   const available = lots.filter(lot => lot.quantity - lot.allocated > 0 && matchesLot(lot)).sort(byChosenSort)
   // "Load more" pagination, not a hard cutoff — a bulk box or a collection
   // in the hundreds of thousands must stay browsable instead of silently
   // hiding everything past some fixed count. Resets to page one whenever
   // the search/filter/sort combo changes, not on every render.
-  const insideBoxPage = usePagedList(insideBox, `${q}|${conditionFilter}|${variantFilter}|${protectionFilter}|${setFilter}|${duplicatesOnly}|${sort}`)
+  const insideBoxPage = usePagedList(insideGroups, `${q}|${conditionFilter}|${variantFilter}|${protectionFilter}|${setFilter}|${duplicatesOnly}|${sort}`)
   const availablePage = usePagedList(available, `${q}|${conditionFilter}|${variantFilter}|${setFilter}|${sort}`)
 
   return (
@@ -1325,13 +1413,27 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
         </div>
       </div>
 
+      <section className="box-open-surface">
+        <h3>Add cards to this box</h3>
+        <p className="box-empty-note">Same as Bulk Add — every add goes straight into this box and your collection, saved a moment after you stop.</p>
+        {/* .page-tracker gives the shared form and card tiles their Bulk Add
+            look; its full-page height/background are switched off here. */}
+        <div className="page-tracker" style={{ minHeight: 0, background: 'transparent' }}>
+          <BulkAddControls
+            onAdd={(card, condKey, step) => queueAdd(card, condKey, step)}
+            preview={preview}
+            have={cardId => inBoxCount(cardId)} haveLabel="in this box"
+          />
+        </div>
+      </section>
+
       <section className="box-open-surface" style={{ '--box-color': box.color || '#d8d0c0' } as React.CSSProperties}>
-        <h3>Inside this box{insideBox.length > 0 ? ` (${insideBox.length})` : ''}</h3>
+        <h3>Inside this box{insideGroups.length > 0 ? ` (${insideGroups.length} card${insideGroups.length === 1 ? '' : 's'})` : ''}</h3>
         {insideBoxPage.visible.length > 0 && (
           <p className="box-empty-note">
             <button
               className="tb-btn" style={{ padding: '2px 8px', fontSize: 11 }}
-              onClick={() => setSelectedIds(new Set(insideBoxPage.visible.map(a => a.id)))}
+              onClick={() => setSelectedIds(new Set(insideBoxPage.visible.flatMap(g => g.allocations.map(a => a.id))))}
             >Select all visible ({insideBoxPage.visible.length})</button>
             {' '}
             {selectedIds.size > 0 && (
@@ -1341,99 +1443,75 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
             )}
           </p>
         )}
-        {!placements.length && <p className="box-empty-note">This box is empty. Add owned copies below.</p>}
-        {placements.length > 0 && !insideBox.length && <p className="box-empty-note">Nothing here matches that search/filter.</p>}
+        {!placements.length && !insideGroups.length && <p className="box-empty-note">This box is empty. Add cards above, or owned copies below.</p>}
+        {placements.length > 0 && !insideGroups.length && <p className="box-empty-note">Nothing here matches that search/filter.</p>}
         {insideBoxPage.visible.length > 0 && (
-          <div className="box-card-grid">
-            {insideBoxPage.visible.map((allocation, i) => {
-              const lot = lots.find(l => l.id === allocation.lotId)
-              const card = lot && cardFor(lot.cardId)
-              // A barrier between sets, not just a sorted list — also labels
-              // the very first group (i===0) so every group is named, not
-              // just the seams between later ones.
-              const prevLot = i > 0 ? lots.find(l => l.id === insideBoxPage.visible[i - 1].lotId) : undefined
-              const prevSetId = prevLot && cardFor(prevLot.cardId)?.setId
-              const setId = card?.setId
-              const divider = sort === 'set' && (i === 0 || setId !== prevSetId)
+          <div className="page-tracker" style={{ minHeight: 0, background: 'transparent' }}>
+            <div className="card-grid">
+              {insideBoxPage.visible.map((group, i) => {
+                const card = group.card
+                // A barrier between sets, not just a sorted list — also labels
+                // the very first group (i===0) so every group is named.
+                const prevSetId = i > 0 ? insideBoxPage.visible[i - 1].card?.setId : undefined
+                const setId = card?.setId
+                const divider = sort === 'set' && (i === 0 || setId !== prevSetId)
+                const ids = group.allocations.map(a => a.id)
+                const allSelected = ids.length > 0 && ids.every(id => selectedIds.has(id))
+                const conds = tileConds(group)
+                const selCond = selConds[group.cardId] ?? (Object.keys(conds).find(k => conds[k] > 0) ?? 'NM')
+                const current = (group.conds[selCond] ?? 0) + (pendingAdds[`${group.cardId}|${selCond}`] ?? 0)
 
-              const tile = !card ? (
-                <div className={'box-card-tile' + (selectedIds.has(allocation.id) ? ' selected' : '')} key={allocation.id}>
-                  <label className="box-card-select" onClick={e => e.stopPropagation()}>
-                    <input type="checkbox" checked={selectedIds.has(allocation.id)} onChange={() => toggleSelect(allocation.id)} />
-                  </label>
-                  <div className="thumb-placeholder">🃏</div>
-                  <span className="box-card-qty">×{allocation.quantity}</span>
-                  <b>{lot?.cardId || 'Card'}</b>
-                  <small>{lot?.condition} · {lot?.variantKey}</small>
-                  <div className="box-card-tile-actions">
-                    <button
-                      onClick={() => setMovingAllocation(allocation)}
-                      disabled={!otherBoxes.length && !binders.length && !displayCases.length}
-                      title="Move to another box, binder, or display case"
-                    >Move</button>
-                    <button onClick={() => void remove(allocation)}>Remove</button>
+                const tile = !card ? (
+                  <div className="box-card-tile" key={group.cardId}>
+                    <div className="thumb-placeholder">🃏</div>
+                    <b>{group.cardId}</b>
+                    <small>{Object.entries(group.conds).map(([k, n]) => `${k} ×${n}`).join(' · ')}</small>
+                    <button className="box-card-add" onClick={() => void unplaceAll(group.allocations)}>Remove from box</button>
                   </div>
-                </div>
-              ) : (
-                <OwnedCardTile
-                  key={allocation.id} card={card} preview={preview}
-                  subtitle={`${lot?.condition} · ${lot?.variantKey}`}
-                  qty={allocation.quantity}
-                  selected={selectedIds.has(allocation.id)}
-                  onToggleSelect={() => toggleSelect(allocation.id)}
-                  actions={[
-                    { label: 'Move', onClick: () => setMovingAllocation(allocation), disabled: !otherBoxes.length && !binders.length && !displayCases.length },
-                    { label: 'Remove', onClick: () => void remove(allocation) },
-                  ]}
-                />
-              )
+                ) : (
+                    <CardTile
+                      key={group.cardId} card={card} conds={conds} selCond={selCond}
+                      setName={setNameById[card.setId]}
+                      onAdj={d => changeQty(card, selCond, d)}
+                      onSetQty={q => typeQty(card, selCond, current, q)}
+                      onSelectCond={c => setSelConds(s => ({ ...s, [group.cardId]: c }))}
+                      onAdjCond={(c, d) => changeQty(card, c, d)}
+                      onPreview={(src, opts) => (src ? preview.show(src, opts) : preview.hide())}
+                      selected={allSelected}
+                      onToggleSelect={ids.length ? () => setSelectedIds(prev => {
+                        const next = new Set(prev)
+                        for (const id of ids) { if (allSelected) next.delete(id); else next.add(id) }
+                        return next
+                      }) : undefined}
+                      actions={ids.length ? [
+                        {
+                          label: 'Move', title: 'Move this card to another box, binder or display case',
+                          disabled: !otherBoxes.length && !binders.length && !displayCases.length,
+                          // One stack can go anywhere; several stacks (e.g. NM + LP)
+                          // use the box-to-box mover for all of them at once.
+                          onClick: () => {
+                            if (group.allocations.length === 1) setMovingAllocation(group.allocations[0])
+                            else { setSelectedIds(new Set(ids)); setBulkMoveScope('selected') }
+                          },
+                        },
+                        { label: 'Remove from box', title: 'Take it out of this box — you still own it', onClick: () => void unplaceAll(group.allocations) },
+                      ] : undefined}
+                    />
+                )
 
-              return divider ? [
-                <div className="box-set-divider" key={`divider-${allocation.id}`}>
-                  <span>{(setId && setNameById[setId]) || setId || 'Unknown set'}</span>
-                </div>,
-                tile,
-              ] : tile
-            })}
+                return divider ? [
+                  <div className="box-set-divider" key={`divider-${group.cardId}`}>
+                    <span>{(setId && setNameById[setId]) || setId || 'Unknown set'}</span>
+                  </div>,
+                  tile,
+                ] : tile
+              })}
+            </div>
           </div>
         )}
         {insideBoxPage.hasMore && (
           <div style={{ display: 'flex', justifyContent: 'center', padding: '14px 0 0' }}>
             <button className="tb-btn primary" onClick={insideBoxPage.loadMore}>Load more ({insideBoxPage.remaining} left)</button>
-          </div>
-        )}
-      </section>
-
-      <section className="box-open-surface">
-        <h3>Add a new card</h3>
-        <p className="box-empty-note">Boxes are for bulk — click a card to drop one in, click again for more. A moment after you stop clicking it, they're saved and placed all at once.</p>
-        <label className="inventory-search">
-          <span>🔍</span>
-          <input
-            type="text" value={catalogQuery} onChange={e => setCatalogQuery(e.target.value)}
-            placeholder="Search every set by name or number — adds straight into this box"
-          />
-        </label>
-        {catalogQuery.trim().length >= 2 && catalogSearching && <p className="box-empty-note">Searching…</p>}
-        {catalogQuery.trim().length >= 2 && !catalogSearching && catalogHits.length === 0 && (
-          <p className="box-empty-note">No cards found for "{catalogQuery.trim()}".</p>
-        )}
-        {catalogHits.length > 0 && (
-          <div className="box-card-grid">
-            {catalogHits.slice(0, 30).map(card => {
-              const queued = pendingAdds[card.id] ?? 0
-              return (
-                <button
-                  key={card.id} className={'box-card-tile box-quick-add' + (queued ? ' queued' : '')}
-                  onClick={() => bumpNewCard(card)} title={`Click to add another copy of ${card.name}`}
-                >
-                  <CardThumb card={card} preview={preview} />
-                  <b>{card.name}</b>
-                  <small>#{card.number} · {card.setId}</small>
-                  {queued > 0 && <span className="box-quick-add-badge">+{queued} queued</span>}
-                </button>
-              )
-            })}
           </div>
         )}
       </section>

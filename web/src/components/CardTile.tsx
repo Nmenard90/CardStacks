@@ -6,7 +6,7 @@
  * and calls the backend; this tile just renders and reports what the
  * user clicked.
  *
- * USED BY: CollectionPage, BulkAddPage
+ * USED BY: CollectionPage, BulkAddPage, SpacesLivePage (storage boxes)
  */
 
 import { useState } from 'react'
@@ -39,6 +39,11 @@ interface Props {
    *  says its name once in the banner above the grid, so tiles there leave
    *  this unset rather than repeating it on every single card. */
   setName?: string
+  /** Storage boxes: a corner checkbox for bulk-selecting tiles. */
+  selected?: boolean
+  onToggleSelect?: () => void
+  /** Storage boxes: buttons along the bottom (e.g. Move, Remove from box). */
+  actions?: { label: string; onClick: () => void; disabled?: boolean; title?: string }[]
 }
 
 /**
@@ -52,7 +57,7 @@ function gainLossPct(paid: number, market: number): number | null {
   return ((market - paid) / paid) * 100
 }
 
-export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, onAdjCond, onPreview, onAddToBinder, purchases, onSetPurchase, setName }: Props) {
+export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, onAdjCond, onPreview, onAddToBinder, purchases, onSetPurchase, setName, selected, onToggleSelect, actions }: Props) {
   const [editingPurchase, setEditingPurchase] = useState<string | null>(null)
   const [purchaseInput, setPurchaseInput] = useState('')
   const [detailsOpen, setDetailsOpen] = useState(false)
@@ -100,7 +105,12 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
     .sort((a, b) => CONDS.indexOf(baseCond(a)) - CONDS.indexOf(baseCond(b)) || a.length - b.length)
 
   return (
-    <div className={`pcard${qty > 0 ? ' owned' : ''} ${dominantCondClass(conds)}`}>
+    <div className={`pcard${qty > 0 ? ' owned' : ''}${selected ? ' selected' : ''} ${dominantCondClass(conds)}`}>
+      {onToggleSelect && (
+        <label className="pcard-select" title="Select for Move">
+          <input type="checkbox" checked={!!selected} onChange={onToggleSelect} />
+        </label>
+      )}
       <div className="pcard-top">
         <CardThumb
           card={card} variant={selectedVariant}
@@ -307,6 +317,13 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
           </div>
         )}
       </div>
+      {actions && actions.length > 0 && (
+        <div className="pcard-actions">
+          {actions.map(a => (
+            <button key={a.label} className="tb-btn" onClick={a.onClick} disabled={a.disabled} title={a.title}>{a.label}</button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -357,6 +357,11 @@
     transition:border-color .2s,background .2s,transform .15s,box-shadow .15s;
   }
   .page-tracker .pcard-top{display:flex;align-items:flex-start;gap:8px;}
+  /* Storage-box extras (CardTile's optional selected/actions props). */
+  .page-tracker .pcard.selected{border-color:var(--accent);}
+  .page-tracker .pcard-select{position:absolute;top:6px;left:6px;z-index:2;cursor:pointer;}
+  .page-tracker .pcard-actions{display:flex;gap:6px;flex-wrap:wrap;}
+  .page-tracker .pcard-actions .tb-btn{flex:1;font-size:11px;padding:5px 8px;}
   .page-tracker .pcard:hover{background:var(--surface2);transform:translate(-2px,-2px);box-shadow:var(--shadow);}
   .page-tracker .pcard.owned{background:rgba(77,124,255,.1);}
 
