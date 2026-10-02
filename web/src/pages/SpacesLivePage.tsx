@@ -1349,7 +1349,13 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
     if (!qty || !card || groupMap.has(card.id)) continue
     groupMap.set(card.id, { cardId: card.id, card, allocations: [], conds: {} })
   }
+  // A box holding more than one set is always grouped by set (with a
+  // divider per set, below), whatever the sort — the chosen sort still
+  // orders cards within each set (Array.sort is stable).
+  const multiSetBox = new Set([...groupMap.values()].map(g => g.card?.setId)).size > 1
+  const setLabel = (setId?: string) => (setId && setNameById[setId]) || setId || ''
   const insideGroups = [...groupMap.values()]
+  if (multiSetBox) insideGroups.sort((a, b) => setLabel(a.card?.setId).localeCompare(setLabel(b.card?.setId)))
   /** What a tile shows: saved copies + still-queued adds, with any
    *  half-typed quantity shown as typed. */
   const tileConds = (g: CardGroup): CondMap => {
@@ -1479,7 +1485,7 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
                 // the very first group (i===0) so every group is named.
                 const prevSetId = i > 0 ? insideBoxPage.visible[i - 1].card?.setId : undefined
                 const setId = card?.setId
-                const divider = sort === 'set' && (i === 0 || setId !== prevSetId)
+                const divider = (sort === 'set' || multiSetBox) && (i === 0 || setId !== prevSetId)
                 const ids = group.allocations.map(a => a.id)
                 const allSelected = ids.length > 0 && ids.every(id => selectedIds.has(id))
                 const conds = tileConds(group)

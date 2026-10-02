@@ -18,7 +18,7 @@
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { browseCards, getCards, getSets, searchCards, type BrowseSort } from '../api/cards'
 import { bulkSave, getCollection, getOwnedCards, getStats, saveEntry } from '../api/collection'
 import { BinderPickerModal } from '../components/BinderPickerModal'
@@ -58,7 +58,9 @@ export function CollectionPage() {
   // Restores whichever set was open last time, read once on first load.
   const [setId, setSetId] = useState<string | null>(() => localStorage.getItem('poketracker_set'))
   const [search, setSearch] = useState('')
-  const [ownedOnly, setOwnedOnly] = useState(false)
+  // Narrows any card grid to cards you own, or to the ones you're missing.
+  const [ownership, setOwnership] = useState<'all' | 'owned' | 'missing'>('all')
+  const toggleOwnership = (mode: 'owned' | 'missing') => setOwnership(o => (o === mode ? 'all' : mode))
   const [sort, setSort] = useState<SortMode>('number')
   const [importOpen, setImportOpen] = useState(false)
 
@@ -338,11 +340,16 @@ export function CollectionPage() {
   const isSearchMode = search.trim().length >= 2
   const allSets = activeSetId === ALL_SETS
 
-  // The set-browsing card list, filtered by "owned only" and sorted.
+  /** Applies the Owned only / Missing only filter to one card. */
+  const keepCard = useCallback((c: Card) => {
+    if (ownership === 'all') return true
+    const owned = totalQty(coll[c.id]?.conds ?? {}) > 0
+    return ownership === 'owned' ? owned : !owned
+  }, [coll, ownership])
+
+  // The set-browsing card list, filtered by Owned only / Missing only and sorted.
   const filtered = useMemo(() => {
-    const list = ownedOnly
-      ? cards.filter(c => totalQty(coll[c.id]?.conds ?? {}) > 0)
-      : [...cards]
+    const list = cards.filter(c => keepCard(c))
 
     // A card's value if owned, or its base market price otherwise — so
     // sorting by value still makes sense while just browsing.
@@ -354,7 +361,7 @@ export function CollectionPage() {
     if (sort === 'qty')    list.sort((a, b) => qty(b) - qty(a))
     if (sort === 'name')   list.sort((a, b) => a.name.localeCompare(b.name))
     return list
-  }, [cards, coll, ownedOnly, sort])
+  }, [cards, coll, keepCard, sort])
 
   // Within-set search (done right here, no network call) used when a
   // specific set is selected — "All Sets" instead uses the backend search above.
@@ -370,14 +377,14 @@ export function CollectionPage() {
 
   // The catalog-browse list ("All Sets", nothing typed), filtered by "owned only".
   const browseDisplay = useMemo(
-    () => browseList.filter(c => !ownedOnly || totalQty(coll[c.id]?.conds ?? {}) > 0),
-    [browseList, coll, ownedOnly],
+    () => browseList.filter(c => keepCard(c)),
+    [browseList, keepCard],
   )
 
   // Which single list of cards to actually show, based on the current
   // combination of search-mode and set-scope.
   const displayCards = isSearchMode
-    ? (allSets ? globalHits : withinSetHits).filter(c => !ownedOnly || totalQty(coll[c.id]?.conds ?? {}) > 0)
+    ? (allSets ? globalHits : withinSetHits).filter(c => keepCard(c))
     : allSets ? browseDisplay : filtered
 
   const set = sets.find(s => s.id === activeSetId)
@@ -423,6 +430,17 @@ export function CollectionPage() {
               {set ? ownedInSet : '—'}<span style={{ color: 'var(--muted)', fontSize: 13 }}> / {set?.total ?? '—'}</span>
             </div>
           </div>
+          {/* Click to list exactly which cards in this set you don't have. */}
+          <button
+            className="stat" disabled={!set}
+            onClick={() => setOwnership(o => (o === 'missing' ? 'all' : 'missing'))}
+            title={set ? 'Show only the cards you are missing from this set' : 'Pick a set to see what you are missing'}
+            style={{ textAlign: 'left', font: 'inherit', color: 'inherit', cursor: set ? 'pointer' : 'default',
+              outline: ownership === 'missing' ? '2px solid var(--accent)' : undefined }}
+          >
+            <div className="stat-label">Missing{set ? ' — click to list' : ''}</div>
+            <div className="stat-value">{set ? Math.max(0, cards.length - ownedInSet) : '—'}</div>
+          </button>
           <div className="stat">
             <div className="stat-label">Set completion</div>
             <div className="stat-value">
@@ -459,8 +477,11 @@ export function CollectionPage() {
             <button className="tb-btn" onClick={() => setBrowseDir(d => (d === 'asc' ? 'desc' : 'asc'))}>
               {browseDir === 'asc' ? '↑ Ascending' : '↓ Descending'}
             </button>
-            <button className={'tb-btn' + (ownedOnly ? ' active' : '')} onClick={() => setOwnedOnly(o => !o)}>
+            <button className={'tb-btn' + (ownership === 'owned' ? ' active' : '')} onClick={() => toggleOwnership('owned')}>
               Owned only
+            </button>
+            <button className={'tb-btn' + (ownership === 'missing' ? ' active' : '')} onClick={() => toggleOwnership('missing')}>
+              Missing only
             </button>
           </div>
         ) : (
@@ -471,8 +492,11 @@ export function CollectionPage() {
                 {m === 'number' ? 'Card #' : m === 'value' ? 'Value ↓' : m === 'qty' ? 'Qty ↓' : 'Name'}
               </button>
             ))}
-            <button className={'tb-btn' + (ownedOnly ? ' active' : '')} onClick={() => setOwnedOnly(o => !o)}>
+            <button className={'tb-btn' + (ownership === 'owned' ? ' active' : '')} onClick={() => toggleOwnership('owned')}>
               Owned only
+            </button>
+            <button className={'tb-btn' + (ownership === 'missing' ? ' active' : '')} onClick={() => toggleOwnership('missing')}>
+              Missing only
             </button>
             <button className="tb-btn" onClick={exportCSV}>⬇ Export CSV</button>
             <button className="tb-btn" onClick={() => setImportOpen(true)}>⬆ Import CSV</button>
@@ -497,7 +521,7 @@ export function CollectionPage() {
               <div className="loading">Loading the catalog…</div>
             )}
             {!isSearchMode && allSets && !browseLoading && browseDisplay.length === 0 && (
-              <div className="empty">{ownedOnly ? "You don't own any cards yet." : 'No cards in the catalog.'}</div>
+              <div className="empty">{ownership === 'owned' ? "You don't own any cards yet." : ownership === 'missing' ? 'No missing cards on this page.' : 'No cards in the catalog.'}</div>
             )}
             {!isSearchMode && allSets && browseDisplay.length > 0 && (
               <div style={{ padding: '8px 18px', color: 'var(--muted)', fontSize: 13 }}>
@@ -517,7 +541,7 @@ export function CollectionPage() {
 
             {!isSearchMode && !allSets && cardsLoading && <div className="loading">Loading</div>}
             {!isSearchMode && !allSets && !cardsLoading && set && displayCards.length === 0 && (
-              <div className="empty">No cards match.</div>
+              <div className="empty">{ownership === 'missing' ? `You have every card in ${set.name}!` : 'No cards match.'}</div>
             )}
 
             {gridReady && displayCards.length > 0 && (
