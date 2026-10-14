@@ -69,6 +69,9 @@ trait CardRepository:
   /** Owned cards with no matching row in the catalog — render blank/$0 until backfilled. */
   def findOrphanedCardIds: Task[List[String]]
 
+  /** Every set at least one user owns a card from — what the background price refresh keeps fresh. */
+  def findOwnedSetIds: Task[List[String]]
+
 object CardRepository:
 
   final class Live(xa: Transactor[Task]) extends CardRepository:
@@ -447,6 +450,16 @@ object CardRepository:
         FROM collection_entries ce
         LEFT JOIN cards c ON c.id = ce.card_id
         WHERE c.id IS NULL
+      """
+        .query[String]
+        .to[List]
+        .transact(xa)
+
+    def findOwnedSetIds: Task[List[String]] =
+      sql"""
+        SELECT DISTINCT c.set_id
+        FROM collection_entries ce
+        JOIN cards c ON c.id = ce.card_id
       """
         .query[String]
         .to[List]

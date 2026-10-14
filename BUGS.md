@@ -39,6 +39,10 @@ _Last updated: 2026-10-14._
 | 022 | S2 | FIXED | Pricing (PriceService) | A card's price came from a "(Stamped)"/promo sibling sharing its collector number — Generations Geodude 43/83 showed $15 (the stamped promo) instead of ~$0.25. Plain-named products now win. |
 | 023 | ENH | IN PROGRESS | Pricing + collection | Per-print pricing (Normal / Holo / Reverse Holo / Poké Ball / Master Ball). Prices + CardTile picker shipped (279a834, migration 014). Still to do: record which print an owned copy is (Phase 2) and a print selector in Bulk Add (Phase 3). |
 | 024 | S2 | FIXED | BulkAddPage | Numpad "." silently toggled 1st Edition — mislabeled 783 lots across 692 cards. Shortcut removed, 1st Ed limited to sets that had it (94afb86). |
+| 025 | S2 | FIXED | Pricing (PriceService) | Cards with no Normal print (holo rares) took their main price from Reverse Holofoil — unordered pick. 1,082 cards in the audit, e.g. Porygon-Z GE $17.86 instead of $9.06. Now Normal > Holofoil > others, Reverse/1st Ed last. Same fix for the pokemontcg.io fallback order. |
+| 026 | S1 | FIXED | Pricing (set matching) | 9 sets were priced from a DIFFERENT TCGTracking set via shared code/release date: Battle Styles→EX Battle Stadium, Lost Thunder→McDonald's 2018, BREAKpoint→Burger King, Black & White→BW Trainer Kit, Call of Legends→TCG Classic, SM/HGSS/WotC promos→wrong sets. Candidates are now verified by card-name agreement (≥30%); cards only take prices from name-agreeing products; sibling sets (Generations: Radiant Collection) are merged in. |
+| 027 | S2 | FIXED | Pricing (WotC sets) | Old sets' main price could come from 1st Edition (Shining Charizard Neo Destiny $7,583). Unlimited now ranks ahead of 1st Edition. |
+| 028 | S2 | FIXED | Pricing (refresh) | Owned cards only re-priced when someone opened their exact set, so collection values went stale. Background job re-prices every owned set every 6h. |
 
 ---
 

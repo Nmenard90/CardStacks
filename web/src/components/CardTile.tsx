@@ -69,10 +69,11 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
   // (Reverse Holo, Poké/Master Ball Pattern) show a variant picker at all.
   const [selectedVariant, setSelectedVariant] = useState<string | undefined>(undefined)
 
-  // Every priced print, default included. The default print's chip maps to
-  // `undefined` so it keeps using card.prices, same as before variants existed.
-  const printVariants = card.variants ?? []
+  // Only the alternates get a chip — the default print is what the tile
+  // already shows, and most modern cards have a Reverse, so a full chip row
+  // on every tile was clutter. Clicking a chip again goes back to default.
   const defaultPrint = defaultVariant(card)
+  const altPrints = (card.variants ?? []).filter(v => v.name !== defaultPrint)
 
   const toggleHistory = () => {
     setHistoryOpen(open => {
@@ -127,16 +128,16 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
             <button className="history-toggle" title="Price history" onClick={toggleHistory}>📈</button>
           </div>
 
-          {printVariants.length > 1 && (
-            <div className="variant-row" title="This card comes in more than one print">
-              {printVariants.map(v => {
-                const isDefault = v.name === defaultPrint
+          {altPrints.length > 0 && (
+            <div className="variant-row" title="Other prints of this card — click to see their price">
+              {altPrints.map(v => {
+                const nm = basePrice(card, v.name)
                 return (
                   <button
                     key={v.name}
-                    className={'variant-chip' + ((isDefault ? !selectedVariant : selectedVariant === v.name) ? ' sel' : '')}
-                    onClick={() => setSelectedVariant(isDefault ? undefined : v.name)}
-                  >{variantLabel(v.name)}</button>
+                    className={'variant-chip' + (selectedVariant === v.name ? ' sel' : '')}
+                    onClick={() => setSelectedVariant(sel => sel === v.name ? undefined : v.name)}
+                  >{variantLabel(v.name)}{nm > 0 ? ` $${nm.toFixed(2)}` : ''}</button>
                 )
               })}
             </div>

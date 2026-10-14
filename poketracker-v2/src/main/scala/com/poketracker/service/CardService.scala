@@ -139,6 +139,14 @@ trait CardService:
   /** One-shot repair across every user's collection. @return Sets downloaded. */
   def refreshOrphans: Task[Int]
 
+  /**
+   * Re-prices every stale (>6h) set that someone owns cards from. Without
+   * this, owned cards only re-price when someone happens to open their
+   * exact set, so collection values drift indefinitely.
+   * @return Sets refreshed.
+   */
+  def refreshOwnedSetPrices: Task[Int]
+
 object CardService:
 
   final class Live(repo: CardRepository, priceService: PriceService, apiKey: String) extends CardService:
@@ -224,10 +232,13 @@ object CardService:
      * can't be honestly derived from it.
      */
     private def fallbackNm(c: ApiCard): Option[Double] =
-      // Preference order confirmed against pokemontcg.io's own SDK key names.
+      // Default print first, matching PriceService.buildPriceMap: Normal,
+      // then Holo. Reverse and 1st Edition are premium prints — ranking
+      // reverse above normal served commons' reverse price as their price.
+      // Key names confirmed against pokemontcg.io's own SDK.
       val variantPreference = List(
-        "holofoil", "reverseHolofoil", "normal",
-        "firstEditionHolofoil", "firstEditionNormal"
+        "normal", "holofoil", "reverseHolofoil",
+        "firstEditionNormal", "firstEditionHolofoil"
       )
       val fromTcgplayer = c.tcgplayer.flatMap { tp =>
         val ordered = variantPreference.flatMap(tp.prices.get) ++ tp.prices.values.toList
@@ -403,6 +414,16 @@ object CardService:
         _ <- repo.applyFallbackPrices(setId)
                .catchAll(e => ZIO.logWarning(s"applyFallbackPrices failed for $setId: ${e.getMessage}"))
       yield ()
+
+    def refreshOwnedSetPrices: Task[Int] =
+      for
+        setIds <- repo.findOwnedSetIds
+        stale  <- ZIO.filter(setIds)(id => repo.isPricesFetchStale(id).catchAll(_ => ZIO.succeed(false)))
+        // One set at a time — this runs in the background and must not
+        // hammer TCGTracking or hold many DB connections at once.
+        _      <- ZIO.foreachDiscard(stale)(id =>
+                    refreshPrices(id).catchAll(e => ZIO.logWarning(s"Owned-set price refresh failed for $id: ${e.getMessage}")))
+      yield stale.size
 
     /** pokemontcg.io card IDs are "<setId>-<number>"; splits on the last hyphen. */
     private def setIdOf(cardId: String): Option[String] =

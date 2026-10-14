@@ -138,8 +138,7 @@ object PriceService:
      * servers were confirmed getting a cut-off response from TCGTracking
      * for large sets when using the default one, but not with this one.
      */
-    private def get(url: String): Task[String] =
-      val maxAttempts = 5
+    private def get(url: String, maxAttempts: Int = 5): Task[String] =
       def attempt(n: Int): Task[String] =
         ZIO.attemptBlocking {
           val conn = java.net.URI.create(url).toURL.openConnection()
@@ -275,18 +274,21 @@ object PriceService:
       }
 
     /**
-     * Finds a CardSet's matching TCGTracking set ID, or None if no
-     * confident match exists (normal for sets TCGTracking simply doesn't track).
-     *
-     * Tries several matching strategies in order, first match wins:
-     *   1. Our set code matches TCGTracking's abbreviation.
-     *   2. Set names match exactly (ignoring punctuation/spacing).
-     *   3. Names match after stripping a "CODE: " prefix TCGTracking adds.
+     * Every TCGTracking set that plausibly IS this CardSet, most likely
+     * first. Nothing here is trusted on its own — fetchAndStorePrices
+     * checks each candidate's card names before using it, because every
+     * one of these rules has matched the wrong set in production:
+     *   1. Our set code matches TCGTracking's abbreviation — but codes are
+     *      shared ("CL" is Call of Legends AND Trading Card Game Classic;
+     *      BREAKpoint's code also matched Burger King Promos).
+     *   2. Set names match exactly (ignoring punctuation/spacing), or after
+     *      stripping a "CODE: " prefix TCGTracking adds.
+     *   3. Same release date — but promo sets share dates with main sets
+     *      (Lost Thunder matched McDonald's Promos 2018).
      *   4. Fuzzy word-overlap match, for names TCGTracking wraps in extra
      *      wording ("SM - Cosmic Eclipse" vs. "Cosmic Eclipse").
-     *   5. Last resort: an exact release-date match.
      */
-    private def findTcgSetId(set: CardSet): Task[Option[Int]] =
+    private def candidateSets(set: CardSet): Task[List[TcgSetResult]] =
       // Lowercases and strips everything but letters/digits, for loose comparisons.
       val norm = (s: String) => s.toLowerCase.replaceAll("[^a-z0-9]", "")
 
@@ -332,17 +334,18 @@ object PriceService:
       // afterward. So bonus subsets skip the code-match step entirely.
       val isBonusSubset = Set("vault", "gallery").exists(kw => set.name.toLowerCase.contains(kw))
 
-      def exactMatch(candidates: List[TcgSetResult]): Option[TcgSetResult] =
-        (if isBonusSubset then None
-         else candidates.find(s => s.abbreviation.exists(a => set.ptcgoCode.exists(c => norm(a) == norm(c)))))
-          .orElse(candidates.find(s => norm(s.name) == norm(set.name)))
-          .orElse(candidates.find(s => norm(stripTcgPrefix(s.name)) == norm(set.name)))
+      def byCode(all: List[TcgSetResult]): List[TcgSetResult] =
+        if isBonusSubset then Nil
+        else all.filter(s => s.abbreviation.exists(a => set.ptcgoCode.exists(c => norm(a) == norm(c))))
 
-      def bestFuzzyMatch(candidates: List[TcgSetResult]): Option[TcgSetResult] =
+      def byName(all: List[TcgSetResult]): List[TcgSetResult] =
+        all.filter(s => norm(s.name) == norm(set.name) || norm(stripTcgPrefix(s.name)) == norm(set.name))
+
+      def byFuzzy(all: List[TcgSetResult]): List[TcgSetResult] =
         val ourTokens = tokens(set.name)
-        if ourTokens.isEmpty then None
+        if ourTokens.isEmpty then Nil
         else
-          candidates
+          all
             .map(c => (c, expandCandidateTokens(tokens(c.name))))
             // What fraction of our name's words does this candidate cover?
             .map { case (c, candTokens) => (c, candTokens, ourTokens.intersect(candTokens).size.toDouble / ourTokens.size) }
@@ -350,23 +353,54 @@ object PriceService:
             .filter(_._3 >= 0.6)
             // Best coverage first; ties broken by closest card count, then shortest name.
             .sortBy { case (c, candTokens, ratio) => (-ratio, math.abs(c.productCount.getOrElse(0) - set.total), candTokens.size) }
-            .headOption
             .map(_._1)
 
-      // No two TCGTracking sets share a release date, so this is always
-      // unambiguous — used as a last resort for names too different to match by words.
-      def dateMatch(candidates: List[TcgSetResult]): Option[TcgSetResult] =
-        candidates.find(c => c.publishedOn.contains(set.releaseDate.toString))
+      def byDate(all: List[TcgSetResult]): List[TcgSetResult] =
+        all.filter(c => c.publishedOn.contains(set.releaseDate.toString))
 
-      allTcgSets.flatMap { candidates =>
-        exactMatch(candidates).orElse(dateMatch(candidates)).orElse(bestFuzzyMatch(candidates)) match
-          case Some(m) => ZIO.succeed(Some(m.id))
-          case None =>
-            ZIO.logInfo(
-              s"TCGTracking: no match for '${set.name}' (code: ${set.ptcgoCode.getOrElse("none")}) " +
-              s"among ${candidates.size} cached TCGTracking sets"
-            ).as(None)
+      // Capped: each candidate costs one products fetch to verify.
+      allTcgSets.map(all => (byCode(all) ++ byName(all) ++ byFuzzy(all).take(3) ++ byDate(all)).distinctBy(_.id).take(8))
+
+    /**
+     * A card name reduced to what both sources agree on: accents folded,
+     * ★/δ spelled out ("Mudkip ★" vs TCGTracking's "Mudkip Star"), and
+     * TCGTracking's " - 011/110 (Delta Species)" / "(Stamped)" tails dropped.
+     */
+    private def nameKey(name: String): String =
+      val spelled = name.toLowerCase.replace("★", " star").replace("δ", " delta")
+      java.text.Normalizer.normalize(spelled, java.text.Normalizer.Form.NFKD).replaceAll("\\p{M}", "")
+        .split(" - |\\(").head
+        .replaceAll("[^a-z0-9]", "")
+
+    /** Prefix match either way: "latiasdelta" (ours) vs "latias" (theirs). */
+    private def namesAgree(a: String, b: String): Boolean =
+      a.nonEmpty && b.nonEmpty && (a.startsWith(b) || b.startsWith(a))
+
+    /** Fraction of our cards whose number exists in `products` under an agreeing name. */
+    private def nameAgreement(products: List[TcgProduct], cards: List[Card]): Double =
+      val namesByNumber = products
+        .flatMap(p => p.number.map(n => normalizeCollectorNumber(n) -> nameKey(p.name)))
+        .groupMap(_._1)(_._2)
+      val agreeing = cards.count { c =>
+        val ours = nameKey(c.name)
+        namesByNumber.getOrElse(normalizeCollectorNumber(c.number), Nil).exists(namesAgree(ours, _))
       }
+      if cards.isEmpty then 0.0 else agreeing.toDouble / cards.size
+
+    /** Below this share of name-agreeing cards, a candidate isn't this set. */
+    private val MinAgreement = 0.3
+
+    /** A sibling set (e.g. "Generations: Radiant Collection" for our
+     *  Generations, which includes the RC cards) is merged in when it
+     *  name-matches at least this many of our cards. */
+    private val MinSiblingCards = 3
+
+    /** One cheap attempt — wrong candidates are expected, and a dead set id 404s. */
+    private def fetchProductsQuick(tcgSetId: Int): Task[Option[TcgProductResponse]] =
+      get(s"$BASE/$POKEMON_CAT/sets/$tcgSetId/cards", maxAttempts = 1)
+        .flatMap(parse[TcgProductResponse])
+        .map(Some(_))
+        .catchAll(_ => ZIO.none)
 
     /**
      * The main entry point. Finds the set on TCGTracking, fetches its
@@ -374,75 +408,105 @@ object PriceService:
      * and saves the results.
      */
     def fetchAndStorePrices(set: CardSet, cards: List[Card]): Task[Unit] =
-      findTcgSetId(set).flatMap {
-        case None =>
-          // No match on TCGTracking at all — log it and stop. Still
-          // counts as success; "no prices found" is a normal outcome.
-          ZIO.logInfo(s"TCGTracking: skipping prices for '${set.name}' — no set match found")
-
-        case Some(tcgSetId) =>
-          for
-            products     <- fetchProducts(tcgSetId, set.name, cards.size)
-            skuResp      <- fetchSkus(tcgSetId, set.name, products.products.size)
-
-            pricesByProductId = buildPriceMap(skuResp.products)
-            variantsByProduct = buildVariantMap(products.products, skuResp.products)
-
-            // A card's number can map to MORE THAN ONE TCGTracking product
-            // (Poké Ball/Master Ball variants share a base number). Keeps
-            // every product for each number, not just the last one seen —
-            // otherwise a card could have a real price sitting on a
-            // sibling product and still show "no price" here.
-            // Plain-named products sort first: a sibling like "Geodude
-            // (Stamped)" (Generations 043/083, a $15 promo) shares the base
-            // card's number, and first-with-a-price wins below.
-            numberToProductIds = products.products
-                                    .sortBy(_.name.contains("("))
-                                    .flatMap(p => p.number.map(n => normalizeCollectorNumber(n) -> p.id))
-                                    .groupMap(_._1)(_._2)
-
-            _ <- ZIO.logInfo(
-                   s"TCGTracking: '${set.name}' — ${products.products.size} products, " +
-                   s"${pricesByProductId.size} with prices, ${numberToProductIds.size} distinct numbers"
-                 )
-
-            saved <- ZIO.foreach(cards) { card =>
-                       val productIds = numberToProductIds.getOrElse(normalizeCollectorNumber(card.number), Nil)
-
-                       // Every print across every product sharing this number.
-                       // First product wins if two offer the same print.
-                       val variants = productIds.flatMap(variantsByProduct.get)
-                         .foldLeft(Map.empty[String, CardPrices]) { (acc, m) =>
-                           acc ++ m.filter { case (k, _) => !acc.contains(k) }
-                         }
-                       // A failed print save mustn't cost the card its main price.
-                       val saveVariants =
-                         ZIO.when(variants.nonEmpty)(repo.upsertVariantPrices(card.id, variants))
-                           .catchAll(e => ZIO.logWarning(s"TCGTracking: variant save failed for ${card.id}: ${e.getMessage}"))
-
-                       // Every product sharing this card's number, keeping
-                       // only the first one that actually has a price.
-                       saveVariants *> (productIds.flatMap(pricesByProductId.get).headOption match
-                         case Some(prices) => repo.upsertPrices(card.id, prices).as(true)
-                         case None         => ZIO.succeed(false))
-                     }
-
-            matched = saved.count(identity)
-
-            // Only builds the unmatched-cards list when something actually failed to match.
-            unmatchedSample = {
-                                if matched < cards.size then
-                                  val names = cards.zip(saved)
-                                                .collect { case (c, false) => s"${c.name}(${c.number})" }
-                                  s"; unmatched: ${names.take(10).mkString(", ")}" +
-                                  (if names.size > 10 then s" …+${names.size - 10} more" else "")
-                                else ""
-                              }
-            _ <- ZIO.logInfo(
-                   s"TCGTracking: '${set.name}' — $matched/${cards.size} cards matched to prices$unmatchedSample"
-                 )
-          yield ()
+      candidateSets(set).flatMap { candidates =>
+        for
+          scored <- ZIO.foreach(candidates) { c =>
+                      fetchProductsQuick(c.id).map(p => (c, p, p.fold(0.0)(r => nameAgreement(r.products, cards))))
+                    }
+          // Best name agreement wins; ties keep candidateSets' order.
+          ranked  = scored.zipWithIndex.sortBy { case ((_, _, score), i) => (-score, i) }.map(_._1)
+          _      <- ZIO.logInfo(
+                      s"TCGTracking: '${set.name}' candidates: " +
+                      ranked.map { case (c, _, score) => f"${c.name} ${score * 100}%.0f%%" }.mkString(", ")
+                    )
+          _      <- ranked match
+                      case (primary, Some(_), score) :: rest if score >= MinAgreement =>
+                        val siblings = rest.collect {
+                          case (c, Some(p), s) if math.round(s * cards.size) >= MinSiblingCards => (c, p)
+                        }
+                        priceFromSets(set, cards, primary, siblings)
+                      case _ =>
+                        // Normal for sets TCGTracking doesn't track — and far
+                        // better than pricing them from a different set.
+                        ZIO.logInfo(s"TCGTracking: skipping prices for '${set.name}' — no candidate's card names match")
+        yield ()
       }
+
+    /**
+     * Prices `cards` from the primary TCGTracking set plus any sibling sets.
+     * A card only takes prices from products whose NAME agrees with it; if
+     * none do, it falls back to the primary set's products at its number
+     * (names can legitimately differ, e.g. trainers renamed between sources).
+     */
+    private def priceFromSets(
+      set: CardSet, cards: List[Card],
+      primary: TcgSetResult, siblings: List[(TcgSetResult, TcgProductResponse)]
+    ): Task[Unit] =
+      for
+        // The full fetch, with its retry against stale/cut-off responses.
+        primaryProducts <- fetchProducts(primary.id, set.name, cards.size)
+        allSets          = (primary, primaryProducts) :: siblings
+        skuMaps         <- ZIO.foreach(allSets) { case (s, p) => fetchSkus(s.id, s.name, p.products.size).map(_.products) }
+        allSkus          = skuMaps.foldLeft(Map.empty[String, Map[String, TcgSku]])(_ ++ _)
+
+        pricesByProductId = buildPriceMap(allSkus)
+        variantsByProduct = buildVariantMap(allSets.flatMap(_._2.products), allSkus)
+        primaryIds        = primaryProducts.products.map(_.id).toSet
+
+        // A card's number can map to MORE THAN ONE TCGTracking product
+        // (Poké Ball/Master Ball variants and "(Stamped)" promos share the
+        // base number), so every product is kept per number.
+        productsByNumber = allSets.flatMap(_._2.products)
+                             .flatMap(p => p.number.map(n => normalizeCollectorNumber(n) -> p))
+                             .groupMap(_._1)(_._2)
+
+        _ <- ZIO.logInfo(
+               s"TCGTracking: '${set.name}' — ${allSets.map(_._1.name).mkString(" + ")}: " +
+               s"${pricesByProductId.size} priced products, ${productsByNumber.size} distinct numbers"
+             )
+
+        saved <- ZIO.foreach(cards) { card =>
+                   val atNumber = productsByNumber.getOrElse(normalizeCollectorNumber(card.number), Nil)
+                   val ours     = nameKey(card.name)
+                   val agreeing = atNumber.filter(p => namesAgree(ours, nameKey(p.name)))
+                   // Plain-named products first: a sibling like "Geodude
+                   // (Stamped)" (Generations 043/083, a $15 promo) shares
+                   // the base card's number, and first-with-a-price wins.
+                   val productIds = (if agreeing.nonEmpty then agreeing else atNumber.filter(p => primaryIds(p.id)))
+                                      .sortBy(_.name.contains("("))
+                                      .map(_.id)
+
+                   // Every print across every product sharing this number.
+                   // First product wins if two offer the same print.
+                   val variants = productIds.flatMap(variantsByProduct.get)
+                     .foldLeft(Map.empty[String, CardPrices]) { (acc, m) =>
+                       acc ++ m.filter { case (k, _) => !acc.contains(k) }
+                     }
+                   // A failed print save mustn't cost the card its main price.
+                   val saveVariants =
+                     ZIO.when(variants.nonEmpty)(repo.upsertVariantPrices(card.id, variants))
+                       .catchAll(e => ZIO.logWarning(s"TCGTracking: variant save failed for ${card.id}: ${e.getMessage}"))
+
+                   saveVariants *> (productIds.flatMap(pricesByProductId.get).headOption match
+                     case Some(prices) => repo.upsertPrices(card.id, prices).as(true)
+                     case None         => ZIO.succeed(false))
+                 }
+
+        matched = saved.count(identity)
+
+        // Only builds the unmatched-cards list when something actually failed to match.
+        unmatchedSample = {
+                            if matched < cards.size then
+                              val names = cards.zip(saved)
+                                            .collect { case (c, false) => s"${c.name}(${c.number})" }
+                              s"; unmatched: ${names.take(10).mkString(", ")}" +
+                              (if names.size > 10 then s" …+${names.size - 10} more" else "")
+                            else ""
+                          }
+        _ <- ZIO.logInfo(
+               s"TCGTracking: '${set.name}' — $matched/${cards.size} cards matched to prices$unmatchedSample"
+             )
+      yield ()
 
     /**
      * Groups a set's SKUs by product and pulls out one price per
@@ -451,21 +515,35 @@ object PriceService:
      * only by `printing` — all five conditions must come from the SAME
      * printing, or e.g. a Reverse Holofoil's LP price can outrank a
      * Normal's NM price for what's nominally "one card", producing a
-     * nonsensical NM < LP. Prefers the "Normal" printing when present,
-     * otherwise whichever printing actually has an NM price, otherwise
-     * just whatever printing shows up first.
+     * nonsensical NM < LP.
+     *
+     * The chosen printing is the card's DEFAULT print, which the frontend
+     * treats as Normal, else Holo (see `defaultVariant`): Normal, then
+     * Holofoil, then any other printing with a real NM price. Reverse
+     * Holofoil and 1st Edition sort last — they're premium prints, and a
+     * holo rare has no Normal, so an unordered pick used to serve its
+     * Reverse price as the card's price (Porygon-Z GE: $17.86 vs $9.06).
      */
     private def buildPriceMap(products: Map[String, Map[String, TcgSku]]): Map[Int, CardPrices] =
+      // Lower sorts first. Exact Normal/Holofoil names win outright.
+      def printingRank(printing: String): (Int, Boolean, Boolean, String) =
+        val rank = printing match
+          case "Normal"   => 0
+          case "Holofoil" => 1
+          case _          => 2
+        (rank, printing.contains("Reverse"), printing.contains("1st Edition"), printing)
+
       products
         // Keeps only English-language SKUs, dropping the inner SKU IDs we don't need.
         .flatMap { case (productId, skuMap) =>
           productId.toIntOption.map(_ -> skuMap.values.filter(_.language == "EN").toList)
         }
         .map { case (productId, productSkus) =>
-          val byPrinting = productSkus.groupBy(_.printing)
-          val chosenSkus = byPrinting.get("Normal")
-            .orElse(byPrinting.collectFirst { case (_, skus) if skus.exists(_.condition == "NM") => skus })
-            .orElse(byPrinting.values.headOption)
+          val ranked = productSkus.groupBy(_.printing).toList.sortBy { case (p, _) => printingRank(p) }
+          // A printing with no market prices at all can't be the card's price.
+          val priced = ranked.filter { case (_, skus) => skus.exists(_.market.isDefined) }
+          val chosenSkus = priced.collectFirst { case (_, skus) if skus.exists(s => s.condition == "NM" && s.market.isDefined) => skus }
+            .orElse(priced.headOption.map(_._2))
             .getOrElse(Nil)
 
           def priceFor(cond: String): Option[Double] =

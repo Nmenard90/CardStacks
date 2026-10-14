@@ -108,7 +108,15 @@ object Main extends ZIOAppDefault:
                         .catchAll(e => ZIO.logWarning(s"Demo account cleanup failed: ${e.getMessage}"))
                         .repeat(Schedule.spaced(1.hour))
 
-        serverEffect = cleanupJob.forkDaemon *> Server.serve(allRoutes @@ cors)
+        // Keeps owned cards' prices current even for sets nobody opens.
+        // Each pass only touches sets whose prices are older than 6h, so
+        // running it every 6h re-prices each owned set about once a cycle.
+        priceJob    = ZIO.serviceWithZIO[CardService](_.refreshOwnedSetPrices)
+                        .tap(n => ZIO.when(n > 0)(ZIO.logInfo(s"Background price refresh: $n owned set(s) re-priced")))
+                        .catchAll(e => ZIO.logWarning(s"Background price refresh failed: ${e.getMessage}"))
+                        .repeat(Schedule.spaced(6.hours))
+
+        serverEffect = cleanupJob.forkDaemon *> priceJob.forkDaemon *> Server.serve(allRoutes @@ cors)
 
         _          <- ZIO.logInfo(s"Starting PokéTracker API on port $port")
         _          <- serverEffect.provide(appLayer, Server.defaultWithPort(port))

@@ -149,8 +149,16 @@ needs them is pushed.
 - `migration_014_card_variant_prices.sql` (per-print prices) — run 2026-10-14.
 - Migration 003 (per-variant `card_prices`) is DISABLED — never run it.
 
+### Pricing audit (2026-10-14)
+Full audit of live prices vs. TCGTracking found BUG-022, 025, 026, 027, 028
+(see `BUGS.md`). Audit scripts compare every card our API serves against
+TCGTracking: re-run one after any pricing change. After deploying a pricing
+fix, run `UPDATE card_sets SET prices_fetched_at = NULL;` so every set
+re-prices instead of keeping stored wrong values until its next refresh.
+
 ### In flight / not yet on main
-- **BUG-023 per-print pricing:** Phase 2 (record which print an owned copy is,
+- **BUG-023 per-print pricing:** card tiles show only alternate prints as
+  small chips ("Reverse $1.37"). Phase 2 (record which print an owned copy is,
   via a print suffix on condition keys → `inventory_lots.variant_key`) and
   Phase 3 (print selector in Bulk Add) not started.
 - **Excel export by set:** uncommitted in the `tcg-excel` worktree

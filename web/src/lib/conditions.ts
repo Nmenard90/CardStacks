@@ -30,7 +30,7 @@ export const hasFirstEdition = (setId: string | undefined): boolean =>
 
 /** Display names for the backend's print keys (see CardVariant). */
 export const VARIANT_LABELS: Record<string, string> = {
-  normal: 'Normal', holo: 'Holo', reverse: 'Reverse Holo',
+  normal: 'Normal', holo: 'Holo', reverse: 'Reverse',
   pokeball: 'Poké Ball', masterball: 'Master Ball',
 }
 
