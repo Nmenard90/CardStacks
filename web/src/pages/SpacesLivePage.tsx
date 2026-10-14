@@ -623,6 +623,38 @@ function Storage({ userId, space, boxes, binders, reload, unitId, setUnitId, ope
     return level
   }
 
+  /** First stack (top shelf first, left to right) on `target` with room left,
+   *  or null when the whole unit is full. `exceptBoxId` is ignored when
+   *  counting, so a box being moved doesn't block its own new spot. */
+  const firstFreeSpot = (target: StorageUnit, allBoxes: StorageBox[], exceptBoxId = '') => {
+    for (let shelf = 0; shelf < target.shelfCount; shelf++) {
+      for (let stack = 0; stack < target.positionsPerShelf; stack++) {
+        const pile = allBoxes.filter(x => x.id !== exceptBoxId && x.storageUnitId === target.id && x.shelfIndex === shelf && x.stackIndex === stack)
+        if (pile.length < target.maxStackHeight) return { shelfIndex: shelf, stackIndex: stack, stackLevel: nextFreeLevel(pile) }
+      }
+    }
+    return null
+  }
+
+  /** "Send to <unit>" from the moving banner: drops the armed box into the
+   *  first free spot on another shelf unit without having to switch tabs. */
+  const sendToUnit = async (target: StorageUnit) => {
+    const boxId = armed
+    if (!boxId) return
+    setArmed('')
+    try {
+      const freshBoxes = await listBoxes(userId)
+      const spot = firstFreeSpot(target, freshBoxes, boxId)
+      if (!spot) throw new Error(`${target.name} is full.`)
+      await placeBox(userId, boxId, { spaceId: space.id, unitId: target.id, ...spot })
+      await reload()
+      setUnitId(target.id)
+      setMessage(`Moved to ${target.name}, Shelf ${String.fromCharCode(65 + spot.shelfIndex)}, stack ${spot.stackIndex + 1}.`)
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : 'Could not move that box.')
+    }
+  }
+
   const createUnit = async (preset: ShelfPreset | { name: string; unitType: StorageUnitType; color: string; shelfCount: number; positionsPerShelf: number; maxStackHeight: number }) => {
     setPickingUnit(false)
     try {
@@ -652,14 +684,9 @@ function Storage({ userId, space, boxes, binders, reload, unitId, setUnitId, ope
       // just created in a prior click) and collide with the backend's
       // actual layout, 400ing on placement below.
       const freshBoxes = await listBoxes(userId)
-      let shelfIndex = -1, stackIndex = -1, stackLevel = 0
-      for (let shelf = 0; shelf < target.shelfCount && shelfIndex < 0; shelf++) {
-        for (let stack = 0; stack < target.positionsPerShelf; stack++) {
-          const pile = freshBoxes.filter(x => x.storageUnitId === target!.id && x.shelfIndex === shelf && x.stackIndex === stack)
-          if (pile.length < target.maxStackHeight) { shelfIndex = shelf; stackIndex = stack; stackLevel = nextFreeLevel(pile); break }
-        }
-      }
-      if (shelfIndex < 0) throw new Error('This shelf unit is full. Add another shelf unit first.')
+      const spot = firstFreeSpot(target, freshBoxes)
+      if (!spot) throw new Error('This shelf unit is full. Add another shelf unit first.')
+      const { shelfIndex, stackIndex, stackLevel } = spot
       const made = await createBox(userId, choice.name, choice.boxType, choice.capacity, choice.color)
       await createDrawer(made.id, 'Main compartment')
       await placeBox(userId, made.id, { spaceId: space.id, unitId: target.id, shelfIndex, stackIndex, stackLevel })
@@ -732,14 +759,20 @@ function Storage({ userId, space, boxes, binders, reload, unitId, setUnitId, ope
       {message && <div className="spaces-action-message">{message}</div>}
       {armed && (
         <div className="spaces-action-message moving-banner">
-          <span>Moving <b>{boxes.find(b => b.id === armed)?.name}</b> — tap a shelf position to place it.</span>
+          <span>
+            Moving <b>{boxes.find(b => b.id === armed)?.name}</b> — tap a shelf position to place it
+            {space.storageUnits.length > 1 ? ', or switch shelf unit with the tabs below.' : '.'}
+          </span>
+          {space.storageUnits.filter(u => u.id !== unit?.id).map(u => (
+            <button key={u.id} onClick={() => void sendToUnit(u)}>→ {u.name}</button>
+          ))}
           <button onClick={() => setArmed('')}>Cancel</button>
         </div>
       )}
 
       <div className="live-unit-tabs">
         {space.storageUnits.map(x => (
-          <button className={unit?.id === x.id ? 'active' : ''} onClick={() => setUnitId(x.id)} key={x.id}>
+          <button className={`${unit?.id === x.id ? 'active' : ''} ${armed && unit?.id !== x.id ? 'drop-ready' : ''}`} onClick={() => setUnitId(x.id)} key={x.id}>
             {x.name}<small>{boxes.filter(b => b.storageUnitId === x.id).length} boxes</small>
           </button>
         ))}
