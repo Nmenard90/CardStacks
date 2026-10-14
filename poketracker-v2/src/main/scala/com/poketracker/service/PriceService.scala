@@ -393,7 +393,11 @@ object PriceService:
             // every product for each number, not just the last one seen —
             // otherwise a card could have a real price sitting on a
             // sibling product and still show "no price" here.
+            // Plain-named products sort first: a sibling like "Geodude
+            // (Stamped)" (Generations 043/083, a $15 promo) shares the base
+            // card's number, and first-with-a-price wins below.
             numberToProductIds = products.products
+                                    .sortBy(_.name.contains("("))
                                     .flatMap(p => p.number.map(n => normalizeCollectorNumber(n) -> p.id))
                                     .groupMap(_._1)(_._2)
 

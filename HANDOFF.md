@@ -1,9 +1,12 @@
-# PokéTracker — Developer Handoff
+# CardStacks (PokéTracker) — Developer Handoff
 
 Working context for continuing development. For the public-facing overview see
 `README.md`; for the live defect list see `BUGS.md`.
 
-_Last updated: 2026-06-29._
+_Last updated: 2026-10-14._
+
+**Every session: read this file and `BUGS.md` before starting, and update
+"Current state" (and `BUGS.md`) before finishing.**
 
 ---
 
@@ -48,7 +51,6 @@ tcg/
 │       ├── models/        # Card, CardSet, Binder, ...
 │       └── Main.scala
 │   └── sql/schema.sql
-├── files/            # legacy Node prototype — NOT part of the live app
 ├── README.md
 ├── BUGS.md
 └── HANDOFF.md
@@ -81,9 +83,9 @@ tcg/
   `PUT …/:binderId/slot/:slotIndex`
 - Users: `GET /api/users`, `GET /api/users/:username`, `POST /api/users`,
   `PUT /api/users/:userId/location`
-- **Admin/maintenance:** `GET /api/admin/refresh/:setId` (re-fetch one set's
-  cards + prices), `GET /api/admin/refresh-orphans` (backfill any owned card
-  missing from the catalog).
+- **Admin/maintenance:** none. The old `/api/admin/refresh*` routes were
+  removed in 1f95bbf (no admin-role mechanism exists yet). Prices refresh on
+  their own: opening a set re-fetches its prices if they're older than 6h.
 
 ## Code standards (please keep)
 
@@ -110,36 +112,57 @@ tcg/
 - **Catalog vs collection.** A collection entry references a `cardId`; the card's
   name/number/price live in the `cards`/`card_prices` catalog tables. If a card
   is added whose set was never loaded, it can become an "orphan" (entry with no
-  catalog row) → blank/$0. `CardService.ensureCached` prevents this on save;
-  `/api/admin/refresh-orphans` repairs existing ones. `getCardsBySet` and
+  catalog row) → blank/$0. `CardService.ensureCached` prevents this on save. `getCardsBySet` and
   `searchCards` fall back to the pokemontcg.io API and cache results; only
   `getCardsBySet`/`refreshSet` also fetch **prices**.
 - **Prices** come from TCGTracking via `PriceService`, fetched at the set level.
   A card can have a catalog row but no price (fetch failed or source lacks it) →
   shows "no price". See BUG-019.
+- **One collector number ≠ one TCGTracking product.** Normal / Holofoil /
+  Reverse Holofoil are SKU `printing`s of ONE product; Poké Ball / Master Ball
+  Pattern and "(Stamped)" promos are SEPARATE products on the same number,
+  told apart only by a "(…)" suffix in the name. Plain-named products win for
+  the card's main price (BUG-022). Per-print prices live in
+  `card_variant_prices`; `card_prices` stays one row per card (default print).
+- **Which print a physical copy is can't be derived** — all prints share the
+  number, so it has to be the user's choice (BUG-023).
 - **Conditions** are stored as a condition→quantity map; keys include a
   `" 1st Ed"` suffix variant. `lib/conditions.ts` holds the price math and
   list↔map conversions; `baseCond` strips the suffix for the backend
   `selectedCond`.
 
-## Current state
+## Current state (2026-10-14)
 
-Working: the Scala backend + cached catalog (170+ sets), collection model,
-binders, auth, CSV import, and the export scope picker. The bulk-add page was
-rewritten this session and is the most-changed area.
+Live: Supabase auth + demo mode, collection/bulk add, binders, Spaces (shelves,
+boxes with compartments, display cases, auto-filing into per-set boxes), Trade
+Analyzer, Rip Tracker, price history, "Missing only" per-set view, per-print
+prices with a picker on card tiles.
 
-Recently changed (2026-06-29): see `BUGS.md` → "Fixed this session". In short —
-BulkAddPage rewritten (reducer state, localStorage persistence, set selector, two
-number boxes, reliable number search with an ambiguity picker; sidebar removed),
-export scope picker wired in, and backend orphan prevention/repair deployed.
+**Git history was rewritten** (old copy in `C:\Users\nicho\tcg-before-history-rewrite-backup`).
+`C:\Users\nicho\tcg` is still on the OLD history — don't work or commit there;
+use a worktree off current `origin/main`.
+
+### Migrations run in production
+Migrations are applied by hand in Railway's SQL editor, before the code that
+needs them is pushed.
+- `migration_013_drawer_auto_set.sql` (box compartments) — run 2026-10-14.
+- `migration_014_card_variant_prices.sql` (per-print prices) — run 2026-10-14.
+- Migration 003 (per-variant `card_prices`) is DISABLED — never run it.
+
+### In flight / not yet on main
+- **BUG-023 per-print pricing:** Phase 2 (record which print an owned copy is,
+  via a print suffix on condition keys → `inventory_lots.variant_key`) and
+  Phase 3 (print selector in Bulk Add) not started.
+- **Excel export by set:** uncommitted in the `tcg-excel` worktree
+  (`web/src/lib/xlsxExport.ts`, `CollectionPage.tsx`, `package.json`).
+- **TCGTracking PriceService rewrite:** uncommitted in
+  `.claude/worktrees/m1-tcgtracking-openapi` (+ tests, `docs/agent-reports/`).
+  Overlaps the per-print pricing code — merge with care.
 
 ## Known issues & next steps
 
 Tracked in `BUGS.md`. Highest-value next items:
-1. **BUG-019** — cards showing "no price" (the last thing making cards look
-   blank). Investigate the price-fetch path.
-2. **BUG-012** — Analyzer "Quick Add from Collection" stub.
-3. **BUG-010 / BUG-013** — binder image cropping and a shared design system
-   (both improve the portfolio impression).
-4. **BUG-017 / BUG-018** — card detail view with purchase price + price history,
-   and TCGplayer last-sold pricing (the larger feature work).
+1. **BUG-023** — finish per-print ownership (Phase 2) and Bulk Add (Phase 3).
+2. Land or drop the Excel export and the PriceService rewrite worktrees.
+3. **BUG-013** — shared design system.
+4. **BUG-018** — TCGplayer last-sold pricing.

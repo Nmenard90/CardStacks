@@ -4,6 +4,14 @@
 
 The active product is `web/` (React frontend) backed by `poketracker-v2/` (Scala/ZIO backend, deployed on Railway — `web/`'s API calls go here). There is no other codebase in this repo: the old Node/HTML prototype (`files/`) and the abandoned rewrite effort (`V3/`) have both been deleted. All implementation belongs in `web/` and `poketracker-v2/`.
 
+## Project Docs — Read First, Keep Current
+
+- Start every session by reading `HANDOFF.md` (current state, in-flight work,
+  migrations already run, domain gotchas) and `BUGS.md`.
+- Before finishing, update `HANDOFF.md` → "Current state" and `BUGS.md` with
+  anything that changed: shipped work, new bugs, migrations run, work left
+  half-done and where it lives.
+
 ## Foreman-Controlled Development
 
 This repository is developed through the local TCG Foreman.

@@ -7,7 +7,7 @@ IDs sequential and never reuse a number.
 **Status:** `OPEN` · `IN PROGRESS` · `FIXED` · `WONTFIX` · `NEEDS REPRO`
 **Severity:** `S1` blocker/crash · `S2` correctness · `S3` minor/UX · `S4` hygiene/docs · `ENH` enhancement
 
-_Last updated: 2026-06-29 (session 2)._
+_Last updated: 2026-10-14._
 
 ---
 
@@ -35,7 +35,10 @@ _Last updated: 2026-06-29 (session 2)._
 | 018 | ENH | OPEN | Pricing data | TCGplayer "last sold" price, per condition. |
 | 019 | S2 | FIXED | Pricing / catalog | First-load always showed "no price"; infinite retry on partial matches. Fixed. |
 | 020 | S1 | FIXED | Auth (whole backend) | No real authentication existed — any endpoint's `userId` path segment was trusted from the client, and `GET /api/users` publicly listed every registered username. Replaced with Supabase Auth (email+password) + backend JWT verification + per-request ownership checks (`security/AuthGuard.scala`). |
-| 021 | S2 | OPEN | Storage (boxes/drawers by internal id) | A handful of endpoints keyed only by an internal object id (`/api/storage/boxes/:id`, `/api/storage/drawers/:id`) are authenticated but not yet ownership-checked — closing this needs a DB lookup per object, not just a path pattern. See `security/AuthGuard.scala` header. |
+| 021 | S2 | FIXED | Storage (boxes/drawers by internal id) | A handful of endpoints keyed only by an internal object id (`/api/storage/boxes/:id`, `/api/storage/drawers/:id`) are authenticated but not yet ownership-checked — closing this needs a DB lookup per object, not just a path pattern. See `security/AuthGuard.scala` header. Fixed in 1f95bbf (SQL-level ownership checks). |
+| 022 | S2 | FIXED | Pricing (PriceService) | A card's price came from a "(Stamped)"/promo sibling sharing its collector number — Generations Geodude 43/83 showed $15 (the stamped promo) instead of ~$0.25. Plain-named products now win. |
+| 023 | ENH | IN PROGRESS | Pricing + collection | Per-print pricing (Normal / Holo / Reverse Holo / Poké Ball / Master Ball). Prices + CardTile picker shipped (279a834, migration 014). Still to do: record which print an owned copy is (Phase 2) and a print selector in Bulk Add (Phase 3). |
+| 024 | S2 | FIXED | BulkAddPage | Numpad "." silently toggled 1st Edition — mislabeled 783 lots across 692 cards. Shortcut removed, 1st Ed limited to sets that had it (94afb86). |
 
 ---
 
