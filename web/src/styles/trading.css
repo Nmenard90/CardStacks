@@ -1,0 +1,171 @@
+/* Share-link trading: TradePage (/trade) and SharePage (/s/:slug).
+   Uses the app-wide tokens from index.css (--surface, --accent, ...). */
+
+.trade-main { max-width: 1100px; margin: 0 auto; padding: 16px 16px 120px; color: var(--text); }
+.trade-main h3 { font-size: 1.1rem; margin: 18px 0 10px; }
+.trade-main h3 small, .trade-main h4 small { color: var(--muted); font-weight: 500; font-size: .8rem; margin-left: 6px; }
+.trade-main .muted, .trade-page .muted, .share-page .muted { color: var(--muted); }
+
+.trade-main button, .offer-sheet button, .offer-tray button {
+  background: var(--surface2); color: var(--text); border: 2px solid var(--border);
+  border-radius: 10px; padding: 7px 12px; font-weight: 700; cursor: pointer;
+}
+.trade-main button.primary, .offer-sheet button.primary, .offer-tray button.primary {
+  background: var(--accent); color: #1a1430;
+}
+.trade-main button:disabled, .offer-sheet button:disabled { opacity: .5; cursor: default; }
+.trade-main input, .trade-main select, .trade-main textarea,
+.offer-sheet input, .offer-sheet textarea {
+  background: var(--surface); color: var(--text); border: 2px solid var(--border);
+  border-radius: 10px; padding: 8px 10px; font: inherit; width: 100%; box-sizing: border-box;
+}
+
+.trade-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.trade-tabs button.active { background: var(--accent); color: #1a1430; }
+.trade-badge {
+  display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px;
+  background: var(--red); color: #fff; font-size: .75rem; line-height: 18px; text-align: center;
+}
+
+.trade-empty { max-width: 520px; margin: 48px auto; text-align: center; color: var(--text); padding: 0 16px; }
+.trade-empty p { color: var(--muted); }
+.trade-empty a { color: var(--accent); }
+
+/* ── offers ── */
+.offers-layout { display: grid; grid-template-columns: minmax(240px, 340px) 1fr; gap: 16px; align-items: start; }
+.offer-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.offer-row { width: 100%; text-align: left; display: grid; gap: 2px; background: var(--surface) !important; }
+.offer-row.active { border-color: var(--accent) !important; }
+.offer-row.unread b::after { content: ' •'; color: var(--red); }
+.offer-row small { color: var(--muted); font-weight: 500; }
+.offer-dir { font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; color: var(--accent2); }
+.offer-dir.buyer { color: var(--yellow); }
+.status-pending { color: var(--yellow); }
+.status-accepted, .status-completed { color: var(--green); }
+.status-declined, .status-withdrawn, .status-cancelled { color: var(--muted); }
+
+.offer-detail { background: var(--surface); border: 2px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; }
+.offer-detail h3 { margin: 6px 0 2px; }
+.offer-back { display: none; }
+.offer-status { margin: 0 0 10px; font-weight: 700; }
+.offer-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.offer-side h4 { margin: 4px 0 8px; }
+.offer-side .offer-side h4 { font-size: .85rem; }
+.offer-cards { display: grid; gap: 6px; }
+.offer-card, .offer-line, .give-match { display: flex; align-items: center; gap: 8px; }
+.offer-card img, .offer-line img, .give-match img { width: 38px; border-radius: 4px; }
+.offer-card span, .offer-line span, .give-match span { display: grid; flex: 1; min-width: 0; }
+.offer-card small, .offer-line small, .give-match small { color: var(--muted); }
+.offer-cash { font-size: 1.15rem; font-weight: 800; margin: 0 0 8px; }
+.offer-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 6px; }
+.offer-note { color: var(--muted); font-size: .85rem; }
+
+.offer-thread { margin-top: 14px; border-top: 2px solid var(--border); padding-top: 10px; display: grid; gap: 8px; }
+.offer-thread h4 { margin: 0; }
+.offer-msg { background: var(--surface2); border-radius: 12px; padding: 8px 10px; max-width: 85%; }
+.offer-msg.mine { justify-self: end; background: var(--surface3); }
+.offer-msg small { color: var(--muted); }
+.offer-msg p { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.offer-compose { display: flex; gap: 8px; align-items: flex-end; }
+.offer-compose textarea { flex: 1; resize: vertical; }
+
+/* ── trade list / share grid ── */
+.trade-add { background: var(--surface); border: 2px solid var(--border); border-radius: var(--radius-sm); padding: 4px 14px 14px; }
+.trade-pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-top: 8px; }
+.trade-pick { display: flex !important; align-items: center; gap: 8px; text-align: left; }
+.trade-pick img { width: 34px; border-radius: 4px; }
+.trade-pick span { display: grid; font-size: .85rem; }
+.trade-pick small { color: var(--muted); }
+.trade-edit { display: flex; gap: 14px; margin-top: 12px; flex-wrap: wrap; }
+.trade-edit > img { width: 130px; border-radius: 8px; align-self: flex-start; }
+.trade-edit-fields { flex: 1; min-width: 220px; display: grid; gap: 8px; }
+.trade-edit-fields label { display: grid; gap: 4px; font-size: .85rem; color: var(--muted); }
+.trade-edit-actions { display: flex; gap: 8px; }
+
+.trade-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.trade-tile {
+  background: var(--surface); border: 2px solid var(--border); border-radius: var(--radius-sm);
+  padding: 8px; display: flex; flex-direction: column; gap: 4px;
+}
+.trade-tile.picked { border-color: var(--accent); }
+.trade-tile img { width: 100%; border-radius: 6px; }
+.trade-tile b { font-size: .9rem; }
+.trade-tile small { color: var(--muted); font-size: .75rem; }
+.trade-tile button { margin-top: auto; }
+.trade-ask { color: var(--accent-ink); font-weight: 800; font-size: .85rem; }
+.trade-note { font-style: italic; }
+.trade-tile-actions { display: flex; gap: 6px; margin-top: auto; }
+.trade-tile-actions button { flex: 1; padding: 5px; }
+
+/* ── share settings ── */
+.share-tab { display: grid; gap: 14px; }
+.share-link-box, .share-options { background: var(--surface); border: 2px solid var(--border); border-radius: var(--radius-sm); padding: 4px 14px 14px; }
+.share-url { display: flex; gap: 8px; align-items: center; }
+.share-url a { color: var(--accent); white-space: nowrap; }
+.share-off { color: var(--yellow); }
+.share-toggle { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; cursor: pointer; }
+.share-toggle input { width: 20px !important; height: 20px; margin-top: 2px; flex: none; }
+.share-toggle span { display: grid; }
+.share-toggle small { color: var(--muted); }
+.share-bio { display: grid; gap: 6px; margin-top: 6px; }
+.share-bio small { color: var(--muted); }
+.share-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+/* ── public share page ── */
+.share-page { min-height: 100vh; background: var(--bg); }
+.share-loading { color: var(--muted); text-align: center; padding: 60px 16px; }
+.share-hero { max-width: 1100px; margin: 0 auto; padding: 22px 16px 6px; color: var(--text); }
+.share-brand { color: var(--accent); font-weight: 800; text-decoration: none; letter-spacing: .04em; }
+.share-hero h1 { margin: 8px 0 4px; font-size: 1.8rem; }
+.share-meta { color: var(--muted); margin: 0; }
+.share-bio-text { margin: 10px 0 0; white-space: pre-wrap; }
+.share-owner-note { background: var(--surface2); border-radius: 10px; padding: 8px 12px; display: inline-block; }
+.share-owner-note a { color: var(--accent); }
+.share-controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.share-controls .trade-tabs { margin: 0; }
+.share-controls > input { max-width: 260px; }
+
+.offer-tray {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; z-index: 40;
+  width: min(640px, calc(100% - 32px)); box-sizing: border-box;
+  display: flex; gap: 10px; align-items: center; justify-content: space-between;
+  background: var(--surface3); color: var(--text); border: 2px solid var(--border);
+  border-radius: 16px; padding: 10px 12px; box-shadow: var(--shadow);
+}
+.offer-sheet { position: fixed; inset: 0; z-index: 50; background: #0009; display: flex; justify-content: center; align-items: flex-end; }
+.offer-sheet-inner {
+  background: var(--bg); color: var(--text); width: min(640px, 100%); max-height: 92vh; overflow-y: auto;
+  border-radius: 18px 18px 0 0; padding: 14px 16px 24px; box-sizing: border-box; display: grid; gap: 12px;
+}
+.offer-sheet-inner header { display: flex; justify-content: space-between; align-items: center; }
+.offer-sheet-inner h3, .offer-sheet-inner h4 { margin: 0 0 6px; }
+.offer-line { margin-bottom: 6px; }
+.offer-line input { width: 64px !important; }
+.offer-line button { padding: 4px 8px; }
+.offer-cash-input { display: grid; gap: 4px; margin-bottom: 10px; font-weight: 700; }
+.give-picker { display: grid; gap: 6px; }
+.give-match > div { display: flex; gap: 4px; flex-wrap: wrap; }
+.give-match button { padding: 3px 8px; font-size: .8rem; }
+.offer-send { width: 100%; padding: 12px !important; font-size: 1rem; }
+
+/* Unread badge on the Trade nav link (HeaderNav). */
+.nav-badge {
+  display: inline-block; min-width: 16px; padding: 0 4px; margin-left: 4px; border-radius: 8px;
+  background: var(--red); color: #fff; font-size: .7rem; line-height: 16px; text-align: center; vertical-align: top;
+}
+.bottom-nav-link { position: relative; }
+.bottom-nav-link .nav-badge { position: absolute; top: 2px; right: 50%; margin-right: -22px; }
+
+@media (max-width: 760px) {
+  .offers-layout { grid-template-columns: 1fr; }
+  .offers-layout.has-open .offer-list { display: none; }
+  .offer-back { display: inline-block; margin-bottom: 4px; }
+  .offer-sides { grid-template-columns: 1fr; }
+  .trade-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+  .share-controls > input { max-width: none; }
+}
+
+/* LoginScreen embedded in the offer sheet: just the sign-in card. */
+.offer-login #loginScreen.auth-page { min-height: 0; }
+.offer-login .auth-hero { display: none; }
+.offer-login .auth-panel { flex: 1; padding: 0; }

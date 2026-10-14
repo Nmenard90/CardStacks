@@ -12,9 +12,11 @@
  * DEPENDS ON: pages/*, context/UserContext, components/Toast
  */
 
-import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom'
+import { useEffect } from 'react'
+import { BrowserRouter, Navigate, Routes, Route, useNavigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { UserProvider } from './context/UserContext'
+import { UserProvider, useUser } from './context/UserContext'
+import { RETURN_KEY } from './lib/trading'
 import { ToastProvider } from './components/Toast'
 import { DemoBanner } from './components/DemoBanner'
 import { CollectionPage } from './pages/CollectionPage'
@@ -24,6 +26,8 @@ import { ConventionModePage } from './pages/ConventionModePage'
 import { BulkAddPage } from './pages/BulkAddPage'
 import { SpacesLivePage } from './pages/SpacesLivePage'
 import { LegalPage } from './pages/LegalPage'
+import { TradePage } from './pages/TradePage'
+import { SharePage } from './pages/SharePage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,6 +38,21 @@ const queryClient = new QueryClient({
   },
 })
 
+/** Google sign-in always lands back on the site root. If the visitor started
+ *  it from someone's share page (SharePage stores the path), send them
+ *  straight back there so they can finish their offer. */
+function ReturnAfterLogin() {
+  const { user } = useUser()
+  const navigate = useNavigate()
+  useEffect(() => {
+    if (!user) return
+    let to: string | null = null
+    try { to = sessionStorage.getItem(RETURN_KEY); sessionStorage.removeItem(RETURN_KEY) } catch { /* storage blocked */ }
+    if (to && to.startsWith('/s/') && window.location.pathname !== to) navigate(to, { replace: true })
+  }, [user, navigate])
+  return null
+}
+
 /** Pages handle their own login gating — CollectionPage shows the login
  *  screen itself; the rest redirect to "/" when nobody's signed in. */
 export default function App() {
@@ -43,6 +62,7 @@ export default function App() {
         <DemoBanner />
         <ToastProvider>
           <BrowserRouter>
+            <ReturnAfterLogin />
             <Routes>
               <Route path="/"                  element={<SpacesLivePage />} />
               <Route path="/explore"           element={<CollectionPage />} />
@@ -53,6 +73,8 @@ export default function App() {
               <Route path="/spaces/:spaceId/binders/:binderId" element={<BinderViewPage />} />
               <Route path="/analyzer"          element={<AnalyzerPage />} />
               <Route path="/convention"        element={<ConventionModePage />} />
+              <Route path="/trade"             element={<TradePage />} />
+              <Route path="/s/:slug"           element={<SharePage />} />
               <Route path="/privacy"           element={<LegalPage page="privacy" />} />
               <Route path="/terms"             element={<LegalPage page="terms" />} />
               <Route path="/shelf"             element={<Navigate to="/" replace />} />

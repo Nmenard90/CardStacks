@@ -40,13 +40,14 @@ import zio.http.*
 object AuthGuard:
 
   /** Resource segments where the very next path segment is always a userId. */
-  private val userScopedResources = Set("binders", "collection", "spaces", "shelf")
+  private val userScopedResources = Set("binders", "collection", "spaces", "shelf", "trading")
 
   /** Pure route classification kept package-visible so security-boundary
    *  regression tests do not need to construct a live HTTP application. */
   private[poketracker] def isPublicPath(method: Method, path: String): Boolean =
     method == Method.OPTIONS || path == "/health" || path == "/api/sets" ||
-      path == "/api/search" || path.startsWith("/api/cards")
+      path == "/api/search" || path.startsWith("/api/cards") ||
+      (method == Method.GET && path.startsWith("/api/share/"))
 
   private def isPublic(req: Request): Boolean =
     isPublicPath(req.method, req.url.path.toString)

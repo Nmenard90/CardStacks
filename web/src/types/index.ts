@@ -286,3 +286,78 @@ export interface VendorNote {
   note: string
   createdAt: string
 }
+
+// ─── Share-link trading (see backend models/Trading.scala) ──────────────────
+
+export interface ShareSettings {
+  slug: string
+  enabled: boolean
+  collectionPublic: boolean
+  bio?: string
+}
+
+/** A card on a share page / trade list. Never carries purchase prices. */
+export interface TradeCardView {
+  cardId: string
+  name: string
+  setId: string
+  number: string
+  rarity?: string
+  imageSmall: string
+  imageLarge: string
+  condition: string
+  quantity: number
+  marketPrice?: number
+}
+
+export interface TradeListItem {
+  id: string
+  card: TradeCardView
+  askingPrice?: number   // absent = "make me an offer"
+  note?: string
+  updatedAt: string
+}
+
+export interface SharedProfile {
+  username: string
+  reputation: number
+  memberSince: string
+  bio?: string
+  tradeList: TradeListItem[]
+  collection?: TradeCardView[]   // only when the owner made it public
+}
+
+export interface OfferCard {
+  cardId: string
+  name: string
+  imageSmall: string
+  condition: string
+  quantity: number
+  marketPrice?: number
+}
+
+export interface OfferMessage {
+  id: string
+  senderId: string
+  sender: string
+  body: string
+  createdAt: string
+}
+
+export type CardOfferStatus = 'Pending' | 'Accepted' | 'Declined' | 'Withdrawn' | 'Cancelled' | 'Completed'
+
+export interface CardOffer {
+  id: string
+  role: 'seller' | 'buyer'   // the viewer's side
+  otherUser: string
+  wants: OfferCard[]         // cards the buyer wants from the seller
+  gives: OfferCard[]         // cards the buyer puts up
+  cashAmount?: number        // buyer pays seller, settled off-platform
+  status: CardOfferStatus
+  unread: boolean
+  createdAt: string
+  updatedAt: string
+  messages: OfferMessage[]
+}
+
+export interface OfferLine { cardId: string; condition: string; quantity: number }

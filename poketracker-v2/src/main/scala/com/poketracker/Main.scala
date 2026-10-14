@@ -42,7 +42,8 @@ object Main extends ZIOAppDefault:
                        RipTrackerRepository.layer ++
                        StorageRepository.layer ++
                        RoomRepository.layer ++
-                       ShelfRepository.layer)
+                       ShelfRepository.layer ++
+                       TradingRepository.layer)
 
         // Built separately so CardService.layer can depend on it directly below.
         priceLayer  = repoLayer >>> PriceService.layer
@@ -53,7 +54,8 @@ object Main extends ZIOAppDefault:
                        UserService.layer ++
                        BinderService.layer ++
                        StorageService.layer ++
-                       RoomService.layer)
+                       RoomService.layer ++
+                       TradingService.layer)
 
         // Needs both the raw repositories AND the already-built core
         // services above (not just their repositories), so it can't join the batch.
@@ -71,7 +73,8 @@ object Main extends ZIOAppDefault:
         // admin authorization mechanism exists.
         publicRoutes    = Routes(Method.GET / "health" -> Handler.ok) ++
                           CardRoutes.publicRoutes ++
-                          RipRoutes.verdictRoutes
+                          RipRoutes.verdictRoutes ++
+                          TradingRoutes.publicRoutes
 
         // Protected: AuthGuard verifies the caller's Supabase token, provisions/
         // loads their profile, and 403s any request whose path userId doesn't
@@ -83,6 +86,7 @@ object Main extends ZIOAppDefault:
                            ShelfRoutes.routes ++
                            RoomRoutes.routes ++
                            RipRoutes.sessionRoutes ++
+                           TradingRoutes.routes ++
                            AuthRoutes.routes) @@ AuthGuard.aspect
 
         allRoutes       = publicRoutes ++ protectedRoutes

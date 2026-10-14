@@ -15,7 +15,9 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { useUser } from '../context/UserContext'
+import { getUnreadOffers } from '../api/trading'
 
 interface NavItem { to: string; label: string }
 
@@ -23,7 +25,22 @@ const ITEMS: NavItem[] = [
   { to: '/',                   label: '🏠 Spaces' },
   { to: '/explore',            label: '🗂 Explore' },
   { to: '/add',                label: '⚡ Add Cards' },
+  { to: '/trade',              label: '🤝 Trade' },
 ]
+
+/** Offers with activity the user hasn't seen — shown as a badge on Trade.
+ *  Polls once a minute; demo accounts can't trade, so they never ask. */
+function useUnreadOffers(): number {
+  const { user } = useUser()
+  const { data = 0 } = useQuery({
+    queryKey: ['unread-offers', user?.id],
+    queryFn: () => getUnreadOffers(user!.id),
+    enabled: !!user && !user.isAnonymous,
+    refetchInterval: 60_000,
+    retry: false,
+  })
+  return data
+}
 
 const TOOLS_ITEMS: NavItem[] = [
   { to: '/analyzer',           label: '🧪 Trade Analyzer' },
@@ -71,6 +88,8 @@ function ToolsMenu({ triggerClassName, trigger, menuClassName }: {
 export function HeaderNav() {
   const { pathname } = useLocation()
   const { setUser } = useUser()
+  const unread = useUnreadOffers()
+  const badge = (to: string) => (to === '/trade' && unread > 0 ? <span className="nav-badge">{unread}</span> : null)
 
   return (
     <>
@@ -81,7 +100,7 @@ export function HeaderNav() {
             to={item.to}
             className={'nav-link' + (pathname === item.to || (item.to === '/' && pathname.startsWith('/spaces/')) ? ' active' : '')}
           >
-            {item.label}
+            {item.label}{badge(item.to)}
           </Link>
         ))}
         <ToolsMenu
@@ -107,6 +126,7 @@ export function HeaderNav() {
             >
               <span className="bnl-icon">{icon}</span>
               <span className="bnl-label">{rest.join(' ')}</span>
+              {badge(item.to)}
             </Link>
           )
         })}
