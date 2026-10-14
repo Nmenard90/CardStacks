@@ -9,6 +9,8 @@
  *     thread, which polls every 10s while open.
  *   - Trade list: cards hand-picked from the collection as available, each
  *     with an optional asking price (blank = "make me an offer").
+ *     The list and the whole collection below it are both browsable
+ *     (CardBrowser: sort by value/name/set/recent, filter by set or name).
  *   - Share link: the one link to hand out, whether it's on, whether it
  *     also exposes the whole collection, a short bio, and a way to replace
  *     the link (the old one stops working).
@@ -32,6 +34,8 @@ import {
   removeTradeItem, saveTradeItem, setOfferStatus, tradingError, updateShareSettings,
 } from '../api/trading'
 import { money, shareOrigin } from '../lib/trading'
+import { condPrice } from '../lib/conditions'
+import { CardBrowser, SetLine, type BrowseFields } from '../components/CardBrowser'
 import type { CardOffer, OfferCard, CardOfferStatus, OwnedCard, TradeListItem } from '../types'
 
 type Tab = 'offers' | 'list' | 'share'
@@ -264,28 +268,43 @@ interface Editing {
   owned: Record<string, number>; askingPrice: string; note: string
 }
 
+const condMap = (o: OwnedCard) =>
+  Object.fromEntries(o.conditions.filter(c => c.quantity > 0).map(c => [c.condition, c.quantity])) as Record<string, number>
+
+/** Best per-copy market value across the conditions actually owned. */
+const ownedValue = (o: OwnedCard): number | null => {
+  const prices = o.conditions.filter(c => c.quantity > 0).map(c => condPrice(o.card, c.condition)).filter(p => p > 0)
+  return prices.length ? Math.max(...prices) : null
+}
+const ownedFields = (o: OwnedCard): BrowseFields => ({
+  name: o.card.name, setId: o.card.setId, number: o.card.number, value: ownedValue(o),
+  quantity: o.conditions.reduce((n, c) => n + Math.max(0, c.quantity), 0), addedAt: o.updatedAt,
+})
+const listedFields = (i: TradeListItem): BrowseFields => ({
+  name: i.card.name, setId: i.card.setId, number: i.card.number, value: i.askingPrice ?? i.card.marketPrice ?? null,
+  quantity: i.card.quantity, addedAt: i.updatedAt,
+})
+
 function TradeListTab({ userId }: { userId: string }) {
   const qc = useQueryClient()
   const toast = useToast()
   const { data: items = [], isLoading } = useQuery({ queryKey: ['trade-list', userId], queryFn: () => getTradeList(userId) })
-  const { data: owned = [] } = useQuery({ queryKey: ['owned', userId], queryFn: () => getOwnedCards(userId) })
-  const [search, setSearch] = useState('')
+  const { data: owned = [], isLoading: ownedLoading } = useQuery({ queryKey: ['owned', userId], queryFn: () => getOwnedCards(userId) })
   const [editing, setEditing] = useState<Editing | null>(null)
   const [saving, setSaving] = useState(false)
 
   const ownedById = useMemo(() => new Map(owned.map(o => [o.cardId, o])), [owned])
-  const matches = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return []
-    return owned.filter(o => o.card.name.toLowerCase().includes(q)).slice(0, 24)
-  }, [owned, search])
-
-  const condMap = (o: OwnedCard) =>
-    Object.fromEntries(o.conditions.filter(c => c.quantity > 0).map(c => [c.condition, c.quantity])) as Record<string, number>
+  const listedByCard = useMemo(() => {
+    const m = new Map<string, TradeListItem[]>()
+    for (const i of items) m.set(i.card.cardId, [...(m.get(i.card.cardId) ?? []), i])
+    return m
+  }, [items])
+  const ownedNonZero = useMemo(() => owned.filter(o => o.conditions.some(c => c.quantity > 0)), [owned])
 
   const startFromOwned = (o: OwnedCard) => {
     const conds = condMap(o)
-    const first = Object.keys(conds)[0] || 'NM'
+    // Open on an already-listed condition if there is one, else the first owned.
+    const first = listedByCard.get(o.cardId)?.[0]?.card.condition ?? Object.keys(conds)[0] ?? 'NM'
     const existing = items.find(i => i.card.cardId === o.cardId && i.card.condition === first)
     setEditing({
       cardId: o.cardId, name: o.card.name, image: o.card.images.small, condition: first,
@@ -300,7 +319,6 @@ function TradeListTab({ userId }: { userId: string }) {
       quantity: i.card.quantity, owned: o ? condMap(o) : { [i.card.condition]: i.card.quantity },
       askingPrice: i.askingPrice != null ? String(i.askingPrice) : '', note: i.note ?? '',
     })
-    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const save = async () => {
@@ -315,7 +333,7 @@ function TradeListTab({ userId }: { userId: string }) {
       })
       qc.setQueryData(['trade-list', userId], list)
       toast(`${editing.name} is on your trade list.`)
-      setEditing(null); setSearch('')
+      setEditing(null)
     } catch (e) {
       toast(tradingError(e, 'Could not save that card.'))
     } finally {
@@ -332,74 +350,21 @@ function TradeListTab({ userId }: { userId: string }) {
     }
   }
 
-  const listedTotal = items.reduce((s, i) => s + (i.askingPrice ?? i.card.marketPrice ?? 0) * i.card.quantity, 0)
-
   return (
     <div className="trade-list-tab">
-      <section className="trade-add">
-        <h3>Add a card from your collection</h3>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search your collection by name…" />
-        {matches.length > 0 && !editing && (
-          <div className="trade-pick-grid">
-            {matches.map(o => (
-              <button key={o.cardId} className="trade-pick" onClick={() => startFromOwned(o)}>
-                <img src={o.card.images.small} alt="" loading="lazy" />
-                <span>{o.card.name}<small>#{o.card.number}</small></span>
-              </button>
-            ))}
-          </div>
-        )}
-        {search.trim() && matches.length === 0 && !editing && <p className="muted">No owned cards match “{search}”.</p>}
-
-        {editing && (
-          <div className="trade-edit">
-            <img src={editing.image} alt="" />
-            <div className="trade-edit-fields">
-              <b>{editing.name}</b>
-              <label>Condition
-                <select value={editing.condition} onChange={e => {
-                  // Switch to that condition's own listing (if any), not the previous one's price/note.
-                  const condition = e.target.value
-                  const existing = items.find(i => i.card.cardId === editing.cardId && i.card.condition === condition)
-                  setEditing({
-                    ...editing, condition, quantity: existing?.card.quantity ?? 1,
-                    askingPrice: existing?.askingPrice != null ? String(existing.askingPrice) : '', note: existing?.note ?? '',
-                  })
-                }}>
-                  {Object.entries(editing.owned).map(([c, q]) => <option key={c} value={c}>{c} (own {q})</option>)}
-                </select>
-              </label>
-              <label>Quantity
-                <input type="number" min={1} max={editing.owned[editing.condition] ?? 1} value={editing.quantity}
-                  onChange={e => setEditing({ ...editing, quantity: Math.max(1, Math.min(editing.owned[editing.condition] ?? 1, Number(e.target.value) || 1)) })} />
-              </label>
-              <label>Asking price (USD, each)
-                <input inputMode="decimal" value={editing.askingPrice} placeholder="Blank = make me an offer"
-                  onChange={e => setEditing({ ...editing, askingPrice: e.target.value })} />
-              </label>
-              <label>Note
-                <input value={editing.note} maxLength={300} placeholder="e.g. light whitening on back"
-                  onChange={e => setEditing({ ...editing, note: e.target.value })} />
-              </label>
-              <div className="trade-edit-actions">
-                <button className="primary" disabled={saving} onClick={() => void save()}>{saving ? 'Saving…' : 'Save to trade list'}</button>
-                <button onClick={() => setEditing(null)}>Cancel</button>
-              </div>
-            </div>
-          </div>
-        )}
-      </section>
-
       <section>
-        <h3>On your trade list <small>{items.length} card{items.length === 1 ? '' : 's'} · ≈ {money(listedTotal)}</small></h3>
-        {isLoading ? <p className="muted">Loading…</p> : items.length === 0 ? (
-          <p className="muted">Nothing listed yet. Search above to add cards people can make offers on.</p>
-        ) : (
-          <div className="trade-grid">
-            {items.map(i => (
-              <div className="trade-tile" key={i.id}>
+        <h3>On your trade list</h3>
+        {isLoading ? <p className="muted">Loading…</p> : (
+          <CardBrowser
+            items={items}
+            fields={listedFields}
+            itemKey={i => i.id}
+            empty={<p className="muted">Nothing listed yet — pick cards from your collection below.</p>}
+            renderTile={i => (
+              <div className="trade-tile">
                 <img src={i.card.imageSmall} alt={i.card.name} loading="lazy" />
                 <b>{i.card.name}</b>
+                <SetLine setId={i.card.setId} number={i.card.number} />
                 <small>{i.card.condition}{i.card.quantity > 1 ? ` · ×${i.card.quantity}` : ''} · market {money(i.card.marketPrice)}</small>
                 <span className="trade-ask">{i.askingPrice != null ? `Asking ${money(i.askingPrice)}` : 'Make an offer'}</span>
                 {i.note && <small className="trade-note">{i.note}</small>}
@@ -408,10 +373,84 @@ function TradeListTab({ userId }: { userId: string }) {
                   <button onClick={() => void remove(i)}>Remove</button>
                 </div>
               </div>
-            ))}
-          </div>
+            )}
+          />
         )}
       </section>
+
+      <section>
+        <h3>Your collection <small>tap a card to list it</small></h3>
+        {ownedLoading ? <p className="muted">Loading…</p> : (
+          <CardBrowser
+            items={ownedNonZero}
+            fields={ownedFields}
+            itemKey={o => o.cardId}
+            empty={<p className="muted">Your collection is empty — add cards first.</p>}
+            renderTile={o => {
+              const listed = listedByCard.get(o.cardId) ?? []
+              const conds = condMap(o)
+              const value = ownedValue(o)
+              return (
+                <button className={`trade-tile owned-tile ${listed.length ? 'listed' : ''}`} onClick={() => startFromOwned(o)}>
+                  {listed.length > 0 && <span className="listed-chip">Listed</span>}
+                  <img src={o.card.images.small} alt={o.card.name} loading="lazy" />
+                  <b>{o.card.name}</b>
+                  <SetLine setId={o.card.setId} number={o.card.number} />
+                  <small>{Object.entries(conds).map(([c, q]) => `${q}× ${c}`).join(' · ')}</small>
+                  <span className="trade-ask">{value != null ? money(value) : 'No price'}</span>
+                  <span className="owned-cta">{listed.length ? 'Edit listing' : '+ List for trade'}</span>
+                </button>
+              )
+            }}
+          />
+        )}
+      </section>
+
+      {editing && (
+        <div className="offer-sheet" role="dialog" aria-label="List for trade" onClick={e => { if (e.target === e.currentTarget) setEditing(null) }}>
+          <div className="offer-sheet-inner">
+            <header>
+              <h3>List for trade</h3>
+              <button onClick={() => setEditing(null)} aria-label="Close">✕</button>
+            </header>
+            <div className="trade-edit">
+              <img src={editing.image} alt="" />
+              <div className="trade-edit-fields">
+                <b>{editing.name}</b>
+                <label>Condition
+                  <select value={editing.condition} onChange={e => {
+                    // Switch to that condition's own listing (if any), not the previous one's price/note.
+                    const condition = e.target.value
+                    const existing = items.find(i => i.card.cardId === editing.cardId && i.card.condition === condition)
+                    setEditing({
+                      ...editing, condition, quantity: existing?.card.quantity ?? 1,
+                      askingPrice: existing?.askingPrice != null ? String(existing.askingPrice) : '', note: existing?.note ?? '',
+                    })
+                  }}>
+                    {Object.entries(editing.owned).map(([c, q]) => <option key={c} value={c}>{c} (own {q})</option>)}
+                  </select>
+                </label>
+                <label>Quantity
+                  <input type="number" min={1} max={editing.owned[editing.condition] ?? 1} value={editing.quantity}
+                    onChange={e => setEditing({ ...editing, quantity: Math.max(1, Math.min(editing.owned[editing.condition] ?? 1, Number(e.target.value) || 1)) })} />
+                </label>
+                <label>Asking price (USD, each)
+                  <input inputMode="decimal" value={editing.askingPrice} placeholder="Blank = make me an offer"
+                    onChange={e => setEditing({ ...editing, askingPrice: e.target.value })} />
+                </label>
+                <label>Note
+                  <input value={editing.note} maxLength={300} placeholder="e.g. light whitening on back"
+                    onChange={e => setEditing({ ...editing, note: e.target.value })} />
+                </label>
+                <div className="trade-edit-actions">
+                  <button className="primary" disabled={saving} onClick={() => void save()}>{saving ? 'Saving…' : 'Save to trade list'}</button>
+                  <button onClick={() => setEditing(null)}>Cancel</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

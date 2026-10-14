@@ -4,7 +4,8 @@
  * HOW IT WORKS
  *   Loads the public profile for /s/:slug (no sign-in needed to look):
  *   the owner's trade list, and their whole collection too if they turned
- *   that on. Tapping "Want" puts a card in the offer tray. Making the
+ *   that on — both browsable (sort by value/name/set, filter by set or
+ *   name, scroll loads more). Tapping "Want" puts a card in the offer tray. Making the
  *   offer itself needs a real (non-demo) account — signed-out visitors get
  *   the login screen right in the tray. The offer can be cash, cards from
  *   the visitor's own collection, or both, plus an opening message; it
@@ -14,7 +15,7 @@
  * DEPENDS ON: api/trading, api/collection
  */
 
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useUser } from '../context/UserContext'
@@ -23,6 +24,7 @@ import { LoginScreen } from '../components/LoginScreen'
 import { getOwnedCards } from '../api/collection'
 import { getSharedProfile, makeOffer, tradingError } from '../api/trading'
 import { money, RETURN_KEY } from '../lib/trading'
+import { CardBrowser, SetLine, type BrowseFields } from '../components/CardBrowser'
 import type { OwnedCard, TradeCardView } from '../types'
 
 interface Line { card: TradeCardView; quantity: number; max: number; askingPrice?: number }
@@ -54,7 +56,6 @@ export function SharePage() {
   })
 
   const [tab, setTab] = useState<'trade' | 'all'>('trade')
-  const [filter, setFilter] = useState('')
   const [wants, setWants] = useState<Record<string, Line>>({})
   const [composing, setComposing] = useState(false)
   const [cash, setCash] = useState('')
@@ -65,11 +66,14 @@ export function SharePage() {
   const isOwner = !!user && !!profile && user.username === profile.username
 
   const asking = useMemo(() => new Map((profile?.tradeList ?? []).map(i => [key(i.card.cardId, i.card.condition), i.askingPrice])), [profile])
-  const cards: TradeCardView[] = useMemo(() => {
-    const all = tab === 'trade' ? (profile?.tradeList ?? []).map(i => i.card) : (profile?.collection ?? [])
-    const q = filter.trim().toLowerCase()
-    return q ? all.filter(c => c.name.toLowerCase().includes(q)) : all
-  }, [profile, tab, filter])
+  const cards: TradeCardView[] = useMemo(
+    () => (tab === 'trade' ? (profile?.tradeList ?? []).map(i => i.card) : (profile?.collection ?? [])),
+    [profile, tab])
+  /** Sort/total by the asking price where the owner set one, else market. */
+  const cardFields = useCallback((c: TradeCardView): BrowseFields => ({
+    name: c.name, setId: c.setId, number: c.number, quantity: c.quantity,
+    value: asking.get(key(c.cardId, c.condition)) ?? c.marketPrice ?? null,
+  }), [asking])
 
   const wantLines = Object.values(wants)
   const wantCount = wantLines.reduce((n, l) => n + l.quantity, 0)
@@ -142,31 +146,32 @@ export function SharePage() {
               <button className={tab === 'all' ? 'active' : ''} onClick={() => setTab('all')}>Whole collection ({profile.collection.length})</button>
             )}
           </nav>
-          <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Filter by name…" />
         </div>
 
-        {cards.length === 0 ? (
-          <p className="muted">{filter ? 'No cards match.' : tab === 'trade' ? `${profile.username} hasn't listed any cards for trade yet.` : 'No cards.'}</p>
-        ) : (
-          <div className="trade-grid">
-            {cards.map(c => {
-              const k = key(c.cardId, c.condition)
-              const ask = asking.get(k)
-              const picked = !!wants[k]
-              return (
-                <div className={`trade-tile ${picked ? 'picked' : ''}`} key={k}>
-                  <img src={c.imageSmall} alt={c.name} loading="lazy" />
-                  <b>{c.name}</b>
-                  <small>{c.condition}{c.quantity > 1 ? ` · ${c.quantity} available` : ''} · market {money(c.marketPrice)}</small>
-                  {tab === 'trade' && <span className="trade-ask">{ask != null ? `Asking ${money(ask)}` : 'Make an offer'}</span>}
-                  {!isOwner && (
-                    <button className={picked ? 'primary' : ''} onClick={() => toggleWant(c)}>{picked ? '✓ In offer' : '+ Want'}</button>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
+        <CardBrowser
+          key={tab}
+          items={cards}
+          fields={cardFields}
+          itemKey={c => key(c.cardId, c.condition)}
+          empty={<p className="muted">{tab === 'trade' ? `${profile.username} hasn't listed any cards for trade yet.` : 'No cards.'}</p>}
+          renderTile={c => {
+            const k = key(c.cardId, c.condition)
+            const ask = asking.get(k)
+            const picked = !!wants[k]
+            return (
+              <div className={`trade-tile ${picked ? 'picked' : ''}`}>
+                <img src={c.imageSmall} alt={c.name} loading="lazy" />
+                <b>{c.name}</b>
+                <SetLine setId={c.setId} number={c.number} />
+                <small>{c.condition}{c.quantity > 1 ? ` · ${c.quantity} available` : ''} · market {money(c.marketPrice)}</small>
+                {asking.has(k) && <span className="trade-ask">{ask != null ? `Asking ${money(ask)}` : 'Make an offer'}</span>}
+                {!isOwner && (
+                  <button className={picked ? 'primary' : ''} onClick={() => toggleWant(c)}>{picked ? '✓ In offer' : '+ Want'}</button>
+                )}
+              </div>
+            )
+          }}
+        />
       </main>
 
       {wantCount > 0 && !composing && (

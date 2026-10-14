@@ -169,3 +169,29 @@
 .offer-login #loginScreen.auth-page { min-height: 0; }
 .offer-login .auth-hero { display: none; }
 .offer-login .auth-panel { flex: 1; padding: 0; }
+
+/* ── CardBrowser (sort / filter / scroll) ── */
+.card-browser { display: grid; gap: 8px; }
+.browser-toolbar { display: grid; grid-template-columns: 1fr minmax(140px, 220px) minmax(140px, 190px); gap: 8px; }
+.trade-main .browser-toolbar select, .trade-main .browser-toolbar input { width: 100%; }
+.browser-summary { margin: 0; color: var(--muted); font-size: .85rem; }
+.browser-cell { display: flex; }
+.browser-cell > .trade-tile { flex: 1; }
+.browser-more { display: flex; justify-content: center; padding: 14px 0; }
+.tile-set { color: var(--muted); font-size: .72rem; }
+
+.trade-main button.owned-tile {
+  position: relative; text-align: left; font-weight: 400; background: var(--surface); padding: 8px; color: var(--text);
+}
+.trade-main button.owned-tile:hover { border-color: var(--accent2); }
+.owned-tile.listed { border-color: var(--green); }
+.listed-chip {
+  position: absolute; top: 12px; left: 12px; z-index: 1; background: var(--green); color: #0d2a17;
+  font-size: .7rem; font-weight: 800; border-radius: 6px; padding: 1px 6px;
+}
+.owned-cta { margin-top: auto; color: var(--accent); font-weight: 800; font-size: .85rem; }
+
+@media (max-width: 760px) {
+  .browser-toolbar { grid-template-columns: 1fr 1fr; }
+  .browser-toolbar input { grid-column: 1 / -1; }
+}

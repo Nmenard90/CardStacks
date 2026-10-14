@@ -147,6 +147,7 @@ Migrations are applied by hand in Railway's SQL editor, before the code that
 needs them is pushed.
 - `migration_013_drawer_auto_set.sql` (box compartments) — run 2026-10-14.
 - `migration_014_card_variant_prices.sql` (per-print prices) — run 2026-10-14.
+- `migration_015_trading.sql` (share-link trading) — run 2026-10-14.
 - Migration 003 (per-variant `card_prices`) is DISABLED — never run it.
 
 ### Pricing audit (2026-10-14)
@@ -157,13 +158,12 @@ fix, run `UPDATE card_sets SET prices_fetched_at = NULL;` so every set
 re-prices instead of keeping stored wrong values until its next refresh.
 
 ### In flight / not yet on main
-- **Share-link trading** (`/trade`, public `/s/:slug`): trade list, share
+- **Share-link trading** — LIVE. (`/trade`, public `/s/:slug`): trade list, share
   link (optionally exposing the whole collection), offers with cash and/or
   cards, per-offer message thread, unread badge on the Trade nav link. No
   payments in-app; completing a deal doesn't change collections. Backend:
-  `TradingRoutes/Service/Repository`, `models/Trading.scala`. Needs
-  **`migration_015_trading.sql` run in production BEFORE the backend is
-  pushed.** `TradingDbSuite` is an opt-in DB test (set `TRADING_IT_DB_URL`).
+  `TradingRoutes/Service/Repository`, `models/Trading.scala`. Live on main
+  (migration 015 run). `TradingDbSuite` is an opt-in DB test (set `TRADING_IT_DB_URL`).
   The older `trade_listings`/`trade_offers` tables are unrelated and unused.
 - **BUG-023 per-print pricing:** card tiles show only alternate prints as
   small chips ("Reverse $1.37"). Phase 2 (record which print an owned copy is,
