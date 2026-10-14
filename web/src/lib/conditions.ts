@@ -28,12 +28,29 @@ const FIRST_EDITION_SETS = new Set(['base1', 'base2', 'base3', 'base5', 'gym1', 
 export const hasFirstEdition = (setId: string | undefined): boolean =>
   !!setId && FIRST_EDITION_SETS.has(setId)
 
+/** Display names for the backend's print keys (see CardVariant). */
+export const VARIANT_LABELS: Record<string, string> = {
+  normal: 'Normal', holo: 'Holo', reverse: 'Reverse Holo',
+  pokeball: 'Poké Ball', masterball: 'Master Ball',
+}
+
+export const variantLabel = (key: string): string => VARIANT_LABELS[key] ?? key
+
+/**
+ * The print a card's plain `prices` describe — Normal when it exists,
+ * otherwise Holo (e.g. rares with no non-holo print).
+ */
+export function defaultVariant(card: Card | undefined): string | undefined {
+  const names = (card?.variants ?? []).map(v => v.name)
+  return names.find(n => n === 'normal') ?? names.find(n => n === 'holo') ?? names[0]
+}
+
 /**
  * Falls back to the card's default `prices` if no variant is requested,
  * the card predates variant tracking, or the requested variant isn't priced.
  */
 export function pricesForVariant(card: Card | undefined, variant?: string): CardPrices | undefined {
-  if (variant && variant !== 'Normal' && card?.variants?.length) {
+  if (variant && variant !== defaultVariant(card) && card?.variants?.length) {
     const match = card.variants.find(v => v.name === variant)
     if (match) return match.prices
   }

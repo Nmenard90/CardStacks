@@ -176,16 +176,33 @@ object CardDetails:
  *
  * @param number  Text, not numeric — some collector numbers aren't (e.g. "SWSH001").
  */
+/**
+ * One priced print of a card. All prints share the card's collector number,
+ * so which one a physical copy is can only come from the user.
+ * @param name One of "normal" | "holo" | "reverse" | "pokeball" | "masterball".
+ */
+final case class CardVariant(name: String, prices: CardPrices)
+
+object CardVariant:
+  given JsonCodec[CardVariant] = DeriveJsonCodec.gen[CardVariant]
+
+/**
+ * @param prices   The default print's prices — what every existing caller
+ *                 has always meant by "the card's price".
+ * @param variants Every priced print, default included. Empty when the card
+ *                 has only one print, or the query didn't load them.
+ */
 final case class Card(
-  id:      String,
-  setId:   String,
-  name:    String,
-  number:  String,
-  rarity:  Option[String],
-  artist:  Option[String],
-  images:  CardImage,
-  prices:  Option[CardPrices],
-  details: Option[CardDetails]
+  id:       String,
+  setId:    String,
+  name:     String,
+  number:   String,
+  rarity:   Option[String],
+  artist:   Option[String],
+  images:   CardImage,
+  prices:   Option[CardPrices],
+  details:  Option[CardDetails],
+  variants: List[CardVariant] = Nil
 )
 
 object Card:

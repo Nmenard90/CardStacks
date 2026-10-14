@@ -386,6 +386,7 @@ object PriceService:
             skuResp      <- fetchSkus(tcgSetId, set.name, products.products.size)
 
             pricesByProductId = buildPriceMap(skuResp.products)
+            variantsByProduct = buildVariantMap(products.products, skuResp.products)
 
             // A card's number can map to MORE THAN ONE TCGTracking product
             // (Poké Ball/Master Ball variants share a base number). Keeps
@@ -402,13 +403,24 @@ object PriceService:
                  )
 
             saved <- ZIO.foreach(cards) { card =>
+                       val productIds = numberToProductIds.getOrElse(normalizeCollectorNumber(card.number), Nil)
+
+                       // Every print across every product sharing this number.
+                       // First product wins if two offer the same print.
+                       val variants = productIds.flatMap(variantsByProduct.get)
+                         .foldLeft(Map.empty[String, CardPrices]) { (acc, m) =>
+                           acc ++ m.filter { case (k, _) => !acc.contains(k) }
+                         }
+                       // A failed print save mustn't cost the card its main price.
+                       val saveVariants =
+                         ZIO.when(variants.nonEmpty)(repo.upsertVariantPrices(card.id, variants))
+                           .catchAll(e => ZIO.logWarning(s"TCGTracking: variant save failed for ${card.id}: ${e.getMessage}"))
+
                        // Every product sharing this card's number, keeping
                        // only the first one that actually has a price.
-                       numberToProductIds.getOrElse(normalizeCollectorNumber(card.number), Nil)
-                         .flatMap(pricesByProductId.get)
-                         .headOption match
+                       saveVariants *> (productIds.flatMap(pricesByProductId.get).headOption match
                          case Some(prices) => repo.upsertPrices(card.id, prices).as(true)
-                         case None         => ZIO.succeed(false)
+                         case None         => ZIO.succeed(false))
                      }
 
             matched = saved.count(identity)
@@ -471,6 +483,50 @@ object PriceService:
           prices.nm.orElse(prices.lp).orElse(prices.mp)
                 .orElse(prices.hp).orElse(prices.dmg).isDefined
         }
+
+    /**
+     * Every priced print of each product, keyed by our own print names
+     * (see CardVariant). Two different shapes on TCGTracking's side:
+     *   - Normal / Holofoil / Reverse Holofoil are SKUs of ONE product,
+     *     told apart by `printing`.
+     *   - Poké Ball / Master Ball Pattern are SEPARATE products sharing the
+     *     base card's number, told apart only by a suffix in the product
+     *     name. Their own SKUs just say "Holofoil".
+     * Other parenthesised products on the same number (stamped promos etc.)
+     * are skipped, so they can't pass themselves off as the base card's holo.
+     * Printings we don't model yet (1st Edition, Unlimited) are dropped.
+     */
+    private def buildVariantMap(
+      products: List[TcgProduct],
+      skus: Map[String, Map[String, TcgSku]]
+    ): Map[Int, Map[String, CardPrices]] =
+      val printingToVariant = Map(
+        "Normal"           -> "normal",
+        "Holofoil"         -> "holo",
+        "Reverse Holofoil" -> "reverse"
+      )
+
+      def pricesOf(group: List[TcgSku]): Option[CardPrices] =
+        def priceFor(cond: String) = group.filter(_.condition == cond).flatMap(_.market).maxOption
+        val p = CardPrices(priceFor("NM"), priceFor("LP"), priceFor("MP"), priceFor("HP"), priceFor("DMG"))
+        Option.when(p.nm.orElse(p.lp).orElse(p.mp).orElse(p.hp).orElse(p.dmg).isDefined)(p)
+
+      products.flatMap { product =>
+        val enSkus = skus.get(product.id.toString).map(_.values.filter(_.language == "EN").toList).getOrElse(Nil)
+        // TCGTracking spells it "Poké"; folds the accent so "Poke" matches too.
+        val name = product.name.toLowerCase.replace('é', 'e')
+
+        val variants: Map[String, CardPrices] =
+          if name.contains("master ball pattern") then pricesOf(enSkus).map("masterball" -> _).toMap
+          else if name.contains("poke ball pattern") then pricesOf(enSkus).map("pokeball" -> _).toMap
+          else if name.contains("(") then Map.empty
+          else
+            enSkus.groupBy(_.printing).toList.flatMap { case (printing, group) =>
+              printingToVariant.get(printing).flatMap(v => pricesOf(group).map(v -> _))
+            }.toMap
+
+        Option.when(variants.nonEmpty)(product.id -> variants)
+      }.toMap
 
   val layer: ZLayer[CardRepository, Nothing, PriceService] =
     ZLayer.fromZIO {

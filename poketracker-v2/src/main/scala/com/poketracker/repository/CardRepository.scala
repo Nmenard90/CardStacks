@@ -50,6 +50,9 @@ trait CardRepository:
   /** Saves current prices and appends a permanent snapshot to the price-history table. */
   def upsertPrices(cardId: String, prices: CardPrices): Task[Unit]
 
+  /** Saves each print's latest prices (card_variant_prices). No history — card_price_history stays default-print only. */
+  def upsertVariantPrices(cardId: String, variants: Map[String, CardPrices]): Task[Unit]
+
   /**
    * Copies each card's saved fallback price (see upsertCard) in as its
    * real `nm`. Run after every price fetch.
@@ -122,7 +125,14 @@ object CardRepository:
                p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg,
                c.details
         FROM cards c
-        LEFT JOIN card_prices p ON p.card_id = c.id
+        -- LATERAL + LIMIT 1, not a plain join: card_prices may hold several rows
+        -- per card (Migration 003's per-variant rows), and a plain join
+        -- repeats the card once per row.
+        LEFT JOIN LATERAL (
+          SELECT cp.price_nm, cp.price_lp, cp.price_mp, cp.price_hp, cp.price_dmg
+          FROM card_prices cp WHERE cp.card_id = c.id
+          ORDER BY cp.fetched_at DESC, cp.id LIMIT 1
+        ) p ON TRUE
         WHERE c.set_id = $setId
         ORDER BY
           -- Purely-numeric numbers zero-padded and sorted as numbers ("9" before
@@ -139,6 +149,7 @@ object CardRepository:
         .to[List]
         .map(_.map(toCardRow.tupled))
         .transact(xa)
+        .flatMap(withVariants)
 
     def findCardById(id: String): Task[Option[Card]] =
       sql"""
@@ -147,7 +158,14 @@ object CardRepository:
                p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg,
                c.details
         FROM cards c
-        LEFT JOIN card_prices p ON p.card_id = c.id
+        -- LATERAL + LIMIT 1, not a plain join: card_prices may hold several rows
+        -- per card (Migration 003's per-variant rows), and a plain join
+        -- repeats the card once per row.
+        LEFT JOIN LATERAL (
+          SELECT cp.price_nm, cp.price_lp, cp.price_mp, cp.price_hp, cp.price_dmg
+          FROM card_prices cp WHERE cp.card_id = c.id
+          ORDER BY cp.fetched_at DESC, cp.id LIMIT 1
+        ) p ON TRUE
         WHERE c.id = $id
       """
         .query[(String, String, String, String, Option[String], Option[String],
@@ -157,6 +175,41 @@ object CardRepository:
         .option
         .map(_.map(toCardRow.tupled))
         .transact(xa)
+        .flatMap {
+          case Some(card) => withVariants(List(card)).map(_.headOption)
+          case None       => ZIO.none
+        }
+
+    /** Display order for a card's prints — the plain ones first, the patterns last. */
+    private val variantOrder = List("normal", "holo", "reverse", "pokeball", "masterball")
+
+    /**
+     * Fills in `variants` for these cards with one query. Cards with a single
+     * print are left with an empty list — there's nothing to choose between.
+     */
+    private def withVariants(cards: List[Card]): Task[List[Card]] =
+      if cards.isEmpty then ZIO.succeed(cards)
+      else
+        val ids = cards.map(_.id).toArray
+        sql"""
+          SELECT card_id, variant, price_nm, price_lp, price_mp, price_hp, price_dmg
+          FROM card_variant_prices
+          WHERE card_id = ANY($ids)
+        """
+          .query[(String, String, Option[Double], Option[Double], Option[Double], Option[Double], Option[Double])]
+          .to[List]
+          .transact(xa)
+          .map { rows =>
+            val byCard = rows.groupMap(_._1) { case (_, v, nm, lp, mp, hp, dmg) =>
+              CardVariant(v, CardPrices(nm, lp, mp, hp, dmg))
+            }
+            cards.map { card =>
+              val vs = byCard.getOrElse(card.id, Nil).sortBy(v => variantOrder.indexOf(v.name))
+              if vs.size > 1 then card.copy(variants = vs) else card
+            }
+          }
+          // Prints are extra detail — never fail a whole set load over them.
+          .catchAll(e => ZIO.logWarning(s"withVariants failed: ${e.getMessage}").as(cards))
 
     def searchCards(query: String, limit: Int = 200): Task[List[Card]] =
       val likeQuery = s"%$query%"
@@ -167,7 +220,14 @@ object CardRepository:
                p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg,
                c.details
         FROM cards c
-        LEFT JOIN card_prices p ON p.card_id = c.id
+        -- LATERAL + LIMIT 1, not a plain join: card_prices may hold several rows
+        -- per card (Migration 003's per-variant rows), and a plain join
+        -- repeats the card once per row.
+        LEFT JOIN LATERAL (
+          SELECT cp.price_nm, cp.price_lp, cp.price_mp, cp.price_hp, cp.price_dmg
+          FROM card_prices cp WHERE cp.card_id = c.id
+          ORDER BY cp.fetched_at DESC, cp.id LIMIT 1
+        ) p ON TRUE
         LEFT JOIN card_sets s ON s.id = c.set_id
         WHERE to_tsvector('english', c.name) @@ plainto_tsquery('english', $query)
            OR c.name ILIKE $likeQuery
@@ -220,7 +280,14 @@ object CardRepository:
                c.details,
                COUNT(*) OVER() AS total_count
         FROM cards c
-        LEFT JOIN card_prices p ON p.card_id = c.id
+        -- LATERAL + LIMIT 1, not a plain join: card_prices may hold several rows
+        -- per card (Migration 003's per-variant rows), and a plain join
+        -- repeats the card once per row.
+        LEFT JOIN LATERAL (
+          SELECT cp.price_nm, cp.price_lp, cp.price_mp, cp.price_hp, cp.price_dmg
+          FROM card_prices cp WHERE cp.card_id = c.id
+          ORDER BY cp.fetched_at DESC, cp.id LIMIT 1
+        ) p ON TRUE
         LEFT JOIN card_sets s ON s.id = c.set_id
         ORDER BY """ ++ orderBy ++ sql"""
         LIMIT $pageSize OFFSET $offset
@@ -328,6 +395,22 @@ object CardRepository:
       """.update.run
 
       (upsertLatest *> appendSnapshot).void.transact(xa)
+
+    def upsertVariantPrices(cardId: String, variants: Map[String, CardPrices]): Task[Unit] =
+      variants.toList.traverse_ { case (variant, p) =>
+        sql"""
+          INSERT INTO card_variant_prices (card_id, variant, price_nm, price_lp, price_mp,
+                                           price_hp, price_dmg, fetched_at)
+          VALUES ($cardId, $variant, ${p.nm}, ${p.lp}, ${p.mp}, ${p.hp}, ${p.dmg}, NOW())
+          ON CONFLICT (card_id, variant) DO UPDATE SET
+            price_nm   = EXCLUDED.price_nm,
+            price_lp   = EXCLUDED.price_lp,
+            price_mp   = EXCLUDED.price_mp,
+            price_hp   = EXCLUDED.price_hp,
+            price_dmg  = EXCLUDED.price_dmg,
+            fetched_at = NOW()
+        """.update.run
+      }.transact(xa)
 
     def findPriceHistory(cardId: String): Task[List[PriceHistoryPoint]] =
       sql"""
