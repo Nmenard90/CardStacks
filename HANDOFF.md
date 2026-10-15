@@ -148,7 +148,8 @@ needs them is pushed.
 - `migration_013_drawer_auto_set.sql` (box compartments) — run 2026-10-14.
 - `migration_014_card_variant_prices.sql` (per-print prices) — run 2026-10-14.
 - `migration_015_trading.sql` (share-link trading) — run 2026-10-14.
-- `migration_016_multi_game.sql` (games table + game_id columns) — NOT YET RUN; required before the multi-game backend deploys.
+- `migration_016_multi_game.sql` (games table + game_id columns) — run 2026-10-15.
+- `migration_017_price_fallbacks.sql` (cardmarket_id, price_source, games.cardmarket_game) — NOT YET RUN; required before the price-fallback backend deploys.
 - Migration 003 (per-variant `card_prices`) is DISABLED — never run it.
 
 ### Pricing audit (2026-10-14)
@@ -170,6 +171,11 @@ re-prices instead of keeping stored wrong values until its next refresh.
   games so search covers them. Web: `?game=` on every request (api/client.ts
   interceptor, `lib/game.ts`), header switcher reloads into the chosen game.
   Old index `uq_collection_spaces_default` is deliberately kept (see 016).
+- **Every card has a price** (TCGTracking games): TCGplayer market price,
+  else Cardmarket's public daily price guide (`CardmarketGuide`, converted
+  with a value-banded TCGplayer/Cardmarket ratio from similar cards in the
+  set), else an estimate from same-rarity cards. `card_prices.price_source`
+  records which; card tiles show "via Cardmarket" / "est.".
 - **Per-print ownership** shipped (BUG-023 phase 2): condition keys
   `"NM · reverse"`; Bulk Add's entry form still has no print picker (phase 3).
 - **Share-link trading** — LIVE. (`/trade`, public `/s/:slug`): trade list, share

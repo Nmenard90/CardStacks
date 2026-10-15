@@ -47,9 +47,15 @@ trait CardRepository:
   /** Batch writes for the TCGTracking importer — one transaction per call
    *  instead of one per row (a game's set list is hundreds of rows). */
   def upsertSets(sets: List[(CardSet, Option[String])], game: String): Task[Unit]
-  def upsertCards(cards: List[Card]): Task[Unit]
-  /** (cardId, default print's prices, every print's prices) */
-  def upsertPriceBatch(rows: List[(String, CardPrices, Map[String, CardPrices])]): Task[Unit]
+  /** (card, its Cardmarket product id) */
+  def upsertCards(cards: List[(Card, Option[Int])]): Task[Unit]
+  /** (cardId, default print's prices, every print's prices, price source — None = TCGplayer) */
+  def upsertPriceBatch(rows: List[(String, CardPrices, Map[String, CardPrices], Option[String])]): Task[Unit]
+  /** (cardId, rarity, Cardmarket product id) for every card in a set — fallback pricing inputs. */
+  def pricingInputs(setId: String): Task[List[(String, Option[String], Option[Int])]]
+  def setCardmarketIds(ids: List[(String, Int)]): Task[Unit]
+  /** Released sets of a game with at least one card that has no NM price. */
+  def setsWithUnpricedCards(game: String): Task[List[String]]
   def findCardIdsBySet(setId: String): Task[Set[String]]
 
   /**
@@ -125,7 +131,7 @@ object CardRepository:
       rarity: Option[String], artist: Option[String],
       imgSmall: String, imgLarge: String,
       nm: Option[Double], lp: Option[Double], mp: Option[Double], hp: Option[Double], dmg: Option[Double],
-      detailsJson: Option[String]
+      detailsJson: Option[String], priceSource: Option[String]
     ): Card =
       val prices = if nm.orElse(lp).orElse(mp).orElse(hp).orElse(dmg).isDefined
                    then Some(CardPrices(nm, lp, mp, hp, dmg))
@@ -135,20 +141,20 @@ object CardRepository:
       val details = detailsJson.flatMap(_.fromJson[CardDetails].toOption)
 
       Card(id, setId, name, number, rarity, artist,
-           CardImage(imgSmall, imgLarge), prices, details)
+           CardImage(imgSmall, imgLarge), prices, details, priceSource = prices.flatMap(_ => priceSource))
 
     def findCardsBySet(setId: String): Task[List[Card]] =
       sql"""
         SELECT c.id, c.set_id, c.name, c.number, c.rarity, c.artist,
                c.image_small, c.image_large,
                p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg,
-               c.details
+               c.details, p.price_source
         FROM cards c
         -- LATERAL + LIMIT 1, not a plain join: card_prices may hold several rows
         -- per card (Migration 003's per-variant rows), and a plain join
         -- repeats the card once per row.
         LEFT JOIN LATERAL (
-          SELECT cp.price_nm, cp.price_lp, cp.price_mp, cp.price_hp, cp.price_dmg
+          SELECT cp.price_nm, cp.price_lp, cp.price_mp, cp.price_hp, cp.price_dmg, cp.price_source
           FROM card_prices cp WHERE cp.card_id = c.id
           ORDER BY cp.fetched_at DESC, cp.id LIMIT 1
         ) p ON TRUE
@@ -164,7 +170,7 @@ object CardRepository:
         .query[(String, String, String, String, Option[String], Option[String],
                 String, String,
                 Option[Double], Option[Double], Option[Double], Option[Double], Option[Double],
-                Option[String])]
+                Option[String], Option[String])]
         .to[List]
         .map(_.map(toCardRow.tupled))
         .transact(xa)
@@ -175,13 +181,13 @@ object CardRepository:
         SELECT c.id, c.set_id, c.name, c.number, c.rarity, c.artist,
                c.image_small, c.image_large,
                p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg,
-               c.details
+               c.details, p.price_source
         FROM cards c
         -- LATERAL + LIMIT 1, not a plain join: card_prices may hold several rows
         -- per card (Migration 003's per-variant rows), and a plain join
         -- repeats the card once per row.
         LEFT JOIN LATERAL (
-          SELECT cp.price_nm, cp.price_lp, cp.price_mp, cp.price_hp, cp.price_dmg
+          SELECT cp.price_nm, cp.price_lp, cp.price_mp, cp.price_hp, cp.price_dmg, cp.price_source
           FROM card_prices cp WHERE cp.card_id = c.id
           ORDER BY cp.fetched_at DESC, cp.id LIMIT 1
         ) p ON TRUE
@@ -190,7 +196,7 @@ object CardRepository:
         .query[(String, String, String, String, Option[String], Option[String],
                 String, String,
                 Option[Double], Option[Double], Option[Double], Option[Double], Option[Double],
-                Option[String])]
+                Option[String], Option[String])]
         .option
         .map(_.map(toCardRow.tupled))
         .transact(xa)
@@ -237,13 +243,13 @@ object CardRepository:
         SELECT c.id, c.set_id, c.name, c.number, c.rarity, c.artist,
                c.image_small, c.image_large,
                p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg,
-               c.details
+               c.details, p.price_source
         FROM cards c
         -- LATERAL + LIMIT 1, not a plain join: card_prices may hold several rows
         -- per card (Migration 003's per-variant rows), and a plain join
         -- repeats the card once per row.
         LEFT JOIN LATERAL (
-          SELECT cp.price_nm, cp.price_lp, cp.price_mp, cp.price_hp, cp.price_dmg
+          SELECT cp.price_nm, cp.price_lp, cp.price_mp, cp.price_hp, cp.price_dmg, cp.price_source
           FROM card_prices cp WHERE cp.card_id = c.id
           ORDER BY cp.fetched_at DESC, cp.id LIMIT 1
         ) p ON TRUE
@@ -274,7 +280,7 @@ object CardRepository:
         .query[(String, String, String, String, Option[String], Option[String],
                 String, String,
                 Option[Double], Option[Double], Option[Double], Option[Double], Option[Double],
-                Option[String])]
+                Option[String], Option[String])]
         .to[List]
         .map(_.map(toCardRow.tupled))
         .transact(xa)
@@ -297,14 +303,14 @@ object CardRepository:
         SELECT c.id, c.set_id, c.name, c.number, c.rarity, c.artist,
                c.image_small, c.image_large,
                p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg,
-               c.details,
+               c.details, p.price_source,
                COUNT(*) OVER() AS total_count
         FROM cards c
         -- LATERAL + LIMIT 1, not a plain join: card_prices may hold several rows
         -- per card (Migration 003's per-variant rows), and a plain join
         -- repeats the card once per row.
         LEFT JOIN LATERAL (
-          SELECT cp.price_nm, cp.price_lp, cp.price_mp, cp.price_hp, cp.price_dmg
+          SELECT cp.price_nm, cp.price_lp, cp.price_mp, cp.price_hp, cp.price_dmg, cp.price_source
           FROM card_prices cp WHERE cp.card_id = c.id
           ORDER BY cp.fetched_at DESC, cp.id LIMIT 1
         ) p ON TRUE
@@ -318,12 +324,12 @@ object CardRepository:
         .query[(String, String, String, String, Option[String], Option[String],
                 String, String,
                 Option[Double], Option[Double], Option[Double], Option[Double], Option[Double],
-                Option[String], Int)]
+                Option[String], Option[String], Int)]
         .to[List]
         .map { rows =>
-          val total = rows.headOption.map(_._15).getOrElse(0)
-          val cards = rows.map { case (id, setId, name, number, rarity, artist, imgS, imgL, nm, lp, mp, hp, dmg, details, _) =>
-            toCardRow(id, setId, name, number, rarity, artist, imgS, imgL, nm, lp, mp, hp, dmg, details)
+          val total = rows.headOption.map(_._16).getOrElse(0)
+          val cards = rows.map { case (id, setId, name, number, rarity, artist, imgS, imgL, nm, lp, mp, hp, dmg, details, src, _) =>
+            toCardRow(id, setId, name, number, rarity, artist, imgS, imgL, nm, lp, mp, hp, dmg, details, src)
           }
           (cards, total)
         }
@@ -352,11 +358,25 @@ object CardRepository:
     def upsertSets(sets: List[(CardSet, Option[String])], game: String): Task[Unit] =
       sets.traverse_ { case (set, ext) => upsertSetIO(set, game, ext) }.transact(xa)
 
-    def upsertCards(cards: List[Card]): Task[Unit] =
-      cards.traverse_(c => upsertCardIO(c, None)).transact(xa)
+    def upsertCards(cards: List[(Card, Option[Int])]): Task[Unit] =
+      cards.traverse_ { case (c, cm) => upsertCardIO(c, None, cm) }.transact(xa)
 
-    def upsertPriceBatch(rows: List[(String, CardPrices, Map[String, CardPrices])]): Task[Unit] =
-      rows.traverse_ { case (id, d, v) => upsertPricesIO(id, d) *> upsertVariantPricesIO(id, v) }.transact(xa)
+    def upsertPriceBatch(rows: List[(String, CardPrices, Map[String, CardPrices], Option[String])]): Task[Unit] =
+      rows.traverse_ { case (id, d, v, src) => upsertPricesIO(id, d, src) *> upsertVariantPricesIO(id, v) }.transact(xa)
+
+    def pricingInputs(setId: String): Task[List[(String, Option[String], Option[Int])]] =
+      sql"SELECT id, rarity, cardmarket_id FROM cards WHERE set_id = $setId"
+        .query[(String, Option[String], Option[Int])].to[List].transact(xa)
+
+    def setCardmarketIds(ids: List[(String, Int)]): Task[Unit] =
+      ids.traverse_ { case (id, cm) => sql"UPDATE cards SET cardmarket_id = $cm WHERE id = $id".update.run }.transact(xa)
+
+    def setsWithUnpricedCards(game: String): Task[List[String]] =
+      sql"""SELECT DISTINCT c.set_id FROM cards c
+            LEFT JOIN card_prices p ON p.card_id = c.id
+            JOIN card_sets s ON s.id = c.set_id
+            WHERE c.game_id = $game AND p.price_nm IS NULL AND s.release_date <= CURRENT_DATE"""
+        .query[String].to[List].transact(xa)
 
     def findCardIdsBySet(setId: String): Task[Set[String]] =
       sql"SELECT id FROM cards WHERE set_id = $setId".query[String].to[List].map(_.toSet).transact(xa)
@@ -365,18 +385,18 @@ object CardRepository:
       upsertSetIO(set, game, externalId).transact(xa)
 
 
-    private def upsertCardIO(card: Card, fallbackPriceNm: Option[Double]): ConnectionIO[Unit] =
+    private def upsertCardIO(card: Card, fallbackPriceNm: Option[Double], cardmarketId: Option[Int] = None): ConnectionIO[Unit] =
       val detailsJson = card.details.map(_.toJson)
 
       sql"""
         INSERT INTO cards (id, set_id, name, number, rarity, artist,
-                           image_small, image_large, details, fallback_price_nm, updated_at, game_id)
+                           image_small, image_large, details, fallback_price_nm, updated_at, game_id, cardmarket_id)
         VALUES (${card.id}, ${card.setId}, ${card.name}, ${card.number},
                 ${card.rarity}, ${card.artist},
                 ${card.images.small}, ${card.images.large},
                 $detailsJson, $fallbackPriceNm, NOW(),
                 -- A card always belongs to its set's game.
-                COALESCE((SELECT game_id FROM card_sets WHERE id = ${card.setId}), 'pokemon'))
+                COALESCE((SELECT game_id FROM card_sets WHERE id = ${card.setId}), 'pokemon'), $cardmarketId)
         ON CONFLICT (id) DO UPDATE SET
           name              = EXCLUDED.name,
           number            = EXCLUDED.number,
@@ -386,6 +406,7 @@ object CardRepository:
           image_large       = EXCLUDED.image_large,
           details           = EXCLUDED.details,
           fallback_price_nm = EXCLUDED.fallback_price_nm,
+          cardmarket_id     = COALESCE(EXCLUDED.cardmarket_id, cards.cardmarket_id),
           updated_at        = NOW()
       """
         .update.run.void
@@ -417,13 +438,15 @@ object CardRepository:
       """
         .update.run.transact(xa)
 
-    private def upsertPricesIO(cardId: String, prices: CardPrices): ConnectionIO[Unit] =
+    /** @param source None = TCGplayer market price; "cardmarket"/"estimate" for fallbacks. */
+    private def upsertPricesIO(cardId: String, prices: CardPrices, source: Option[String] = None): ConnectionIO[Unit] =
       val upsertLatest = sql"""
         INSERT INTO card_prices (card_id, price_nm, price_lp, price_mp,
-                                  price_hp, price_dmg, fetched_at)
+                                  price_hp, price_dmg, fetched_at, price_source)
         VALUES ($cardId, ${prices.nm}, ${prices.lp}, ${prices.mp},
-                ${prices.hp}, ${prices.dmg}, NOW())
+                ${prices.hp}, ${prices.dmg}, NOW(), $source)
         ON CONFLICT (card_id) DO UPDATE SET
+          price_source = EXCLUDED.price_source,
           price_nm   = EXCLUDED.price_nm,
           price_lp   = EXCLUDED.price_lp,
           price_mp   = EXCLUDED.price_mp,
@@ -439,7 +462,8 @@ object CardRepository:
         VALUES ($cardId, ${prices.nm}, ${prices.lp}, ${prices.mp}, ${prices.hp}, ${prices.dmg})
       """.update.run
 
-      (upsertLatest *> appendSnapshot).void
+      // History tracks real market prices only, not fallbacks.
+      (upsertLatest *> (if source.isEmpty then appendSnapshot.void else ().pure[ConnectionIO])).void
 
     def upsertPrices(cardId: String, prices: CardPrices): Task[Unit] =
       upsertPricesIO(cardId, prices).transact(xa)

@@ -202,7 +202,10 @@ final case class Card(
   images:   CardImage,
   prices:   Option[CardPrices],
   details:  Option[CardDetails],
-  variants: List[CardVariant] = Nil
+  variants: List[CardVariant] = Nil,
+  /** None = TCGplayer market price; "cardmarket" or "estimate" when TCGplayer
+   *  has no market price and a fallback filled it (TcgTrackingCatalog). */
+  priceSource: Option[String] = None
 )
 
 object Card:

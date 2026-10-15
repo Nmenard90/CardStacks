@@ -529,7 +529,7 @@ object CardService:
       for
         tcgGames <- games.listEnabled.map(_.filter(_.isTcgTracking))
         counts   <- ZIO.foreach(tcgGames) { game =>
-                      (syncSetListIfDue(game) *> repo.findAllSets(game.id)).flatMap { sets =>
+                      ((syncSetListIfDue(game) *> repo.findAllSets(game.id)).flatMap { sets =>
                         // Newest sets first, so search covers current cards soonest.
                         ZIO.foldLeft(sets)(0) { (n, set) =>
                           repo.findCardsBySet(set.id).flatMap {
@@ -539,7 +539,13 @@ object CardService:
                             case _ => ZIO.succeed(n)
                           }
                         }
-                      }.catchAll(e => ZIO.logWarning(s"warmCatalog: ${game.id} failed: ${e.getMessage}").as(0))
+                      } <* repo.setsWithUnpricedCards(game.id).flatMap { ids =>
+                        // Sets with cards still missing a price get the fallback
+                        // chain (Cardmarket, then estimate) — one at a time.
+                        ZIO.foreachDiscard(ids)(id =>
+                          (tcg.refreshPrices(game, id) *> ZIO.sleep(1.second))
+                            .catchAll(e => ZIO.logWarning(s"warmCatalog: price gaps in $id: ${e.getMessage}")))
+                      }).catchAll(e => ZIO.logWarning(s"warmCatalog: ${game.id} failed: ${e.getMessage}").as(0))
                     }
       yield counts.sum
 

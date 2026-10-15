@@ -27,11 +27,11 @@ object GameRepository:
 
   final class Live(xa: Transactor[Task]) extends GameRepository:
 
-    private type Row = (String, String, String, String, Int, Boolean, Int, Array[String], Boolean)
-    private val toGame: Row => Game = (id, name, short, source, cat, enabled, pos, prefs, firstEd) =>
-      Game(id, name, short, source, cat, enabled, pos, prefs.toList, firstEd)
+    private type Row = (String, String, String, String, Int, Boolean, Int, Array[String], Boolean, Option[Int])
+    private val toGame: Row => Game = (id, name, short, source, cat, enabled, pos, prefs, firstEd, cm) =>
+      Game(id, name, short, source, cat, enabled, pos, prefs.toList, firstEd, cm)
 
-    private val cols = fr"g.id, g.name, g.short_name, g.catalog_source, g.tcgtracking_category, g.enabled, g.position, g.print_preference, g.has_first_edition"
+    private val cols = fr"g.id, g.name, g.short_name, g.catalog_source, g.tcgtracking_category, g.enabled, g.position, g.print_preference, g.has_first_edition, g.cardmarket_game"
 
     def listEnabled: Task[List[Game]] =
       (fr"SELECT" ++ cols ++ fr"FROM games g WHERE g.enabled ORDER BY g.position, g.name")

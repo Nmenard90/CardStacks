@@ -51,7 +51,8 @@ object TcgTrackingCatalog:
   private case class TtSets(sets: List[TtSet])
   private given JsonDecoder[TtSets] = DeriveJsonDecoder.gen
 
-  private case class TtProduct(id: Int, name: String, number: Option[String], rarity: Option[String], imageUrl: Option[String])
+  private case class TtProduct(id: Int, name: String, number: Option[String], rarity: Option[String], imageUrl: Option[String],
+                               cardmarketId: Option[Int])
   // `number` arrives as text, a raw number, or not at all — decoded by hand.
   private given JsonDecoder[TtProduct] = JsonDecoder[Json].mapOrFail { json =>
     json.asObject.toRight("product must be an object").flatMap { o =>
@@ -60,10 +61,11 @@ object TcgTrackingCatalog:
         case Json.Num(n) => Some(n.toString)
         case _           => None
       }
+      def int(k: String) = o.get(k).flatMap(_.asNumber).flatMap(n => scala.util.Try(n.value.intValueExact).toOption)
       for
-        id   <- o.get("id").flatMap(_.asNumber).flatMap(n => scala.util.Try(n.value.intValueExact).toOption).toRight("product id")
+        id   <- int("id").toRight("product id")
         name <- str("name").toRight("product name")
-      yield TtProduct(id, name, str("number"), str("rarity"), str("image_url"))
+      yield TtProduct(id, name, str("number"), str("rarity"), str("image_url"), int("cardmarket_id"))
     }
   }
   private case class TtProducts(products: List[TtProduct])
@@ -114,7 +116,68 @@ object TcgTrackingCatalog:
       val default = game.printPreference.find(byPrint.contains).getOrElse(byPrint.keys.toList.sorted.head)
       Some((byPrint(default), byPrint.map { case (k, v) => printKey(k) -> v }))
 
-  final class Live(repo: CardRepository) extends TcgTrackingCatalog:
+  /** A fallback price is NM-based; other conditions follow typical market
+   *  discounts so an LP/MP/... copy still gets a value. */
+  private val CondFactors = (0.85, 0.70, 0.50, 0.35)
+  private def round2(d: Double) = math.max(0.01, math.round(d * 100) / 100.0)
+  private[service] def fromNm(nm: Double): CardPrices =
+    val (lp, mp, hp, dmg) = CondFactors
+    CardPrices(Some(round2(nm)), Some(round2(nm * lp)), Some(round2(nm * mp)), Some(round2(nm * hp)), Some(round2(nm * dmg)))
+
+  private def median(xs: List[Double]): Option[Double] =
+    xs.sorted match
+      case Nil => None
+      case s   => Some(if s.size % 2 == 1 then s(s.size / 2) else (s(s.size / 2 - 1) + s(s.size / 2)) / 2)
+
+  /**
+   * Every card in a set gets a price:
+   *   1. TCGplayer market price (`tcg`) — source None.
+   *   2. Cardmarket's price guide (EUR), scaled to the TCGplayer level by the
+   *      median TCGplayer/Cardmarket ratio of this set's cards that have
+   *      both AND are of similar value (Cardmarket price within 3x either
+   *      way; needs 5+ such cards; kept within 0.8–2x). Bulk cards can't
+   *      set the ratio for valuable ones: TCGplayer's ~$0.25 floor vs
+   *      Cardmarket's €0.05 commons is a 4-5x gap that would wildly inflate
+   *      a €500 card. Otherwise plain EUR→USD 1.1 — source "cardmarket".
+   *   3. An estimate from similar cards in the set: the median TCGplayer NM
+   *      price of cards with the same rarity (3+ of them), else the set's
+   *      25th-percentile price — source "estimate".
+   * Cards in a set with no TCGplayer or Cardmarket price at all (e.g. not
+   * released yet) stay unpriced — there's nothing to estimate from.
+   *
+   * @param cards (cardId, rarity, Cardmarket product id)
+   */
+  private[service] def fillGaps(
+    cards: List[(String, Option[String], Option[Int])],
+    tcg:   Map[String, (CardPrices, Map[String, CardPrices])],
+    cm:    Map[Int, Double]
+  ): List[(String, CardPrices, Map[String, CardPrices], Option[String])] =
+    val tcgNm = tcg.view.mapValues(_._1.nm).collect { case (k, Some(v)) => k -> v }.toMap
+    // (Cardmarket EUR, TCGplayer USD) for cards priced on both.
+    val pairs = cards.flatMap { case (id, _, cmId) => for t <- tcgNm.get(id); c <- cmId.flatMap(cm.get) yield (c, t) }
+    def ratioFor(eur: Double): Double =
+      val similar = pairs.collect { case (c, t) if c >= eur / 3 && c <= eur * 3 => t / c }
+      if similar.size >= 5 then median(similar).map(r => math.min(2.0, math.max(0.8, r))).getOrElse(1.1) else 1.1
+    val nmByRarity = cards.flatMap { case (id, rar, _) => tcgNm.get(id).map(rar.getOrElse("") -> _) }.groupMap(_._1)(_._2)
+    val setLowQuartile = tcgNm.values.toList.sorted match
+      case Nil => None
+      case s   => Some(s((s.size - 1) / 4))
+    cards.flatMap { case (id, rarity, cmId) =>
+      tcg.get(id) match
+        case Some((d, v)) if d.nm.isDefined => Some((id, d, v, None))
+        case known =>
+          val variants = known.map(_._2).getOrElse(Map.empty)
+          cmId.flatMap(cm.get).map(eur => (id, fromNm(eur * ratioFor(eur)), variants, Some("cardmarket")))
+            .orElse {
+              val similar = nmByRarity.getOrElse(rarity.getOrElse(""), Nil)
+              val est = if similar.size >= 3 then median(similar) else setLowQuartile
+              est.map(nm => (id, fromNm(nm), variants, Some("estimate")))
+            }
+            // Partial TCGplayer data (no NM but e.g. an LP price) beats nothing.
+            .orElse(known.map { case (d, v) => (id, d, v, None) })
+    }
+
+  final class Live(repo: CardRepository, cardmarket: CardmarketGuide) extends TcgTrackingCatalog:
 
     /** GET with a small retry — TCGTracking is free and usually fast; a
      *  couple of retries covers a blip without hammering it. */
@@ -166,25 +229,41 @@ object TcgTrackingCatalog:
                      images = CardImage(small, small.replace("_200w", "_800w")),
                      prices = None,
                      details = None
-                   )
+                   ) -> p.cardmarketId
                  })
         _     <- refreshPrices(game, ourSetId)
       yield ()
+
+    /** The set's cards with rarity and Cardmarket id. Sets imported before
+     *  Cardmarket ids were stored get them filled from TCGTracking once. */
+    private def cardmarketInputs(game: Game, ourSetId: String, ext: String): Task[List[(String, Option[String], Option[Int])]] =
+      repo.pricingInputs(ourSetId).flatMap { inputs =>
+        if inputs.isEmpty || inputs.exists(_._3.isDefined) || game.cardmarketGame.isEmpty then ZIO.succeed(inputs)
+        else
+          for
+            resp <- get(s"$Base/${game.category}/sets/$ext/cards").flatMap(parse[TtProducts])
+            ids   = resp.products.flatMap(p => p.cardmarketId.map(s"$ourSetId-${p.id}" -> _))
+            _    <- repo.setCardmarketIds(ids)
+            back <- repo.pricingInputs(ourSetId)
+          yield back
+      }
 
     def refreshPrices(game: Game, ourSetId: String): Task[Unit] =
       for
         ext  <- repo.findExternalSetId(ourSetId).someOrFail(RuntimeException(s"Set $ourSetId has no TCGTracking id"))
         resp <- get(s"$Base/${game.category}/sets/$ext/skus").flatMap(parse[TtSkus])
-        known <- repo.findCardIdsBySet(ourSetId)
+        inputs <- cardmarketInputs(game, ourSetId, ext)
+        known  = inputs.map(_._1).toSet
         // Only price cards we imported (skus also cover sealed products).
-        rows   = resp.products.toList.flatMap { case (productId, skus) =>
+        tcg    = resp.products.toList.flatMap { case (productId, skus) =>
                    val cardId = s"$ourSetId-$productId"
                    if !known(cardId) then None
-                   else pricing(game, skus.values).map { case (d, v) => (cardId, d, v) }
-                 }
-        _    <- repo.upsertPriceBatch(rows)
+                   else pricing(game, skus.values).map(cardId -> _)
+                 }.toMap
+        cm    <- game.cardmarketGame.fold(ZIO.succeed(Map.empty[Int, Double]))(cardmarket.prices)
+        _     <- repo.upsertPriceBatch(fillGaps(inputs, tcg, cm))
         _    <- repo.markPricesFetched(ourSetId)
       yield ()
 
-  val layer: ZLayer[CardRepository, Nothing, TcgTrackingCatalog] =
-    ZLayer.fromFunction(new Live(_))
+  val layer: ZLayer[CardRepository & CardmarketGuide, Nothing, TcgTrackingCatalog] =
+    ZLayer.fromFunction(new Live(_, _))

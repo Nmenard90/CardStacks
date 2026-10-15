@@ -26,7 +26,9 @@ final case class Game(
   enabled:         Boolean,
   position:        Int,
   printPreference: List[String],
-  hasFirstEdition: Boolean
+  hasFirstEdition: Boolean,
+  /** Cardmarket's game id for its public price guide (fallback prices). */
+  cardmarketGame:  Option[Int] = None
 ):
   def isTcgTracking: Boolean = source == Game.TcgTracking
 

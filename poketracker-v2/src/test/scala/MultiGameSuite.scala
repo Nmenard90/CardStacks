@@ -23,7 +23,7 @@ class MultiGameSuite extends munit.FunSuite:
   // The live test downloads a whole set list and a set from TCGTracking.
   override val munitTimeout = scala.concurrent.duration.Duration(3, "min")
 
-  private val jp = Game("pokemon-jp", "Pokémon (Japanese)", "Pokémon JP", Game.TcgTracking, 85, true, 1, List("Normal", "Holofoil"), false)
+  private val jp = Game("pokemon-jp", "Pokémon (Japanese)", "Pokémon JP", Game.TcgTracking, 85, true, 1, List("Normal", "Holofoil"), false, Some(6))
   private def sku(cnd: String, v: String, mkt: Double, lng: String = "JP") =
     TcgTrackingCatalog.TtSku(Some(cnd), Some(v), Some(lng), Some(mkt))
 
@@ -65,6 +65,64 @@ class MultiGameSuite extends munit.FunSuite:
     val mtg = jp.copy(id = "mtg", category = 1, printPreference = List("Normal", "Foil"))
     val (d, _) = TcgTrackingCatalog.pricing(mtg, List(sku("NM", "Normal", 2.0, "EN"), sku("NM", "Normal", 9.0, "JP"))).get
     assertEquals(d.nm, Some(2.0))
+  }
+
+  // ── fallback prices (every card gets one) ─────────────────────────────────
+
+  private def tp(nm: Double) = (CardPrices(Some(nm), None, None, None, None), Map.empty[String, CardPrices])
+
+  test("TCGplayer prices pass through untouched, source None") {
+    val out = TcgTrackingCatalog.fillGaps(List(("a", Some("C"), Some(1))), Map("a" -> tp(2.0)), Map(1 -> 9.0))
+    assertEquals(out.map(r => (r._1, r._2.nm, r._4)), List(("a", Some(2.0), None)))
+  }
+
+  test("missing TCGplayer price falls back to Cardmarket, scaled by similar-value cards' TCGplayer/Cardmarket ratio") {
+    // Six cards worth €5-10 priced on both: TCGplayer is 2x Cardmarket there.
+    val both = (5 to 10).map(i => (s"c$i", Some("C"), Some(i))).toList
+    val tcg = (5 to 10).map(i => s"c$i" -> tp(2.0 * i)).toMap
+    val cm = (5 to 10).map(i => i -> i.toDouble).toMap + (99 -> 8.0)
+    val out = TcgTrackingCatalog.fillGaps(both :+ ("x", Some("R"), Some(99)), tcg, cm)
+    val x = out.find(_._1 == "x").get
+    assertEquals(x._4, Some("cardmarket"))
+    assertEquals(x._2.nm, Some(16.0))
+    assertEquals(x._2.lp, Some(13.6))
+  }
+
+  test("bulk cards don't set the conversion for a valuable card") {
+    // Commons: TCGplayer $0.25 floor vs Cardmarket €0.05 (5x). A €500 card
+    // has no similar-value pairs, so it converts at plain EUR→USD.
+    val bulk = (1 to 8).map(i => (s"b$i", Some("C"), Some(i))).toList
+    val tcg = (1 to 8).map(i => s"b$i" -> tp(0.25)).toMap
+    val cm = (1 to 8).map(_ -> 0.05).toMap + (500 -> 500.0)
+    val x = TcgTrackingCatalog.fillGaps(bulk :+ ("sr", Some("SR"), Some(500)), tcg, cm).find(_._1 == "sr").get
+    assertEquals(x._2.nm, Some(550.0))
+  }
+
+  test("too few pairs: Cardmarket converts at plain EUR to USD (1.1)") {
+    val out = TcgTrackingCatalog.fillGaps(List(("x", None, Some(7))), Map.empty, Map(7 -> 10.0))
+    assertEquals(out.head._2.nm, Some(11.0))
+  }
+
+  test("no TCGplayer or Cardmarket price: estimate from same-rarity cards, else the set's low quartile") {
+    val cards = List(("u1", Some("U"), None), ("u2", Some("U"), None), ("u3", Some("U"), None),
+                     ("c1", Some("C"), None), ("x", Some("U"), None), ("y", Some("SR"), None))
+    val tcg = Map("u1" -> tp(1.0), "u2" -> tp(3.0), "u3" -> tp(5.0), "c1" -> tp(0.5))
+    val out = TcgTrackingCatalog.fillGaps(cards, tcg, Map.empty).map(r => r._1 -> (r._2.nm, r._4)).toMap
+    assertEquals(out("x"), (Some(3.0), Some("estimate")))   // median of U
+    assertEquals(out("y"), (Some(0.5), Some("estimate")))   // too few SR: set low quartile
+    assertEquals(out.size, 6)
+  }
+
+  test("a set with no prices anywhere stays unpriced (e.g. unreleased)") {
+    assertEquals(TcgTrackingCatalog.fillGaps(List(("x", None, None)), Map.empty, Map.empty), Nil)
+  }
+
+  test("Cardmarket value is the middle of trend/averages, skipping zeros") {
+    val body = """{"version":1,"priceGuides":[
+      {"idProduct":1,"trend":2.5,"avg30":9,"avg7":null,"avg":null,"trend-holo":null,"trend-foil":null},
+      {"idProduct":2,"trend":0,"avg30":null,"avg7":4,"avg":null,"trend-holo":null,"trend-foil":null},
+      {"idProduct":3,"trend":null,"avg30":null,"avg7":null,"avg":null,"trend-holo":null,"trend-foil":0}]}"""
+    assertEquals(CardmarketGuide.parse(body), Right(Map(1 -> 5.75, 2 -> 4.0)))
   }
 
   // ── DB ────────────────────────────────────────────────────────────────────
@@ -148,17 +206,22 @@ class MultiGameSuite extends munit.FunSuite:
   test("live: import a real Pokémon Japan set from TCGTracking") {
     assume(url.nonEmpty && sys.env.get("TCGTRACKING_LIVE").contains("1"), "set TRADING_IT_DB_URL and TCGTRACKING_LIVE=1")
     val cards = CardRepository.Live(xa)
-    val tcg = TcgTrackingCatalog.Live(cards)
+    val guide = CardmarketGuide.Live(run(Ref.make(Map.empty[Int, (java.time.Instant, Map[Int, Double])])))
+    val tcg = TcgTrackingCatalog.Live(cards, guide)
     val n = run(tcg.syncSets(jp))
     assert(n > 100, s"expected the full JP set list, got $n")
     val sets = run(cards.findAllSets("pokemon-jp")).filterNot(_.id == "tt85-mg")
     // A small set keeps the test quick.
-    val set = sets.filter(_.total > 20).minBy(_.total)
+    // TCGTRACKING_LIVE_SET picks a specific set (e.g. an old one with many unsold cards).
+    val set = sys.env.get("TCGTRACKING_LIVE_SET").flatMap(id => sets.find(_.id == id))
+      .getOrElse(sets.filter(_.total > 20).minBy(_.total))
     run(tcg.importSet(jp, set.id))
     val imported = run(cards.findCardsBySet(set.id))
     assert(imported.size >= set.total / 2, s"${set.name}: only ${imported.size} of ${set.total} cards")
     assert(imported.forall(c => c.id.startsWith(set.id + "-") && c.images.small.nonEmpty))
-    assert(imported.count(_.prices.exists(_.nm.isDefined)) > imported.size / 2, "most cards should be priced")
+    // Every card gets a price: TCGplayer, else Cardmarket, else an estimate.
+    val unpriced = imported.filterNot(_.prices.exists(_.nm.isDefined))
+    assert(unpriced.isEmpty, s"unpriced: ${unpriced.map(_.name).take(5)}")
     assert(run(cards.searchCards(imported.head.name, 20, "pokemon-jp")).exists(_.id == imported.head.id))
     assertEquals(run(cards.searchCards(imported.head.name, 20, "pokemon")).filter(_.setId == set.id), Nil)
   }

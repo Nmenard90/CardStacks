@@ -50,7 +50,7 @@ object Main extends ZIOAppDefault:
         priceLayer  = repoLayer >>> PriceService.layer
 
         // The generic catalog for every non-English-Pokémon game (migration 016).
-        catalogLayer = repoLayer >>> TcgTrackingCatalog.layer
+        catalogLayer = (repoLayer ++ CardmarketGuide.layer) >>> TcgTrackingCatalog.layer
 
         coreServices = (repoLayer ++ priceLayer ++ catalogLayer) >>>
                       (CardService.layer ++
