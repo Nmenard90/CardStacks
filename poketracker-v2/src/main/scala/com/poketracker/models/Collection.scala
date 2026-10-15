@@ -10,7 +10,31 @@ package com.poketracker.models
 import zio.json.*
 import java.time.Instant
 
-/** @param condition  "NM" | "LP" | "MP" | "HP" | "DMG", or e.g. "NM 1st Ed". */
+/**
+ * A condition key's parts. Keys are "<COND>[ 1st Ed][ · <print>]", e.g.
+ * "NM", "LP 1st Ed", "NM · reverse", "NM 1st Ed · holo". No print suffix
+ * means the card's default print ("standard" in inventory_lots).
+ * The print is a card_variant_prices.variant key (reverse, pokeball, ...).
+ */
+final case class ConditionKey(condition: String, edition: String, variant: String):
+  def firstEdition: Boolean = edition == "first_edition"
+
+object ConditionKey:
+  val PrintSeparator = " · "
+  val Standard       = "standard"
+
+  def parse(key: String): ConditionKey =
+    val (left, print) = key.indexOf(PrintSeparator) match
+      case -1 => (key, "")
+      case i  => (key.substring(0, i), key.substring(i + PrintSeparator.length).trim.toLowerCase)
+    val firstEd = left.endsWith(" 1st Ed")
+    ConditionKey(
+      condition = left.stripSuffix(" 1st Ed").trim,
+      edition   = if firstEd then "first_edition" else "unlimited",
+      variant   = if print.isEmpty then Standard else print
+    )
+
+/** @param condition  A condition key — see ConditionKey ("NM", "NM 1st Ed", "NM · reverse"). */
 final case class ConditionCount(
   condition:     String,
   quantity:      Int,

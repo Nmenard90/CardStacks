@@ -24,6 +24,7 @@ import { LoginScreen } from '../components/LoginScreen'
 import { getOwnedCards } from '../api/collection'
 import { getSharedProfile, makeOffer, tradingError } from '../api/trading'
 import { money, RETURN_KEY } from '../lib/trading'
+import { condLabel } from '../lib/conditions'
 import { CardBrowser, SetLine, type BrowseFields } from '../components/CardBrowser'
 import type { OwnedCard, TradeCardView } from '../types'
 
@@ -163,7 +164,7 @@ export function SharePage() {
                 <img src={c.imageSmall} alt={c.name} loading="lazy" />
                 <b>{c.name}</b>
                 <SetLine setId={c.setId} number={c.number} />
-                <small>{c.condition}{c.quantity > 1 ? ` · ${c.quantity} available` : ''} · market {money(c.marketPrice)}</small>
+                <small>{condLabel(c.condition)}{c.quantity > 1 ? ` · ${c.quantity} available` : ''} · market {money(c.marketPrice)}</small>
                 {asking.has(k) && <span className="trade-ask">{ask != null ? `Asking ${money(ask)}` : 'Make an offer'}</span>}
                 {!isOwner && (
                   <button className={picked ? 'primary' : ''} onClick={() => toggleWant(c)}>{picked ? '✓ In offer' : '+ Want'}</button>
@@ -196,7 +197,7 @@ export function SharePage() {
                 return (
                   <div className="offer-line" key={k}>
                     <img src={l.card.imageSmall} alt="" />
-                    <span>{l.card.name}<small>{l.card.condition} · {l.askingPrice != null ? `asking ${money(l.askingPrice)}` : `market ${money(l.card.marketPrice)}`}</small></span>
+                    <span>{l.card.name}<small>{condLabel(l.card.condition)} · {l.askingPrice != null ? `asking ${money(l.askingPrice)}` : `market ${money(l.card.marketPrice)}`}</small></span>
                     {l.max > 1 && <input type="number" min={1} max={l.max} value={l.quantity} onChange={e => setWantQty(k, Number(e.target.value) || 1)} />}
                     <button onClick={() => toggleWant(l.card)} aria-label="Remove">✕</button>
                   </div>
@@ -265,7 +266,7 @@ function GivePicker({ userId, gives, setGives }: {
       {Object.entries(gives).map(([k, g]) => (
         <div className="offer-line" key={k}>
           <img src={g.image} alt="" />
-          <span>{g.name}<small>{g.condition}</small></span>
+          <span>{g.name}<small>{condLabel(g.condition)}</small></span>
           {g.max > 1 && <input type="number" min={1} max={g.max} value={g.quantity} onChange={e => setQty(k, Number(e.target.value) || 1)} />}
           <button onClick={() => remove(k)} aria-label="Remove">✕</button>
         </div>
@@ -277,7 +278,7 @@ function GivePicker({ userId, gives, setGives }: {
           <span>{o.card.name}<small>#{o.card.number}</small></span>
           <div>
             {o.conditions.filter(c => c.quantity > 0 && !gives[key(o.cardId, c.condition)]).map(c => (
-              <button key={c.condition} onClick={() => add(o, c.condition, c.quantity)}>{c.condition} ×{c.quantity}</button>
+              <button key={c.condition} onClick={() => add(o, c.condition, c.quantity)}>{condLabel(c.condition)} ×{c.quantity}</button>
             ))}
           </div>
         </div>

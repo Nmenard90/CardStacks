@@ -11,7 +11,8 @@
 package com.poketracker
 
 import cats.syntax.all.*
-import com.poketracker.repository.{TradingRepository, UserRepository}
+import com.poketracker.models.{CollectionEntry, ConditionCount}
+import com.poketracker.repository.{CollectionRepository, TradingRepository, UserRepository}
 import com.poketracker.service.{OfferLine, TradingError, TradingService}
 import doobie.*
 import doobie.implicits.*
@@ -162,4 +163,31 @@ class TradingDbSuite extends munit.FunSuite:
     // The seller's Accept was decided while the offer still looked Pending.
     assert(!run(repo.setStatus(o.id, "Pending", "Accepted", seller)))
     assertEquals(run(svc.offer(seller, o.id)).status, "Withdrawn")
+  }
+
+  test("a Reverse copy is its own inventory lot and is priced as a Reverse") {
+    val now = java.time.Instant.now()
+    // Seller owns 1 NM Normal + 2 NM Reverse of Bulbasaur; Reverse has its own price.
+    run(sql"""INSERT INTO card_variant_prices (card_id, variant, price_nm) VALUES ('itset-3', 'reverse', 9.99)
+              ON CONFLICT (card_id, variant) DO UPDATE SET price_nm = 9.99""".update.run.transact(xa))
+    run(CollectionRepository.Live(xa).upsertEntry(CollectionEntry("e1", seller, "itset-3",
+      List(ConditionCount("NM", 1, None), ConditionCount("NM · reverse", 2, None)), "NM", now)))
+
+    val lots = run(sql"""SELECT variant_key, condition, quantity FROM inventory_lots
+                         WHERE user_id = $seller AND card_id = 'itset-3' AND quantity > 0 ORDER BY variant_key"""
+      .query[(String, String, Int)].to[List].transact(xa))
+    assertEquals(lots, List(("reverse", "NM", 2), ("standard", "NM", 1)))
+
+    failsWith(400)(svc.saveTradeItem(seller, "itset-3", "NM · reverse", 3, None, None))
+    val listed = run(svc.saveTradeItem(seller, "itset-3", "NM · reverse", 2, None, None))
+      .find(i => i.card.cardId == "itset-3" && i.card.condition == "NM · reverse").get
+    assertEquals(listed.card.marketPrice, Some(9.99))
+
+    // Dropping the Reverse copies zeroes that lot only.
+    run(CollectionRepository.Live(xa).upsertEntry(CollectionEntry("e1", seller, "itset-3",
+      List(ConditionCount("NM", 1, None)), "NM", now)))
+    val after = run(sql"""SELECT variant_key, quantity FROM inventory_lots
+                          WHERE user_id = $seller AND card_id = 'itset-3' ORDER BY variant_key"""
+      .query[(String, Int)].to[List].transact(xa))
+    assertEquals(after, List(("reverse", 0), ("standard", 1)))
   }

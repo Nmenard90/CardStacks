@@ -15,11 +15,37 @@ export const COND_COLORS: Record<Cond, string> = {
   NM: '#22c55e', LP: '#84cc16', MP: '#eab308', HP: '#f97316', DMG: '#ef4444',
 }
 
-/** Condition key (may include " 1st Ed") → quantity owned. */
+/** Condition key → quantity owned. Keys are "<COND>[ 1st Ed][ · <print>]":
+ *  "NM", "LP 1st Ed", "NM · reverse". No print suffix = the card's default
+ *  print; a suffix is a backend variant key (reverse, holo, pokeball, ...),
+ *  so each print is counted — and priced — on its own. The backend parses
+ *  the same grammar (models/Collection.scala ConditionKey). */
 export type CondMap = Record<string, number>
 
-export const baseCond = (key: string): Cond =>
-  (key.replace(' 1st Ed', '') as Cond)
+export const PRINT_SEP = ' · '
+
+export interface ParsedKey { cond: Cond; firstEd: boolean; print?: string }
+
+export function parseKey(key: string): ParsedKey {
+  const i = key.indexOf(PRINT_SEP)
+  const left = i === -1 ? key : key.slice(0, i)
+  const print = i === -1 ? undefined : key.slice(i + PRINT_SEP.length).trim().toLowerCase() || undefined
+  return { cond: left.replace(' 1st Ed', '').trim() as Cond, firstEd: left.endsWith(' 1st Ed'), print }
+}
+
+/** `cond` may already carry " 1st Ed"; `print` undefined = default print. */
+export const makeKey = (cond: string, print?: string): string =>
+  print ? `${parseKey(cond).cond}${parseKey(cond).firstEd ? ' 1st Ed' : ''}${PRINT_SEP}${print}` : cond
+
+export const baseCond = (key: string): Cond => parseKey(key).cond
+
+export const keyPrint = (key: string): string | undefined => parseKey(key).print
+
+/** The condition key an inventory lot stands for (inverse of the backend's
+ *  ConditionKey.parse): edition → " 1st Ed", non-"standard" print → " · print". */
+export const lotKey = (l: { condition: string; edition: string; variantKey: string }): string =>
+  makeKey(l.edition === 'first_edition' ? `${l.condition} 1st Ed` : l.condition,
+    l.variantKey && l.variantKey !== 'standard' ? l.variantKey : undefined)
 
 /** The only sets ever printed with a 1st Edition stamp (pokemontcg.io ids):
  *  Base, Jungle, Fossil, Team Rocket, Gym Heroes/Challenge, Neo 1–4. */
@@ -35,6 +61,12 @@ export const VARIANT_LABELS: Record<string, string> = {
 }
 
 export const variantLabel = (key: string): string => VARIANT_LABELS[key] ?? key
+
+/** Human label for a condition key: "NM", "LP 1st Ed", "NM Reverse". */
+export function condLabel(key: string): string {
+  const p = parseKey(key)
+  return `${p.cond}${p.firstEd ? ' 1st Ed' : ''}${p.print ? ' ' + variantLabel(p.print) : ''}`
+}
 
 /**
  * The print a card's plain `prices` describe — Normal when it exists,
@@ -68,8 +100,9 @@ export function basePrice(card: Card | undefined, variant?: string): number {
  *  Returns 0 (rendered as "no price" by callers) when the source has no
  *  real quote for this specific condition. */
 export function condPrice(card: Card | undefined, key: string, variant?: string): number {
-  const cond = baseCond(key)
-  const p = pricesForVariant(card, variant)
+  const { cond, print } = parseKey(key)
+  // A key that names its own print is always priced as that print.
+  const p = pricesForVariant(card, print ?? variant)
   const direct = p?.[cond.toLowerCase() as 'nm' | 'lp' | 'mp' | 'hp' | 'dmg']
   return direct && direct > 0 ? direct : 0
 }
@@ -117,5 +150,6 @@ export function dominantCondClass(map: CondMap): string {
   return 'cond-mixed'
 }
 
-export const cardValue = (map: CondMap, card: Card | undefined, variant?: string): number =>
-  Object.entries(map).reduce((sum, [k, q]) => sum + condPrice(card, k, variant) * q, 0)
+/** Total market value of everything owned — each key at its own print's price. */
+export const cardValue = (map: CondMap, card: Card | undefined): number =>
+  Object.entries(map).reduce((sum, [k, q]) => sum + condPrice(card, k) * q, 0)

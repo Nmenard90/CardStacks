@@ -500,6 +500,9 @@
   }
   .page-tracker .variant-chip:hover{color:var(--text);border-color:var(--accent2);}
   .page-tracker .variant-chip.sel{background:var(--accent2);border-color:var(--accent2);color:#fff;}
+  /* Shown above the stepper while a print chip is selected: −/+ edit that print. */
+  .page-tracker .variant-editing{font-size:11px;color:var(--accent2);margin:4px 0 -2px;}
+  .page-tracker .variant-editing b{color:var(--text);}
 
   /* Unscoped (not `.page-tracker`-prefixed) on purpose — CardThumb renders
      these same classes on every page (Analyzer, Binder, Convention, Spaces),

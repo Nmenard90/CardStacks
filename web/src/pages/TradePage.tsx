@@ -34,7 +34,7 @@ import {
   removeTradeItem, saveTradeItem, setOfferStatus, tradingError, updateShareSettings,
 } from '../api/trading'
 import { money, shareOrigin } from '../lib/trading'
-import { condPrice } from '../lib/conditions'
+import { condLabel, condPrice } from '../lib/conditions'
 import { CardBrowser, SetLine, type BrowseFields } from '../components/CardBrowser'
 import type { CardOffer, OfferCard, CardOfferStatus, OwnedCard, TradeListItem } from '../types'
 
@@ -152,7 +152,7 @@ function CardLines({ title, cards }: { title: string; cards: OfferCard[] }) {
         {cards.map(c => (
           <div className="offer-card" key={`${c.cardId}-${c.condition}`}>
             <img src={c.imageSmall} alt={c.name} loading="lazy" />
-            <span><b>{c.quantity > 1 ? `${c.quantity}× ` : ''}{c.name}</b><small>{c.condition} · {money(c.marketPrice)}</small></span>
+            <span><b>{c.quantity > 1 ? `${c.quantity}× ` : ''}{c.name}</b><small>{condLabel(c.condition)} · {money(c.marketPrice)}</small></span>
           </div>
         ))}
       </div>
@@ -365,7 +365,7 @@ function TradeListTab({ userId }: { userId: string }) {
                 <img src={i.card.imageSmall} alt={i.card.name} loading="lazy" />
                 <b>{i.card.name}</b>
                 <SetLine setId={i.card.setId} number={i.card.number} />
-                <small>{i.card.condition}{i.card.quantity > 1 ? ` · ×${i.card.quantity}` : ''} · market {money(i.card.marketPrice)}</small>
+                <small>{condLabel(i.card.condition)}{i.card.quantity > 1 ? ` · ×${i.card.quantity}` : ''} · market {money(i.card.marketPrice)}</small>
                 <span className="trade-ask">{i.askingPrice != null ? `Asking ${money(i.askingPrice)}` : 'Make an offer'}</span>
                 {i.note && <small className="trade-note">{i.note}</small>}
                 <div className="trade-tile-actions">
@@ -396,7 +396,7 @@ function TradeListTab({ userId }: { userId: string }) {
                   <img src={o.card.images.small} alt={o.card.name} loading="lazy" />
                   <b>{o.card.name}</b>
                   <SetLine setId={o.card.setId} number={o.card.number} />
-                  <small>{Object.entries(conds).map(([c, q]) => `${q}× ${c}`).join(' · ')}</small>
+                  <small>{Object.entries(conds).map(([c, q]) => `${q}× ${condLabel(c)}`).join(', ')}</small>
                   <span className="trade-ask">{value != null ? money(value) : 'No price'}</span>
                   <span className="owned-cta">{listed.length ? 'Edit listing' : '+ List for trade'}</span>
                 </button>
@@ -427,7 +427,7 @@ function TradeListTab({ userId }: { userId: string }) {
                       askingPrice: existing?.askingPrice != null ? String(existing.askingPrice) : '', note: existing?.note ?? '',
                     })
                   }}>
-                    {Object.entries(editing.owned).map(([c, q]) => <option key={c} value={c}>{c} (own {q})</option>)}
+                    {Object.entries(editing.owned).map(([c, q]) => <option key={c} value={c}>{condLabel(c)} (own {q})</option>)}
                   </select>
                 </label>
                 <label>Quantity

@@ -13,7 +13,7 @@ import { useState } from 'react'
 import { getPriceHistory } from '../api/cards'
 import { CardThumb } from './CardThumb'
 import type { PreviewOpts } from './CardPreview'
-import { CONDS, COND_COLORS, baseCond, basePrice, cardValue, condPrice, defaultVariant, dominantCondClass, totalQty, variantLabel, type CondMap, type PurchaseMap } from '../lib/conditions'
+import { CONDS, COND_COLORS, baseCond, basePrice, cardValue, condLabel, condPrice, defaultVariant, dominantCondClass, makeKey, totalQty, variantLabel, type CondMap, type PurchaseMap } from '../lib/conditions'
 import type { Card, PriceHistoryPoint } from '../types'
 
 interface Props {
@@ -67,6 +67,8 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
 
   // undefined = default print. Only cards with priced alternates
   // (Reverse Holo, Poké/Master Ball Pattern) show a variant picker at all.
+  // Selecting one also points the −/qty/+ stepper at that print, so adding
+  // a Reverse Holo records a Reverse Holo ("NM · reverse"), not a Normal.
   const [selectedVariant, setSelectedVariant] = useState<string | undefined>(undefined)
 
   // Only the alternates get a chip — the default print is what the tile
@@ -95,16 +97,21 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
   // price up top while the Details breakdown below shows the real LP price,
   // which reads as a bug even though both numbers are individually correct.
   const price = condPrice(card, selCond, selectedVariant) || basePrice(card, selectedVariant)
+  const value = cardValue(conds, card)
   const priceStr = price > 0
-    ? '$' + price.toFixed(2) + (qty > 1 ? ' · $' + cardValue(conds, card, selectedVariant).toFixed(2) : '')
+    ? '$' + price.toFixed(2) + (qty > 1 ? ' · $' + value.toFixed(2) : '')
     : 'no price'
-  const selQty = conds[selCond] ?? 0
-  const value = cardValue(conds, card, selectedVariant)
+  // The key the stepper edits: the selected condition, in the selected print.
+  const stepKey = makeKey(selCond, selectedVariant)
+  const selQty = conds[stepKey] ?? 0
+  const step = (delta: number) => (selectedVariant ? onAdjCond(stepKey, delta) : onAdj(delta))
+  const setStepQty = (q: number) => (selectedVariant ? onAdjCond(stepKey, q - selQty) : onSetQty(q))
 
-  // NM→LP→MP→HP→DMG order, "1st Ed" right after its plain version.
+  // NM→LP→MP→HP→DMG order; within a condition the default print first,
+  // then "1st Ed" and other prints.
   const ownedKeys = Object.keys(conds)
     .filter(k => conds[k] > 0)
-    .sort((a, b) => CONDS.indexOf(baseCond(a)) - CONDS.indexOf(baseCond(b)) || a.length - b.length)
+    .sort((a, b) => CONDS.indexOf(baseCond(a)) - CONDS.indexOf(baseCond(b)) || a.length - b.length || a.localeCompare(b))
 
   return (
     <div className={`pcard${qty > 0 ? ' owned' : ''}${selected ? ' selected' : ''} ${dominantCondClass(conds)}`}>
@@ -129,7 +136,7 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
           </div>
 
           {altPrints.length > 0 && (
-            <div className="variant-row" title="Other prints of this card — click to see their price">
+            <div className="variant-row" title="Other prints of this card — select one to see its price and add/remove copies of that print">
               {altPrints.map(v => {
                 const nm = basePrice(card, v.name)
                 return (
@@ -194,16 +201,21 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
               })()}
             </div>
           )}
+          {selectedVariant && (
+            <div className="variant-editing" title="The −/+ below add or remove this print">
+              Editing <b>{condLabel(stepKey)}</b>
+            </div>
+          )}
           <div className="qty-row">
-            <button className="qbtn" onClick={() => onAdj(-1)}>−</button>
+            <button className="qbtn" onClick={() => step(-1)}>−</button>
             <input
               className={'qty' + (selQty > 0 ? ' has-qty' : '')}
               type="number" min={0} value={selQty}
-              onChange={e => onSetQty(Math.max(0, parseInt(e.target.value || '0', 10) || 0))}
+              onChange={e => setStepQty(Math.max(0, parseInt(e.target.value || '0', 10) || 0))}
               onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-              aria-label={`qty for ${card.name}`}
+              aria-label={`qty for ${card.name} ${condLabel(stepKey)}`}
             />
-            <button className="qbtn" onClick={() => onAdj(1)}>+</button>
+            <button className="qbtn" onClick={() => step(1)}>+</button>
           </div>
 
           {onAddToBinder && (
@@ -219,9 +231,9 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
       <div className="cond-section">
         <div className="cond-row">
           {CONDS.map(c => {
-            // Combines a plain condition's count with its "1st Ed" count
-            // so e.g. the NM badge reflects both.
-            const count = (conds[c] ?? 0) + (conds[c + ' 1st Ed'] ?? 0)
+            // Every key in this condition — plain, 1st Ed and every print —
+            // so e.g. the NM badge counts NM Normal + NM Reverse together.
+            const count = Object.entries(conds).reduce((n, [k, q]) => (baseCond(k) === c ? n + q : n), 0)
             return (
               <span
                 key={c}
@@ -248,9 +260,9 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
             {ownedKeys.map(k => (
               <span key={k} className="cbd-item">
                 <span className="cbd-dot" style={{ background: COND_COLORS[baseCond(k)] }} />
-                {k}×{conds[k]}
-                {condPrice(card, k, selectedVariant) > 0 && (
-                  <span className="cbd-val">${(condPrice(card, k, selectedVariant) * conds[k]).toFixed(2)}</span>
+                {condLabel(k)}×{conds[k]}
+                {condPrice(card, k) > 0 && (
+                  <span className="cbd-val">${(condPrice(card, k) * conds[k]).toFixed(2)}</span>
                 )}
               </span>
             ))}
@@ -263,14 +275,14 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
           <div className="purchase-section">
             {ownedKeys.map(k => {
               const purchase = purchases?.[k]
-              const market = condPrice(card, k, selectedVariant)
+              const market = condPrice(card, k)
               const pct = purchase ? gainLossPct(purchase.price, market) : null
               const diff = purchase && market > 0 ? market - purchase.price : null
               return (
                 <div key={k} className="purchase-line">
                   {editingPurchase === k ? (
                     <span className="purchase-edit-row">
-                      <span className="purchase-cond-label">{k}</span> paid $
+                      <span className="purchase-cond-label">{condLabel(k)}</span> paid $
                       <input
                         autoFocus type="number" min={0} step="0.01" value={purchaseInput}
                         onChange={e => setPurchaseInput(e.target.value)}
@@ -290,7 +302,7 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
                       title="Edit what you paid"
                       onClick={() => { setPurchaseInput(String(purchase.price)); setEditingPurchase(k) }}
                     >
-                      <span className="purchase-cond-label">{k}</span>
+                      <span className="purchase-cond-label">{condLabel(k)}</span>
                       <span>paid ${purchase.price.toFixed(2)}</span>
                       <span className="purchase-arrow">→</span>
                       <span className="purchase-now">${market.toFixed(2)}</span>
@@ -309,7 +321,7 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
                       title="Log what you paid"
                       onClick={() => { setPurchaseInput(''); setEditingPurchase(k) }}
                     >
-                      <span className="purchase-cond-label">{k}</span> + log what you paid
+                      <span className="purchase-cond-label">{condLabel(k)}</span> + log what you paid
                     </button>
                   )}
                 </div>

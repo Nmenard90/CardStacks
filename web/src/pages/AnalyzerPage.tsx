@@ -28,7 +28,7 @@ import { usePreview } from '../components/CardPreview'
 import { CardThumb } from '../components/CardThumb'
 import { OwnedCardTile } from '../components/OwnedCardTile'
 import { usePagedList } from '../lib/usePagedList'
-import { CONDS, condPrice, type Cond } from '../lib/conditions'
+import { CONDS, condLabel, condPrice, type Cond } from '../lib/conditions'
 import type { Card } from '../types'
 
 type Side = 'give' | 'get'
@@ -334,7 +334,7 @@ export function AnalyzerPage() {
             </div>
             <div className="box-card-grid cp-grid-real">
               {collPage.visible.map(o => {
-                const breakdown = o.conditions.filter(c => c.quantity > 0).map(c => `${c.condition} ×${c.quantity}`).join(' · ')
+                const breakdown = o.conditions.filter(c => c.quantity > 0).map(c => `${condLabel(c.condition)} ×${c.quantity}`).join(', ')
                 return (
                   <div
                     key={o.cardId}

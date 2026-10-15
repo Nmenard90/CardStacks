@@ -93,11 +93,11 @@ object CollectionRepository:
       *   for the instant between statements. The normal (non-shrink) pass
       *   after the quantity update then grows it if the total increased. */
     private def reconcileAutoAllocation(
-      userId: String, cardId: String, edition: String, condition: String,
+      userId: String, cardId: String, key: ConditionKey,
       totalQty: Int, shrinkOnly: Boolean,
     ): ConnectionIO[Unit] =
       sql"""SELECT id FROM inventory_lots WHERE user_id=$userId AND card_id=$cardId
-        AND variant_key='standard' AND edition=$edition AND language='en' AND condition=$condition"""
+        AND variant_key=${key.variant} AND edition=${key.edition} AND language='en' AND condition=${key.condition}"""
         .query[String].option.flatMap {
           case None => ().pure[ConnectionIO]
           case Some(lotId) =>
@@ -125,33 +125,29 @@ object CollectionRepository:
         }
 
     /** Keeps the normalized allocation inventory aligned with the legacy
-      * condition JSON. Legacy data has no owned variant, so it remains
-      * "standard" until the user explicitly splits it in the room UI. */
+      * condition JSON: one lot per (print, edition, condition). A key with no
+      * print suffix is the card's default print ("standard"); "NM · reverse"
+      * is its own lot, so reverse copies are tracked and placed separately. */
     private def syncInventoryLots(entry: CollectionEntry): ConnectionIO[Unit] =
       val active = entry.conditions.filter(_.quantity > 0)
       for
         _ <- active.traverse_ { conditionCount =>
-          val firstEdition = conditionCount.condition.endsWith(" 1st Ed")
-          val edition = if firstEdition then "first_edition" else "unlimited"
-          val condition = conditionCount.condition.stripSuffix(" 1st Ed")
-          reconcileAutoAllocation(entry.userId, entry.cardId, edition, condition, conditionCount.quantity, shrinkOnly = true) *>
+          val key = ConditionKey.parse(conditionCount.condition)
+          reconcileAutoAllocation(entry.userId, entry.cardId, key, conditionCount.quantity, shrinkOnly = true) *>
           sql"""INSERT INTO inventory_lots
             (user_id,card_id,variant_key,edition,language,condition,quantity)
-            VALUES (${entry.userId},${entry.cardId},'standard',$edition,'en',$condition,${conditionCount.quantity})
+            VALUES (${entry.userId},${entry.cardId},${key.variant},${key.edition},'en',${key.condition},${conditionCount.quantity})
             ON CONFLICT (user_id,card_id,variant_key,edition,language,condition)
             DO UPDATE SET quantity=EXCLUDED.quantity,updated_at=NOW()""".update.run.void *>
-          reconcileAutoAllocation(entry.userId, entry.cardId, edition, condition, conditionCount.quantity, shrinkOnly = false)
+          reconcileAutoAllocation(entry.userId, entry.cardId, key, conditionCount.quantity, shrinkOnly = false)
         }
-        keepKeys = active.map { cc =>
-          val edition = if cc.condition.endsWith(" 1st Ed") then "first_edition" else "unlimited"
-          (edition, cc.condition.stripSuffix(" 1st Ed"))
-        }.toSet
-        existing <- sql"""SELECT id,edition,condition FROM inventory_lots
-          WHERE user_id=${entry.userId} AND card_id=${entry.cardId} AND variant_key='standard' AND language='en'"""
-          .query[(String,String,String)].to[List]
-        _ <- existing.filterNot { case (_,edition,condition) => keepKeys((edition,condition)) }.traverse_ {
-          case (id,edition,condition) =>
-            reconcileAutoAllocation(entry.userId, entry.cardId, edition, condition, 0, shrinkOnly = true) *>
+        keepKeys = active.map(cc => ConditionKey.parse(cc.condition)).toSet
+        existing <- sql"""SELECT id,variant_key,edition,condition FROM inventory_lots
+          WHERE user_id=${entry.userId} AND card_id=${entry.cardId} AND language='en' AND quantity > 0"""
+          .query[(String,String,String,String)].to[List]
+        _ <- existing.filterNot { case (_,variant,edition,condition) => keepKeys(ConditionKey(condition, edition, variant)) }.traverse_ {
+          case (id,variant,edition,condition) =>
+            reconcileAutoAllocation(entry.userId, entry.cardId, ConditionKey(condition, edition, variant), 0, shrinkOnly = true) *>
             sql"UPDATE inventory_lots SET quantity=0,updated_at=NOW() WHERE id=$id".update.run.void
         }
       yield ()

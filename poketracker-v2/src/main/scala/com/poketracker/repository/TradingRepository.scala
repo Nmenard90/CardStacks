@@ -65,10 +65,12 @@ object TradingRepository:
     private type ShareRow = (String, Boolean, Boolean, Option[String])
     private val toShare: ShareRow => ShareSettings = (slug, en, pub, bio) => ShareSettings(slug, en, pub, bio)
 
-    /** Market price for a condition key ("NM", "LP 1st Ed", ...). */
+    /** Market price for a condition key's base condition ("NM", "LP 1st Ed · reverse", ...).
+     *  The print part is already resolved by priceJoin, which picked that
+     *  print's price row. */
     private def priceFor(condition: String, nm: Option[Double], lp: Option[Double], mp: Option[Double],
                          hp: Option[Double], dmg: Option[Double]): Option[Double] =
-      condition.replace(" 1st Ed", "") match
+      ConditionKey.parse(condition).condition match
         case "NM"  => nm
         case "LP"  => lp.orElse(nm)
         case "MP"  => mp.orElse(nm)
@@ -86,14 +88,20 @@ object TradingRepository:
     private val cardCols = fr"""c.id, c.name, c.set_id, c.number, c.rarity, c.image_small, c.image_large,
       p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg"""
 
-    /** Latest price row for `c` — LATERAL + LIMIT 1, not a plain join:
-     *  card_prices may hold several rows per card (Migration 003's
-     *  per-variant rows), which would repeat each card and make the
-     *  single-row `cardView` lookup fail. Mirrors CardRepository. */
-    private val priceJoin = fr"""LEFT JOIN LATERAL (
-        SELECT cp.price_nm, cp.price_lp, cp.price_mp, cp.price_hp, cp.price_dmg
-        FROM card_prices cp WHERE cp.card_id = c.id
-        ORDER BY cp.fetched_at DESC, cp.id LIMIT 1
+    /** One price row for card `c` and the condition key `cond` (a SQL
+     *  expression): that key's print from card_variant_prices when it names
+     *  one ("NM · reverse"), else the default print's latest card_prices row.
+     *  LATERAL + LIMIT 1 so a card never repeats and single-row lookups
+     *  (`cardView`) can't fail if card_prices ever holds several rows. */
+    private def priceJoin(cond: Fragment) = fr"""LEFT JOIN LATERAL (
+        SELECT x.price_nm, x.price_lp, x.price_mp, x.price_hp, x.price_dmg FROM (
+          SELECT vp.price_nm, vp.price_lp, vp.price_mp, vp.price_hp, vp.price_dmg, 0 AS pri, vp.fetched_at
+          FROM card_variant_prices vp
+          WHERE vp.card_id = c.id AND vp.variant = NULLIF(lower(trim(split_part(""" ++ cond ++ fr""", ' · ', 2))), '')
+          UNION ALL
+          SELECT cp.price_nm, cp.price_lp, cp.price_mp, cp.price_hp, cp.price_dmg, 1 AS pri, cp.fetched_at
+          FROM card_prices cp WHERE cp.card_id = c.id
+        ) x ORDER BY x.pri, x.fetched_at DESC LIMIT 1
       ) p ON TRUE"""
 
     // ── share settings ──────────────────────────────────────────────────────
@@ -127,7 +135,7 @@ object TradingRepository:
     def listTradeItems(userId: String): Task[List[TradeListItem]] =
       (fr"SELECT t.id, t.condition, t.quantity, t.asking_price, t.note, t.updated_at," ++ cardCols ++
         fr"""FROM trade_list_items t
-             JOIN cards c ON c.id = t.card_id""" ++ priceJoin ++
+             JOIN cards c ON c.id = t.card_id""" ++ priceJoin(fr"t.condition") ++
         fr"""WHERE t.user_id = $userId
              ORDER BY c.name, t.condition""")
         .query[((String, String, Int, Option[Double], Option[String], Instant), CardRow)].to[List]
@@ -165,7 +173,7 @@ object TradingRepository:
       (fr"SELECT item->>'condition', (item->>'quantity')::int," ++ cardCols ++
         fr"""FROM collection_entries ce
              CROSS JOIN LATERAL jsonb_array_elements(ce.conditions::jsonb) item
-             JOIN cards c ON c.id = ce.card_id""" ++ priceJoin ++
+             JOIN cards c ON c.id = ce.card_id""" ++ priceJoin(fr"item->>'condition'") ++
         fr"""WHERE ce.user_id = $userId AND COALESCE((item->>'quantity')::int, 0) > 0
              ORDER BY c.set_id, c.number, item->>'condition'""")
         .query[((String, Int), CardRow)].to[List]
@@ -174,7 +182,7 @@ object TradingRepository:
 
     def cardView(cardId: String, condition: String, quantity: Int): Task[Option[TradeCardView]] =
       (fr"SELECT" ++ cardCols ++
-        fr"FROM cards c" ++ priceJoin ++ fr"WHERE c.id = $cardId")
+        fr"FROM cards c" ++ priceJoin(fr"$condition") ++ fr"WHERE c.id = $cardId")
         .query[CardRow].option.map(_.map(view(_, condition, quantity))).transact(xa)
 
     // ── offers ──────────────────────────────────────────────────────────────

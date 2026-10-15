@@ -31,7 +31,7 @@ import { BulkAddControls } from '../components/BulkAddControls'
 import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
 import {
-  baseCond, cardValue, fromCondList, hasFirstEdition, toCondList, totalQty, type CondMap,
+  baseCond, cardValue, fromCondList, hasFirstEdition, keyPrint, makeKey, toCondList, totalQty, type CondMap,
 } from '../lib/conditions'
 import type { Card } from '../types'
 
@@ -253,9 +253,10 @@ export function BulkAddPage() {
         // the save additive rather than a plain overwrite.
         const map: CondMap = prior ? fromCondList(prior.conditions) : {}
         // A session saved locally before the 1st Ed guard existed can still
-        // hold "1st Ed" keys for modern sets — folded into the plain condition.
+        // hold "1st Ed" keys for modern sets — folded into the plain condition
+        // (keeping the print, so a Reverse stays a Reverse).
         for (const k of Object.keys(t.conds)) {
-          const key = hasFirstEdition(t.card.setId) ? k : baseCond(k)
+          const key = hasFirstEdition(t.card.setId) ? k : makeKey(baseCond(k), keyPrint(k))
           map[key] = (map[key] ?? 0) + t.conds[k]
         }
 

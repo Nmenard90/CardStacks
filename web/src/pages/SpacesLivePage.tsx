@@ -36,7 +36,7 @@ import { CardThumb } from '../components/CardThumb'
 import { OwnedCardTile } from '../components/OwnedCardTile'
 import { CardTile } from '../components/CardTile'
 import { BulkAddControls } from '../components/BulkAddControls'
-import { baseCond, type CondMap } from '../lib/conditions'
+import { baseCond, condLabel, lotKey, type CondMap } from '../lib/conditions'
 import { usePagedList } from '../lib/usePagedList'
 import { createBinder, getBinder, listBinders, updateBinder } from '../api/binders'
 import { getSets } from '../api/cards'
@@ -1095,10 +1095,9 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   }
 
   /** Does this lot hold copies of `cardId` under condition key `condKey`
-   *  ("NM", or "NM 1st Ed" for the 1st Edition lot)? */
+   *  ("NM", "NM 1st Ed", "NM · reverse")? */
   const lotMatches = (l: InventoryLot, cardId: string, condKey: string) =>
-    l.cardId === cardId && l.variantKey === 'standard' && l.condition === baseCond(condKey)
-    && l.edition === (condKey.endsWith(' 1st Ed') ? 'first_edition' : 'unlimited')
+    l.cardId === cardId && lotKey(l) === condKey
 
   /** Adds `qty` owned copies of a card and places them in this box. Always
    *  reads fresh owned/lot state right before writing (never this
@@ -1479,7 +1478,7 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   for (const a of insideBox) {
     const lot = lots.find(l => l.id === a.lotId)
     if (!lot) continue
-    const key = lot.edition === 'first_edition' ? `${lot.condition} 1st Ed` : lot.condition
+    const key = lotKey(lot)
     const gk = groupKey(lot.cardId, a.drawerId ?? undefined)
     let g = groupMap.get(gk)
     if (!g) { g = { key: gk, cardId: lot.cardId, drawerId: a.drawerId ?? undefined, card: cardFor(lot.cardId), allocations: [], conds: {} }; groupMap.set(gk, g) }
@@ -1747,7 +1746,7 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
           <div className="box-card-grid">
             {availablePage.visible.map(lot => {
               const card = cardFor(lot.cardId)
-              const subtitle = `${lot.condition} · ${lot.variantKey} · ${lot.quantity - lot.allocated} available`
+              const subtitle = `${condLabel(lotKey(lot))} · ${lot.quantity - lot.allocated} available`
               return card ? (
                 <OwnedCardTile
                   key={lot.id} card={card} preview={preview} subtitle={subtitle}
@@ -2153,7 +2152,7 @@ function Displays({ userId, space, reload, caseId, setCaseId }: {
                         <div className={'box-card-tile' + (activeSlot?.id === slot.id ? ' selected' : '')} key={slot.id}>
                           <ZoomableCardImage card={card} preview={preview} />
                           <b>{card.name}</b>
-                          <small>{lot?.condition} · {lot?.variantKey}</small>
+                          <small>{lot ? condLabel(lotKey(lot)) : ''}</small>
                           <div className="box-card-tile-actions">
                             <button onClick={() => setActiveSlot(slot)}>Change</button>
                             <button onClick={() => void remove(allocation!)}>Remove</button>
@@ -2190,7 +2189,7 @@ function Displays({ userId, space, reload, caseId, setCaseId }: {
                   return (
                     <div className="box-copy-row">
                       {card && <ZoomableCardImage card={card} preview={preview} />}
-                      <span><b>{card?.name || lot?.cardId}</b><small>{lot?.condition} · {lot?.variantKey} · {lot?.edition}</small></span>
+                      <span><b>{card?.name || lot?.cardId}</b><small>{lot ? condLabel(lotKey(lot)) : ''}</small></span>
                       <button onClick={() => void remove(allocation)}>Remove</button>
                     </div>
                   )
@@ -2202,7 +2201,7 @@ function Displays({ userId, space, reload, caseId, setCaseId }: {
                   return (
                     <div className="box-copy-row" key={lot.id}>
                       {card && <ZoomableCardImage card={card} preview={preview} />}
-                      <span><b>{card?.name || lot.cardId}</b><small>{lot.condition} · {lot.variantKey} · {lot.quantity - lot.allocated} available</small></span>
+                      <span><b>{card?.name || lot.cardId}</b><small>{condLabel(lotKey(lot))} · {lot.quantity - lot.allocated} available</small></span>
                       <button onClick={() => void add(lot)}>+ Place here</button>
                     </div>
                   )
