@@ -60,7 +60,10 @@ export const VARIANT_LABELS: Record<string, string> = {
   pokeball: 'Poké Ball', masterball: 'Master Ball',
 }
 
-export const variantLabel = (key: string): string => VARIANT_LABELS[key] ?? key
+/** Known Pokémon prints get their proper names; any other game's print key
+ *  ("foil", "cold-foil", "1st-edition") is title-cased from the key. */
+export const variantLabel = (key: string): string =>
+  VARIANT_LABELS[key] ?? key.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 
 /** Human label for a condition key: "NM", "LP 1st Ed", "NM Reverse". */
 export function condLabel(key: string): string {
