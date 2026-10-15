@@ -5,8 +5,8 @@ import com.poketracker.repository.RoomRepository
 import zio.*
 
 trait RoomService:
-  def listSpaces(userId:String): Task[List[CollectionSpace]]
-  def createSpace(userId:String,name:String,spaceType:String): Task[CollectionSpace]
+  def listSpaces(userId:String,game:String): Task[List[CollectionSpace]]
+  def createSpace(userId:String,name:String,spaceType:String,game:String): Task[CollectionSpace]
   def createStorageUnit(userId:String,spaceId:String,name:String,unitType:String,preset:String,color:String,
     shelfCount:Int,positionsPerShelf:Int,maxStackHeight:Int,config:String): Task[StorageUnit]
   def placeBox(userId:String,boxId:String,spaceId:String,unitId:String,shelf:Int,stack:Int,level:Int): Task[Unit]
@@ -14,7 +14,7 @@ trait RoomService:
   def createDisplayCase(userId:String,spaceId:String,name:String,caseType:String,preset:String,frameColor:String,
     lightColor:String,shelfCount:Int,slotsPerShelf:Int,config:String): Task[DisplayCase]
   def setDisplayLights(userId:String,caseId:String,enabled:Boolean): Task[Unit]
-  def getInventory(userId:String): Task[List[InventoryLot]]
+  def getInventory(userId:String,game:String): Task[List[InventoryLot]]
   def getDrawerAllocations(userId:String,drawerId:String): Task[List[CardAllocation]]
   def getCaseAllocations(userId:String,caseId:String): Task[List[CardAllocation]]
   def getBinderAllocations(userId:String,binderId:String): Task[List[CardAllocation]]
@@ -31,10 +31,10 @@ object RoomService:
   private val protections=Set("raw","sleeved","double_sleeved","toploader","magnetic_holder","graded_slab")
   final class Live(repo:RoomRepository) extends RoomService:
     private def nonEmpty(value:String,label:String)=ZIO.fail(IllegalArgumentException(s"$label cannot be empty")).when(value.trim.isEmpty)
-    def listSpaces(userId:String)=repo.listSpaces(userId)
-    def createSpace(userId:String,name:String,spaceType:String)=
+    def listSpaces(userId:String,game:String)=repo.listSpaces(userId,game)
+    def createSpace(userId:String,name:String,spaceType:String,game:String)=
       nonEmpty(name,"Name") *> ZIO.fail(IllegalArgumentException("Invalid space type")).unless(spaceTypes(spaceType)) *>
-        repo.createSpace(userId,name.trim,spaceType)
+        repo.createSpace(userId,name.trim,spaceType,game)
     def createStorageUnit(userId:String,spaceId:String,name:String,unitType:String,preset:String,color:String,
       shelfCount:Int,positionsPerShelf:Int,maxStackHeight:Int,config:String)=
       nonEmpty(name,"Name") *> ZIO.fail(IllegalArgumentException("Invalid storage unit type")).unless(unitTypes(unitType)) *>
@@ -52,7 +52,7 @@ object RoomService:
       ZIO.fail(IllegalArgumentException("Display dimensions must be positive")).when(shelfCount<1||slotsPerShelf<1) *>
       repo.createDisplayCase(userId,spaceId,name.trim,caseType,preset,frameColor,lightColor,shelfCount,slotsPerShelf,config)
     def setDisplayLights(userId:String,caseId:String,enabled:Boolean)=repo.setDisplayLights(userId,caseId,enabled)
-    def getInventory(userId:String)=repo.listLots(userId)
+    def getInventory(userId:String,game:String)=repo.listLots(userId,game)
     def getDrawerAllocations(userId:String,drawerId:String)=repo.listDrawerAllocations(userId,drawerId)
     def getCaseAllocations(userId:String,caseId:String)=repo.listCaseAllocations(userId,caseId)
     def getBinderAllocations(userId:String,binderId:String)=repo.listBinderAllocations(userId,binderId)

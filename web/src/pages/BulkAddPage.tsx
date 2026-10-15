@@ -19,6 +19,7 @@
  * DEPENDS ON: api/cards, api/collection, lib/cardSearch, lib/conditions
  */
 
+import { DEFAULT_GAME, currentGame } from '../lib/game'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useReducer, useState } from 'react'
 import { getSets } from '../api/cards'
@@ -149,7 +150,12 @@ function reducer(state: State, action: Action): State {
 /* ─── localStorage persistence ────────────────────────────────────────────── */
 
 /** Per-user storage key so two accounts on one browser don't collide. */
-const storageKey = (userId: string) => `poketracker_bulk_${userId}`
+/** One unsaved session per game. English Pokémon keeps the original key so
+ *  a session started before multi-game support isn't lost. */
+const storageKey = (userId: string) => {
+  const g = currentGame()
+  return g === DEFAULT_GAME ? `poketracker_bulk_${userId}` : `poketracker_bulk_${userId}:${g}`
+}
 
 /**
  * Restores a saved session for this user, if one exists. Runs once, right

@@ -46,7 +46,7 @@ object AuthGuard:
    *  regression tests do not need to construct a live HTTP application. */
   private[poketracker] def isPublicPath(method: Method, path: String): Boolean =
     method == Method.OPTIONS || path == "/health" || path == "/api/sets" ||
-      path == "/api/search" || path.startsWith("/api/cards") ||
+      path == "/api/search" || path == "/api/games" || path.startsWith("/api/cards") ||
       (method == Method.GET && path.startsWith("/api/share/"))
 
   private def isPublic(req: Request): Boolean =

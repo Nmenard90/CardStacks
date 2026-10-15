@@ -25,12 +25,12 @@ import java.time.Instant
 
 trait BinderRepository:
   /** Slots omitted — used for the shelf view, which only shows covers. */
-  def findByUser(userId: String): Task[List[Binder]]
+  def findByUser(userId: String, game: String): Task[List[Binder]]
 
   /** Full binder with every slot — used when a binder is actually opened. */
   def findById(userId: String, id: String): Task[Option[Binder]]
 
-  def create(binder: Binder): Task[Unit]
+  def create(binder: Binder, game: String): Task[Unit]
 
   /** `cardId = None` clears the slot; `Some` places that card. */
   def updateSlot(
@@ -55,12 +55,12 @@ object BinderRepository:
 
   final class Live(xa: Transactor[Task]) extends BinderRepository:
 
-    def findByUser(userId: String): Task[List[Binder]] =
+    def findByUser(userId: String, game: String): Task[List[Binder]] =
       sql"""
         SELECT id, user_id, name, pocket_size, cover_image, space_id, storage_unit_id,
                shelf_index, shelf_position, created_at, updated_at
         FROM binders
-        WHERE user_id = $userId
+        WHERE user_id = $userId AND game_id = $game
         ORDER BY updated_at DESC
       """
         .query[(String, String, String, String, Option[String], Option[String], Option[String], Option[Int], Option[Int], Instant, Instant)]
@@ -103,12 +103,12 @@ object BinderRepository:
         Binder(bid, uid, name, PocketSize.valueOf(size), cover, spaceId, unitId, shelf, position, binderSlots, createdAt, updatedAt)
       }).transact(xa)
 
-    def create(binder: Binder): Task[Unit] =
+    def create(binder: Binder, game: String): Task[Unit] =
       sql"""
-        INSERT INTO binders (id, user_id, name, pocket_size, cover_image, created_at, updated_at)
+        INSERT INTO binders (id, user_id, name, pocket_size, cover_image, created_at, updated_at, game_id)
         VALUES (${binder.id}, ${binder.userId}, ${binder.name},
                 ${binder.pocketSize.toString}, ${binder.coverImage},
-                ${binder.createdAt}, ${binder.updatedAt})
+                ${binder.createdAt}, ${binder.updatedAt}, $game)
       """
         .update.run.void.transact(xa)
 

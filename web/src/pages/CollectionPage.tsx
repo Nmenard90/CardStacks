@@ -17,6 +17,7 @@
  * DEPENDS ON: api/cards, api/collection, lib/cardSearch, lib/conditions
  */
 
+import { currentGame } from '../lib/game'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { browseCards, getCards, getSets, searchCards, type BrowseSort } from '../api/cards'
@@ -56,7 +57,7 @@ export function CollectionPage() {
   const preview = usePreview()
 
   // Restores whichever set was open last time, read once on first load.
-  const [setId, setSetId] = useState<string | null>(() => localStorage.getItem('poketracker_set'))
+  const [setId, setSetId] = useState<string | null>(() => localStorage.getItem(`poketracker_set:${currentGame()}`))
   const [search, setSearch] = useState('')
   // Narrows any card grid to cards you own, or to the ones you're missing.
   const [ownership, setOwnership] = useState<'all' | 'owned' | 'missing'>('all')
@@ -117,7 +118,7 @@ export function CollectionPage() {
 
   // Remembers the active set for next time.
   useEffect(() => {
-    if (activeSetId) localStorage.setItem('poketracker_set', activeSetId)
+    if (activeSetId) localStorage.setItem(`poketracker_set:${currentGame()}`, activeSetId)
   }, [activeSetId])
 
   // Loads the user's full collection once we know who they are.

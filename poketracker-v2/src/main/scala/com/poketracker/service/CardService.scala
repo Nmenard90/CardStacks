@@ -22,7 +22,7 @@
 package com.poketracker.service
 
 import com.poketracker.models.*
-import com.poketracker.repository.CardRepository
+import com.poketracker.repository.{CardRepository, GameRepository}
 import com.poketracker.service.PriceService
 import zio.*
 import zio.json.*
@@ -99,8 +99,9 @@ private given JsonDecoder[ApiSetsResp]  = DeriveJsonDecoder.gen
 
 trait CardService:
 
-  /** Newest first. Served from the DB once populated; downloads and caches on first call. */
-  def getSets: Task[List[CardSet]]
+  /** One game's sets, newest first. Served from the DB once populated;
+   *  downloads and caches on first call. Fails for an unknown/disabled game. */
+  def getSets(game: String): Task[List[CardSet]]
 
   /** Sorted by collector number. Triggers a background-equivalent price refresh if stale. */
   def getCardsBySet(setId: String): Task[List[Card]]
@@ -114,11 +115,11 @@ trait CardService:
    * @param q Search term (name or collector number).
    * @param n Max results.
    */
-  def searchCards(q: String, n: Int = 60): Task[List[Card]]
+  def searchCards(q: String, n: Int = 60, game: String = Game.DefaultId): Task[List[Card]]
 
   /** Cross-set catalog browse, purely local (no pokemontcg.io fallback —
    *  every already-cached card is fair game, nothing to fetch on a miss). */
-  def browseCards(sort: String, dir: String, page: Int, pageSize: Int): Task[(List[Card], Int)]
+  def browseCards(sort: String, dir: String, page: Int, pageSize: Int, game: String = Game.DefaultId): Task[(List[Card], Int)]
 
   /** Forces a full re-download, e.g. when a new set releases. */
   def refreshSet(setId: String): Task[Unit]
@@ -147,9 +148,40 @@ trait CardService:
    */
   def refreshOwnedSetPrices: Task[Int]
 
+  /** Background: keeps every enabled TCGTracking game's set list current and
+   *  imports any set not yet downloaded (one at a time, gently), so search
+   *  covers the whole catalog. @return sets imported. */
+  def warmCatalog: Task[Int]
+
+  /** Enabled games, for the game switcher. */
+  def listGames: Task[List[Game]]
+
 object CardService:
 
-  final class Live(repo: CardRepository, priceService: PriceService, apiKey: String) extends CardService:
+  final class Live(
+    repo: CardRepository, priceService: PriceService, apiKey: String,
+    games: GameRepository, tcg: TcgTrackingCatalog, setListSynced: Ref[Map[String, java.time.Instant]]
+  ) extends CardService:
+
+    private def enabledGame(id: String): Task[Game] =
+      games.findById(id).flatMap {
+        case Some(g) if g.enabled => ZIO.succeed(g)
+        case _                    => ZIO.fail(IllegalArgumentException(s"Unknown game '$id'"))
+      }
+
+    /** The TCGTracking game a set belongs to, if it's one of those. */
+    private def tcgGameOf(setId: String): Task[Option[Game]] =
+      games.findBySetId(setId).map(_.filter(_.isTcgTracking))
+
+    /** Re-syncs a TCGTracking game's set list at most every 12h per process. */
+    private def syncSetListIfDue(game: Game): Task[Unit] =
+      val now = java.time.Instant.now()
+      setListSynced.get.flatMap { m =>
+        val due = m.get(game.id).forall(_.isBefore(now.minusSeconds(12 * 3600)))
+        ZIO.when(due)(tcg.syncSets(game) *> setListSynced.update(_.updated(game.id, now))).unit
+      }
+
+    def listGames: Task[List[Game]] = games.listEnabled
 
     private val base = "https://api.pokemontcg.io/v2"
 
@@ -285,19 +317,51 @@ object CardService:
     private def sorted(cards: List[Card]): List[Card] =
       cards.sortWith((a, b) => numberLess(a.number, b.number))
 
-    def getSets: Task[List[CardSet]] =
-      repo.findAllSets.flatMap {
+    def getSets(gameId: String): Task[List[CardSet]] =
+      enabledGame(gameId).flatMap {
+        case game if game.isTcgTracking =>
+          repo.findAllSets(game.id).flatMap {
+            // First visit: the list is needed now. After that, refresh it in
+            // the background so new releases appear without slowing the page.
+            case Nil  => syncSetListIfDue(game) *> repo.findAllSets(game.id)
+            case sets => syncSetListIfDue(game)
+                           .catchAll(e => ZIO.logWarning(s"Set list sync failed for ${game.id}: ${e.getMessage}"))
+                           .forkDaemon.as(sets)
+          }
+        case game => pokemonSets(game.id)
+      }
+
+    private def pokemonSets(gameId: String): Task[List[CardSet]] =
+      repo.findAllSets(gameId).flatMap {
         case sets if sets.nonEmpty => ZIO.succeed(sets)
         case _ =>
           for
             resp <- get(s"$base/sets?orderBy=-releaseDate&pageSize=250")
                       .flatMap(parse[ApiSetsResp])
             sets  = resp.data.map(toSet)
-            _    <- ZIO.foreach(sets)(repo.upsertSet)
+            _    <- ZIO.foreach(sets)(s => repo.upsertSet(s, gameId))
           yield sets
       }
 
     def getCardsBySet(setId: String): Task[List[Card]] =
+      tcgGameOf(setId).flatMap {
+        case Some(game) => tcgCardsBySet(game, setId)
+        case None       => pokemonCardsBySet(setId)
+      }
+
+    private def tcgCardsBySet(game: Game, setId: String): Task[List[Card]] =
+      repo.findCardsBySet(setId).flatMap {
+        case Nil => tcg.importSet(game, setId) *> repo.findCardsBySet(setId)
+        case cards =>
+          repo.isPricesFetchStale(setId).catchAll(_ => ZIO.succeed(true)).flatMap { stale =>
+            if !stale then ZIO.succeed(cards)
+            else tcg.refreshPrices(game, setId)
+                   .catchAll(e => ZIO.logWarning(s"TCGTracking price refresh failed for $setId: ${e.getMessage}"))
+                   *> repo.findCardsBySet(setId)
+          }
+      }
+
+    private def pokemonCardsBySet(setId: String): Task[List[Card]] =
       repo.findCardsBySet(setId).flatMap {
         // Cached: always check staleness (>6h), even when every card already
         // has some price — a fully-priced set must keep refreshing on the
@@ -356,9 +420,12 @@ object CardService:
      * result so the next search is local. API failures are logged and
      * degrade to an empty result rather than a 500.
      */
-    def searchCards(q: String, n: Int = 60): Task[List[Card]] =
-      repo.searchCards(q, n).flatMap {
+    def searchCards(q: String, n: Int = 60, game: String = Game.DefaultId): Task[List[Card]] =
+      repo.searchCards(q, n, game).flatMap {
         case cards if cards.nonEmpty => ZIO.succeed(cards)
+        // Only English Pokémon has a live-search fallback; other games are
+        // searched across their imported catalog (warmCatalog fills it).
+        case _ if game != Game.DefaultId => ZIO.succeed(Nil)
         case _ =>
           val safe = q.replaceAll("[^a-zA-Z0-9 '\\-]", "").trim
           if safe.isEmpty then ZIO.succeed(Nil)
@@ -381,10 +448,16 @@ object CardService:
               }
       }
 
-    def browseCards(sort: String, dir: String, page: Int, pageSize: Int): Task[(List[Card], Int)] =
-      repo.browseCards(sort, dir, page, pageSize)
+    def browseCards(sort: String, dir: String, page: Int, pageSize: Int, game: String = Game.DefaultId): Task[(List[Card], Int)] =
+      repo.browseCards(sort, dir, page, pageSize, game)
 
     def refreshSet(setId: String): Task[Unit] =
+      tcgGameOf(setId).flatMap {
+        case Some(game) => tcg.importSet(game, setId)
+        case None       => refreshPokemonSet(setId)
+      }
+
+    private def refreshPokemonSet(setId: String): Task[Unit] =
       for
         apiCards <- fetchPages(setId)
         pairs     = apiCards.map(ac => (toCard(ac), fallbackNm(ac)))
@@ -401,6 +474,12 @@ object CardService:
       yield ()
 
     def refreshPrices(setId: String): Task[Unit] =
+      tcgGameOf(setId).flatMap {
+        case Some(game) => tcg.refreshPrices(game, setId)
+        case None       => refreshPokemonPrices(setId)
+      }
+
+    private def refreshPokemonPrices(setId: String): Task[Unit] =
       for
         cards  <- repo.findCardsBySet(setId)
         setOpt <- repo.findSetById(setId)
@@ -446,11 +525,32 @@ object CardService:
     def refreshOrphans: Task[Int] =
       repo.findOrphanedCardIds.flatMap(ensureCached)
 
-  val layer: ZLayer[CardRepository & PriceService, Throwable, CardService] =
+    def warmCatalog: Task[Int] =
+      for
+        tcgGames <- games.listEnabled.map(_.filter(_.isTcgTracking))
+        counts   <- ZIO.foreach(tcgGames) { game =>
+                      (syncSetListIfDue(game) *> repo.findAllSets(game.id)).flatMap { sets =>
+                        // Newest sets first, so search covers current cards soonest.
+                        ZIO.foldLeft(sets)(0) { (n, set) =>
+                          repo.findCardsBySet(set.id).flatMap {
+                            case Nil =>
+                              (tcg.importSet(game, set.id) *> ZIO.sleep(1.second)).as(n + 1)
+                                .catchAll(e => ZIO.logWarning(s"warmCatalog: ${set.id} failed: ${e.getMessage}").as(n))
+                            case _ => ZIO.succeed(n)
+                          }
+                        }
+                      }.catchAll(e => ZIO.logWarning(s"warmCatalog: ${game.id} failed: ${e.getMessage}").as(0))
+                    }
+      yield counts.sum
+
+  val layer: ZLayer[CardRepository & PriceService & GameRepository & TcgTrackingCatalog, Throwable, CardService] =
     ZLayer.fromZIO {
       for
         repo         <- ZIO.service[CardRepository]
         priceService <- ZIO.service[PriceService]
+        games        <- ZIO.service[GameRepository]
+        tcg          <- ZIO.service[TcgTrackingCatalog]
+        synced       <- Ref.make(Map.empty[String, java.time.Instant])
         apiKey       <- System.env("POKEMONTCG_API_KEY").map(_.getOrElse(""))
-      yield new Live(repo, priceService, apiKey)
+      yield new Live(repo, priceService, apiKey, games, tcg, synced)
     }

@@ -19,7 +19,7 @@
 
 package com.poketracker.api
 
-import com.poketracker.models.Card
+import com.poketracker.models.{Card, Game}
 import com.poketracker.service.CardService
 import zio.*
 import zio.http.*
@@ -32,10 +32,20 @@ object CardRoutes:
 
   private val allowedSorts = Set("name", "price", "number", "artist", "set")
 
+  /** The `?game=` a request is for — English Pokémon when absent. */
+  private def gameOf(req: Request): String = Game.sanitize(req.url.queryParams.getAll("game").headOption)
+
   val publicRoutes: Routes[CardService, Nothing] = Routes(
 
-    Method.GET / "api" / "sets" -> handler {
-      ZIO.serviceWithZIO[CardService](_.getSets)
+    // Enabled games, for the game switcher.
+    Method.GET / "api" / "games" -> handler {
+      ZIO.serviceWithZIO[CardService](_.listGames)
+        .map(games => Response.json(games.toJson))
+        .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
+    },
+
+    Method.GET / "api" / "sets" -> handler { (req: Request) =>
+      ZIO.serviceWithZIO[CardService](_.getSets(gameOf(req)))
         .map(sets => Response.json(sets.toJson))
         .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
     },
@@ -49,7 +59,7 @@ object CardRoutes:
       val page = qp.getAll("page").headOption.flatMap(_.toIntOption).map(_.max(0)).getOrElse(0)
       val pageSize = qp.getAll("pageSize").headOption.flatMap(_.toIntOption).map(n => n.max(1).min(100)).getOrElse(60)
 
-      ZIO.serviceWithZIO[CardService](_.browseCards(sort, dir, page, pageSize))
+      ZIO.serviceWithZIO[CardService](_.browseCards(sort, dir, page, pageSize, gameOf(req)))
         .map { case (cards, total) => Response.json(BrowseResponse(cards, total).toJson) }
         .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
     },
@@ -80,7 +90,7 @@ object CardRoutes:
       if query.length < 2 then
         ZIO.succeed(Response.badRequest("Query must be at least 2 characters"))
       else
-        ZIO.serviceWithZIO[CardService](_.searchCards(query))
+        ZIO.serviceWithZIO[CardService](_.searchCards(query, game = gameOf(req)))
           .map(cards => Response.json(cards.toJson))
           .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
     }

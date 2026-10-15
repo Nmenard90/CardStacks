@@ -43,12 +43,16 @@ object Main extends ZIOAppDefault:
                        StorageRepository.layer ++
                        RoomRepository.layer ++
                        ShelfRepository.layer ++
-                       TradingRepository.layer)
+                       TradingRepository.layer ++
+                       GameRepository.layer)
 
         // Built separately so CardService.layer can depend on it directly below.
         priceLayer  = repoLayer >>> PriceService.layer
 
-        coreServices = (repoLayer ++ priceLayer) >>>
+        // The generic catalog for every non-English-Pokémon game (migration 016).
+        catalogLayer = repoLayer >>> TcgTrackingCatalog.layer
+
+        coreServices = (repoLayer ++ priceLayer ++ catalogLayer) >>>
                       (CardService.layer ++
                        CollectionService.layer ++
                        UserService.layer ++
@@ -120,7 +124,15 @@ object Main extends ZIOAppDefault:
                         .catchAll(e => ZIO.logWarning(s"Background price refresh failed: ${e.getMessage}"))
                         .repeat(Schedule.spaced(6.hours))
 
-        serverEffect = cleanupJob.forkDaemon *> priceJob.forkDaemon *> Server.serve(allRoutes @@ cors)
+        // Keeps every enabled TCGTracking game (Pokémon Japan, ...) fully
+        // imported so search covers it; one set at a time, after a short
+        // delay so startup isn't slowed. Re-runs daily for new releases.
+        catalogJob  = (ZIO.sleep(30.seconds) *> ZIO.serviceWithZIO[CardService](_.warmCatalog)
+                        .tap(n => ZIO.when(n > 0)(ZIO.logInfo(s"Catalog warm-up: imported $n set(s)")))
+                        .catchAll(e => ZIO.logWarning(s"Catalog warm-up failed: ${e.getMessage}"))
+                        .repeat(Schedule.spaced(24.hours))).unit
+
+        serverEffect = cleanupJob.forkDaemon *> priceJob.forkDaemon *> catalogJob.forkDaemon *> Server.serve(allRoutes @@ cors)
 
         _          <- ZIO.logInfo(s"Starting PokéTracker API on port $port")
         _          <- serverEffect.provide(appLayer, Server.defaultWithPort(port))

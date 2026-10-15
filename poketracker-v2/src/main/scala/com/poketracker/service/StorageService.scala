@@ -20,12 +20,12 @@ import zio.*
 
 trait StorageService:
 
-  def getBoxes(userId: String): Task[List[StorageBox]]
+  def getBoxes(userId: String, game: String): Task[List[StorageBox]]
 
   /** kind "display_case" gets exactly one drawer created for it automatically —
    *  see the class doc. Plain boxes ("box") start with none; the caller adds
    *  as many as they want via createDrawer. */
-  def createBox(userId: String, name: String, kind: String, boxType: String, capacity: Int, color: String): Task[StorageBox]
+  def createBox(userId: String, name: String, kind: String, boxType: String, capacity: Int, color: String, game: String): Task[StorageBox]
   def renameBox(userId: String, id: String, name: String): Task[Unit]
   def reorderBox(userId: String, id: String, position: Int): Task[Unit]
   def deleteBox(userId: String, id: String): Task[Unit]
@@ -37,7 +37,7 @@ trait StorageService:
   def mergeBoxes(userId: String, targetBoxId: String, sourceBoxIds: List[String]): Task[Int]
 
   def getDrawerCards(userId: String, drawerId: String): Task[List[OwnedCard]]
-  def getUnassignedCards(userId: String): Task[List[OwnedCard]]
+  def getUnassignedCards(userId: String, game: String): Task[List[OwnedCard]]
 
   /**
    * Assigns cards to a drawer, then checks whether any OTHER owned card
@@ -60,13 +60,13 @@ object StorageService:
 
   final class Live(repo: StorageRepository, shelf: ShelfRepository) extends StorageService:
 
-    def getBoxes(userId: String): Task[List[StorageBox]] = repo.findBoxesByUser(userId)
+    def getBoxes(userId: String, game: String): Task[List[StorageBox]] = repo.findBoxesByUser(userId, game)
 
-    def createBox(userId: String, name: String, kind: String, boxType: String, capacity: Int, color: String): Task[StorageBox] =
+    def createBox(userId: String, name: String, kind: String, boxType: String, capacity: Int, color: String, game: String): Task[StorageBox] =
       for
         _      <- ZIO.when(name.trim.isEmpty)(ZIO.fail(new IllegalArgumentException("Box name cannot be empty")))
         _      <- ZIO.when(capacity < 0)(ZIO.fail(new IllegalArgumentException("Capacity cannot be negative")))
-        box    <- repo.createBox(userId, name.trim, kind, boxType, capacity, color)
+        box    <- repo.createBox(userId, name.trim, kind, boxType, capacity, color, game)
         _      <- shelf.ensureExists(userId, "box", box.id)
         drawer <- ZIO.when(kind == "display_case")(repo.createDrawer(userId, box.id, "Display"))
       yield box.copy(drawers = drawer.toList)
@@ -95,7 +95,7 @@ object StorageService:
 
     def getDrawerCards(userId: String, drawerId: String): Task[List[OwnedCard]] =
       repo.findDrawerCards(userId, drawerId)
-    def getUnassignedCards(userId: String): Task[List[OwnedCard]] = repo.findUnassignedCards(userId)
+    def getUnassignedCards(userId: String, game: String): Task[List[OwnedCard]] = repo.findUnassignedCards(userId, game)
 
     def assignCards(userId: String, cardIds: List[String], drawerId: String): Task[AssignResult] =
       for

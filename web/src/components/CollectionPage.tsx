@@ -11,6 +11,7 @@
  * USED BY: (none — see above)
  */
 
+import { currentGame } from '../lib/game'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getCards, getSets, searchCards } from '../api/cards'
@@ -47,7 +48,7 @@ export function CollectionPage() {
   const qc = useQueryClient()
   const preview = usePreview()
 
-  const [setId, setSetId] = useState<string | null>(() => localStorage.getItem('poketracker_set'))
+  const [setId, setSetId] = useState<string | null>(() => localStorage.getItem(`poketracker_set:${currentGame()}`))
   const [search, setSearch] = useState('')
   const [ownedOnly, setOwnedOnly] = useState(false)
   const [sort, setSort] = useState<SortMode>('number')
@@ -90,7 +91,7 @@ export function CollectionPage() {
   const [coll, setColl] = useState<Record<string, Entry>>({})
 
   useEffect(() => {
-    if (activeSetId) localStorage.setItem('poketracker_set', activeSetId)
+    if (activeSetId) localStorage.setItem(`poketracker_set:${currentGame()}`, activeSetId)
   }, [activeSetId])
 
   useEffect(() => {

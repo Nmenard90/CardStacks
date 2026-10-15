@@ -24,7 +24,7 @@ import java.util.UUID
 trait BinderService:
 
   /** Without slot data — the shelf view only needs covers. */
-  def getBinders(userId: String): Task[List[Binder]]
+  def getBinders(userId: String, game: String): Task[List[Binder]]
 
   /** With every slot, for opening a binder to view/edit pages. */
   def getBinder(userId: String, id: String): Task[Option[Binder]]
@@ -32,7 +32,8 @@ trait BinderService:
   def createBinder(
     userId:     String,
     name:       String,
-    pocketSize: PocketSize
+    pocketSize: PocketSize,
+    game:       String
   ): Task[Binder]
 
   /** Replaces whatever was already in the slot, if anything. */
@@ -56,13 +57,13 @@ object BinderService:
 
   final class Live(repo: BinderRepository, shelf: ShelfRepository) extends BinderService:
 
-    def getBinders(userId: String): Task[List[Binder]] =
-      repo.findByUser(userId)
+    def getBinders(userId: String, game: String): Task[List[Binder]] =
+      repo.findByUser(userId, game)
 
     def getBinder(userId: String, id: String): Task[Option[Binder]] =
       repo.findById(userId, id)
 
-    def createBinder(userId: String, name: String, pocketSize: PocketSize): Task[Binder] =
+    def createBinder(userId: String, name: String, pocketSize: PocketSize, game: String): Task[Binder] =
       val binder = Binder(
         id         = UUID.randomUUID().toString,
         userId     = userId,
@@ -77,7 +78,7 @@ object BinderService:
         createdAt  = Instant.now(),
         updatedAt  = Instant.now()
       )
-      repo.create(binder) *> shelf.ensureExists(userId, "binder", binder.id) *> ZIO.succeed(binder)
+      repo.create(binder, game) *> shelf.ensureExists(userId, "binder", binder.id) *> ZIO.succeed(binder)
 
     def placeCard(userId: String, binderId: String, slotIndex: Int, card: Card): Task[Unit] =
       ZIO.when(slotIndex < 0 || slotIndex >= MaxSlots)(

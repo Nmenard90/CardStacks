@@ -40,20 +40,20 @@ object CollectionRoutes:
 
   val routes: Routes[CollectionService & CardService, Nothing] = Routes(
 
-    Method.GET / "api" / "collection" / string("userId") -> handler { (userId: String, _: Request) =>
-      ZIO.serviceWithZIO[CollectionService](_.getCollection(userId))
+    Method.GET / "api" / "collection" / string("userId") -> handler { (userId: String, req: Request) =>
+      ZIO.serviceWithZIO[CollectionService](_.getCollection(userId, GameParam.of(req)))
         .map(entries => Response.json(entries.toJson))
         .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
     },
 
-    Method.GET / "api" / "collection" / string("userId") / "owned" -> handler { (userId: String, _: Request) =>
-      ZIO.serviceWithZIO[CollectionService](_.getOwnedCards(userId))
+    Method.GET / "api" / "collection" / string("userId") / "owned" -> handler { (userId: String, req: Request) =>
+      ZIO.serviceWithZIO[CollectionService](_.getOwnedCards(userId, GameParam.of(req)))
         .map(cards => Response.json(cards.toJson))
         .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
     },
 
-    Method.GET / "api" / "collection" / string("userId") / "stats" -> handler { (userId: String, _: Request) =>
-      ZIO.serviceWithZIO[CollectionService](_.getStats(userId))
+    Method.GET / "api" / "collection" / string("userId") / "stats" -> handler { (userId: String, req: Request) =>
+      ZIO.serviceWithZIO[CollectionService](_.getStats(userId, GameParam.of(req)))
         .map(stats => Response.json(stats.toJson))
         .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
     },

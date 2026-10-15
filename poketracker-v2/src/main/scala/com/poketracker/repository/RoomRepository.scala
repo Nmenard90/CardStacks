@@ -11,8 +11,8 @@ import zio.interop.catz.*
 import java.time.Instant
 
 trait RoomRepository:
-  def listSpaces(userId: String): Task[List[CollectionSpace]]
-  def createSpace(userId: String, name: String, spaceType: String): Task[CollectionSpace]
+  def listSpaces(userId: String, game: String): Task[List[CollectionSpace]]
+  def createSpace(userId: String, name: String, spaceType: String, game: String): Task[CollectionSpace]
   def createStorageUnit(userId: String, spaceId: String, name: String, unitType: String,
     preset: String, color: String, shelfCount: Int, positionsPerShelf: Int,
     maxStackHeight: Int, config: String): Task[StorageUnit]
@@ -24,7 +24,7 @@ trait RoomRepository:
     preset: String, frameColor: String, lightColor: String, shelfCount: Int,
     slotsPerShelf: Int, config: String): Task[DisplayCase]
   def setDisplayLights(userId: String, caseId: String, enabled: Boolean): Task[Unit]
-  def listLots(userId: String): Task[List[InventoryLot]]
+  def listLots(userId: String, game: String): Task[List[InventoryLot]]
   def listDrawerAllocations(userId: String, drawerId: String): Task[List[CardAllocation]]
   def listCaseAllocations(userId: String, caseId: String): Task[List[CardAllocation]]
   def listBinderAllocations(userId: String, binderId: String): Task[List[CardAllocation]]
@@ -47,7 +47,7 @@ object RoomRepository:
     private type UnitRow = (String,String,String,String,String,String,Int,Int,Int,Int,String,Instant,Instant)
     private type CaseRow = (String,String,String,String,String,String,String,Boolean,Int,Int,Int,String,Instant,Instant)
 
-    def listSpaces(userId: String): Task[List[CollectionSpace]] =
+    def listSpaces(userId: String, game: String): Task[List[CollectionSpace]] =
       // Spaces is the logged-in landing page, so a user must never see an
       // empty "create a space" prompt there — ensure a default space exists
       // before reading. Guarded by NOT EXISTS (skip once the user has any
@@ -56,23 +56,31 @@ object RoomRepository:
       // can't both insert a default space.
       val defaultId = java.util.UUID.randomUUID().toString
       val now = Instant.now()
-      val ensureDefault = sql"""INSERT INTO collection_spaces(id,user_id,name,space_type,is_default,position,created_at,updated_at)
-        SELECT $defaultId,$userId,'My Collection Room','collection_room',TRUE,0,$now,$now
-        WHERE NOT EXISTS (SELECT 1 FROM collection_spaces WHERE user_id=$userId)
-        ON CONFLICT (user_id) WHERE is_default DO NOTHING""".update.run
+      // Each game gets its own home Space. Only English Pokémon's is flagged
+      // is_default — uq_collection_spaces_default allows one per user (see
+      // migration 016) — so the advisory lock is what stops two concurrent
+      // first loads of another game from each creating one.
+      val isDefault = game == Game.DefaultId
+      val lockKey = userId + "|" + game
+      val ensureDefault =
+        sql"SELECT pg_advisory_xact_lock(hashtext($lockKey))".query[Unit].unique *>
+        sql"""INSERT INTO collection_spaces(id,user_id,name,space_type,is_default,position,created_at,updated_at,game_id)
+        SELECT $defaultId,$userId,'My Collection Room','collection_room',$isDefault,0,$now,$now,$game
+        WHERE NOT EXISTS (SELECT 1 FROM collection_spaces WHERE user_id=$userId AND game_id=$game)
+        ON CONFLICT DO NOTHING""".update.run
       val spaces = sql"""SELECT id,user_id,name,space_type,is_default,position,created_at,updated_at
-        FROM collection_spaces WHERE user_id=$userId ORDER BY position,created_at""".query[SpaceRow].to[List]
+        FROM collection_spaces WHERE user_id=$userId AND game_id=$game ORDER BY position,created_at""".query[SpaceRow].to[List]
       val units = sql"""SELECT su.id,su.space_id,su.name,su.unit_type,su.preset,su.color,su.shelf_count,
         su.positions_per_shelf,su.max_stack_height,su.position,su.config::text,su.created_at,su.updated_at
         FROM storage_units su JOIN collection_spaces s ON s.id=su.space_id
-        WHERE s.user_id=$userId ORDER BY su.space_id,su.position,su.created_at""".query[UnitRow].to[List]
+        WHERE s.user_id=$userId AND s.game_id=$game ORDER BY su.space_id,su.position,su.created_at""".query[UnitRow].to[List]
       val cases = sql"""SELECT dc.id,dc.space_id,dc.name,dc.case_type,dc.preset,dc.frame_color,dc.light_color,
         dc.light_enabled,dc.shelf_count,dc.slots_per_shelf,dc.position,dc.config::text,dc.created_at,dc.updated_at
         FROM display_cases dc JOIN collection_spaces s ON s.id=dc.space_id
-        WHERE s.user_id=$userId ORDER BY dc.space_id,dc.position,dc.created_at""".query[CaseRow].to[List]
+        WHERE s.user_id=$userId AND s.game_id=$game ORDER BY dc.space_id,dc.position,dc.created_at""".query[CaseRow].to[List]
       val slots = sql"""SELECT ds.id,ds.display_case_id,ds.shelf_index,ds.slot_index,ds.label
         FROM display_slots ds JOIN display_cases dc ON dc.id=ds.display_case_id
-        JOIN collection_spaces s ON s.id=dc.space_id WHERE s.user_id=$userId
+        JOIN collection_spaces s ON s.id=dc.space_id WHERE s.user_id=$userId AND s.game_id=$game
         ORDER BY ds.display_case_id,ds.shelf_index,ds.slot_index"""
         .query[(String,String,Int,Int,Option[String])].to[List]
       (for
@@ -92,13 +100,13 @@ object RoomRepository:
         }
       ).transact(xa)
 
-    def createSpace(userId: String, name: String, spaceType: String): Task[CollectionSpace] =
+    def createSpace(userId: String, name: String, spaceType: String, game: String): Task[CollectionSpace] =
       val id = java.util.UUID.randomUUID().toString
       val now = Instant.now()
       (for
         pos <- sql"SELECT COALESCE(MAX(position)+1,0) FROM collection_spaces WHERE user_id=$userId".query[Int].unique
-        _ <- sql"""INSERT INTO collection_spaces(id,user_id,name,space_type,is_default,position,created_at,updated_at)
-          VALUES($id,$userId,$name,$spaceType,FALSE,$pos,$now,$now)""".update.run
+        _ <- sql"""INSERT INTO collection_spaces(id,user_id,name,space_type,is_default,position,created_at,updated_at,game_id)
+          VALUES($id,$userId,$name,$spaceType,FALSE,$pos,$now,$now,$game)""".update.run
       yield CollectionSpace(id,userId,name,spaceType,false,pos,Nil,Nil,now,now)).transact(xa)
 
     def createStorageUnit(userId: String, spaceId: String, name: String, unitType: String,
@@ -174,10 +182,11 @@ object RoomRepository:
         WHERE dc.id=$caseId AND EXISTS(SELECT 1 FROM collection_spaces s WHERE s.id=dc.space_id AND s.user_id=$userId)"""
         .update.run.void.transact(xa)
 
-    def listLots(userId: String): Task[List[InventoryLot]] =
+    def listLots(userId: String, game: String): Task[List[InventoryLot]] =
       sql"""SELECT l.id,l.user_id,l.card_id,l.variant_key,l.edition,l.language,l.condition,l.quantity,
         COALESCE(SUM(a.quantity),0),l.created_at,l.updated_at
-        FROM inventory_lots l LEFT JOIN card_allocations a ON a.lot_id=l.id
+        FROM inventory_lots l JOIN cards c ON c.id=l.card_id AND c.game_id=$game
+        LEFT JOIN card_allocations a ON a.lot_id=l.id
         WHERE l.user_id=$userId GROUP BY l.id ORDER BY l.updated_at DESC"""
         .query[(String,String,String,String,String,String,String,Int,Int,Instant,Instant)]
         .to[List].map(_.map(InventoryLot.apply.tupled)).transact(xa)

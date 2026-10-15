@@ -13,8 +13,10 @@ export const tradingError = (e: unknown, fallback: string): string => {
   return data?.error || fallback
 }
 
-export const getSharedProfile = (slug: string) =>
-  api.get<SharedProfile>(`/api/share/${slug}`).then(r => r.data)
+/** `game` is explicit: a share page shows the owner's game, not whichever
+ *  game the visitor's own app happens to be on. */
+export const getSharedProfile = (slug: string, game: string) =>
+  api.get<SharedProfile>(`/api/share/${slug}`, { params: { game } }).then(r => r.data)
 
 export const getShareSettings = (userId: string) =>
   api.get<ShareSettings>(`/api/trading/${userId}/share`).then(r => r.data)

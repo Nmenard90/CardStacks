@@ -28,8 +28,8 @@ object ShelfRoutes:
 
   val routes: Routes[ShelfService, Nothing] = Routes(
 
-    Method.GET / "api" / "shelf" / string("userId") -> handler { (userId: String, _: Request) =>
-      ZIO.serviceWithZIO[ShelfService](_.getShelf(userId))
+    Method.GET / "api" / "shelf" / string("userId") -> handler { (userId: String, req: Request) =>
+      ZIO.serviceWithZIO[ShelfService](_.getShelf(userId, GameParam.of(req)))
         .map(entries => Response.json(entries.toJson))
         .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
     },

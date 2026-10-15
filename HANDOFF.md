@@ -148,6 +148,7 @@ needs them is pushed.
 - `migration_013_drawer_auto_set.sql` (box compartments) — run 2026-10-14.
 - `migration_014_card_variant_prices.sql` (per-print prices) — run 2026-10-14.
 - `migration_015_trading.sql` (share-link trading) — run 2026-10-14.
+- `migration_016_multi_game.sql` (games table + game_id columns) — NOT YET RUN; required before the multi-game backend deploys.
 - Migration 003 (per-variant `card_prices`) is DISABLED — never run it.
 
 ### Pricing audit (2026-10-14)
@@ -158,6 +159,19 @@ fix, run `UPDATE card_sets SET prices_fetched_at = NULL;` so every set
 re-prices instead of keeping stored wrong values until its next refresh.
 
 ### In flight / not yet on main
+- **Multiple card games** (migration 016). `games` table; each game is a
+  separate world (collection, Spaces, boxes, binders, trades scoped by
+  `game_id`; card-derived rows inherit via `cards.game_id`). English Pokémon
+  stays on pokemontcg.io; every other game (Pokémon JP enabled; Magic,
+  Yu-Gi-Oh, One Piece, Lorcana seeded but disabled) comes from the generic
+  `TcgTrackingCatalog` — enable a game by flipping `games.enabled`, no code.
+  Ids: set `tt{category}-{tcgSetId}`, card `{setId}-{productId}`. A daily
+  background job (`warmCatalog`) imports every set of enabled TCGTracking
+  games so search covers them. Web: `?game=` on every request (api/client.ts
+  interceptor, `lib/game.ts`), header switcher reloads into the chosen game.
+  Old index `uq_collection_spaces_default` is deliberately kept (see 016).
+- **Per-print ownership** shipped (BUG-023 phase 2): condition keys
+  `"NM · reverse"`; Bulk Add's entry form still has no print picker (phase 3).
 - **Share-link trading** — LIVE. (`/trade`, public `/s/:slug`): trade list, share
   link (optionally exposing the whole collection), offers with cash and/or
   cards, per-offer message thread, unread badge on the Trade nav link. No

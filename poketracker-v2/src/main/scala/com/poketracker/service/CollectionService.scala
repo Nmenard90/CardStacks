@@ -22,7 +22,7 @@ import java.util.UUID
 
 trait CollectionService:
 
-  def getCollection(userId: String): Task[List[CollectionEntry]]
+  def getCollection(userId: String, game: String): Task[List[CollectionEntry]]
 
   /**
    * Creates the entry if missing, deletes it if every condition's
@@ -42,10 +42,10 @@ trait CollectionService:
     updates: List[(String, List[ConditionCount], String)]
   ): Task[Unit]
 
-  def getStats(userId: String): Task[CollectionStats]
+  def getStats(userId: String, game: String): Task[CollectionStats]
 
   /** Every owned card, enriched with card/price data, for the My Collection page. */
-  def getOwnedCards(userId: String): Task[List[OwnedCard]]
+  def getOwnedCards(userId: String, game: String): Task[List[OwnedCard]]
 
 /**
  * Computed summary, not a stored entity — lives here rather than in
@@ -69,8 +69,8 @@ object CollectionService:
     cardRepo:       CardRepository
   ) extends CollectionService:
 
-    def getCollection(userId: String): Task[List[CollectionEntry]] =
-      collectionRepo.findByUser(userId)
+    def getCollection(userId: String, game: String): Task[List[CollectionEntry]] =
+      collectionRepo.findByUser(userId, game)
 
     def updateEntry(
       userId:     String,
@@ -114,11 +114,11 @@ object CollectionService:
       }.filter(_.conditions.nonEmpty)
       collectionRepo.bulkUpsert(entries)
 
-    def getOwnedCards(userId: String): Task[List[OwnedCard]] =
-      collectionRepo.findByUserWithCards(userId)
+    def getOwnedCards(userId: String, game: String): Task[List[OwnedCard]] =
+      collectionRepo.findByUserWithCards(userId, game)
 
-    def getStats(userId: String): Task[CollectionStats] =
-      collectionRepo.findByUser(userId).map { entries =>
+    def getStats(userId: String, game: String): Task[CollectionStats] =
+      collectionRepo.findByUser(userId, game).map { entries =>
         val totalCards  = entries.map(_.totalQuantity).sum
         val uniqueCards = entries.size
         val totalValue  = entries.map(_.totalValue).sum

@@ -20,7 +20,7 @@ import com.poketracker.repository.ShelfRepository
 import zio.*
 
 trait ShelfService:
-  def getShelf(userId: String): Task[List[ShelfEntry]]
+  def getShelf(userId: String, game: String): Task[List[ShelfEntry]]
   def reorder(userId: String, items: List[ShelfItem]): Task[Unit]
 
 object ShelfService:
@@ -31,10 +31,10 @@ object ShelfService:
     repo:    ShelfRepository
   ) extends ShelfService:
 
-    def getShelf(userId: String): Task[List[ShelfEntry]] =
+    def getShelf(userId: String, game: String): Task[List[ShelfEntry]] =
       for
-        boxes      <- storage.getBoxes(userId)
-        binderList <- binders.getBinders(userId)
+        boxes      <- storage.getBoxes(userId, game)
+        binderList <- binders.getBinders(userId, game)
         _          <- ZIO.foreachDiscard(boxes)(b => repo.ensureExists(userId, "box", b.id))
         _          <- ZIO.foreachDiscard(binderList)(b => repo.ensureExists(userId, "binder", b.id))
         positions  <- repo.getPositions(userId)

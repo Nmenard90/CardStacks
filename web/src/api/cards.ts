@@ -1,10 +1,14 @@
 /**
  * API calls for sets and cards.
- * ENDPOINTS: /api/sets, /api/cards/:setId, /api/cards/browse, /api/search, /api/cards/id/:id/price-history
+ * ENDPOINTS: /api/games, /api/sets, /api/cards/:setId, /api/cards/browse, /api/search, /api/cards/id/:id/price-history
  * USED BY: CollectionPage, BinderViewPage, AnalyzerPage
  */
 import { api } from './client'
-import type { Card, CardSet, PriceHistoryPoint } from '../types'
+import type { Card, CardSet, Game, PriceHistoryPoint } from '../types'
+
+/** Enabled games, for the game switcher. */
+export const getGames = () =>
+  api.get<Game[]>('/api/games').then(r => r.data)
 
 export const getSets = () =>
   api.get<CardSet[]>('/api/sets').then(r => r.data)

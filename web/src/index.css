@@ -104,6 +104,9 @@ body{font-family:'Nunito',sans-serif;font-size:var(--fs-base);background:var(--b
  * top-level link. Shared markup for both the desktop row and the mobile
  * bottom bar; only position/direction differ (menu opens down from the
  * header, up from the fixed bottom bar so it isn't clipped by the viewport edge). */
+/* Game switcher (HeaderNav) — stays visible on phones, where the header
+   keeps only it and Log out (the links move to the bottom bar). */
+.game-switch{background:var(--surface2);color:var(--text);border:var(--ink-w) solid var(--border);border-radius:12px;padding:6px 10px;font:inherit;font-weight:800;cursor:pointer;max-width:150px;}
 .tools-menu{position:relative;}
 .bottom-nav .tools-menu{flex:1;display:flex;}
 .tools-trigger{border:0;background:transparent;font:inherit;}

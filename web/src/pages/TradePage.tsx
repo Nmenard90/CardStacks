@@ -34,6 +34,7 @@ import {
   removeTradeItem, saveTradeItem, setOfferStatus, tradingError, updateShareSettings,
 } from '../api/trading'
 import { money, shareOrigin } from '../lib/trading'
+import { currentGame } from '../lib/game'
 import { condLabel, condPrice } from '../lib/conditions'
 import { CardBrowser, SetLine, type BrowseFields } from '../components/CardBrowser'
 import type { CardOffer, OfferCard, CardOfferStatus, OwnedCard, TradeListItem } from '../types'
@@ -467,7 +468,8 @@ function ShareTab({ userId }: { userId: string }) {
   if (error) return <div className="trade-empty"><p>{tradingError(error, 'Could not load your share link.')}</p></div>
   if (!share) return <p className="muted">Loading…</p>
 
-  const url = `${shareOrigin()}/s/${share.slug}`
+  // The link opens on this game's cards; the page offers the owner's other games as tabs.
+  const url = `${shareOrigin()}/s/${share.slug}?game=${currentGame()}`
   const currentBio = bio ?? share.bio ?? ''
 
   const update = async (patch: Partial<{ enabled: boolean; collectionPublic: boolean; bio: string }>) => {
@@ -511,7 +513,7 @@ function ShareTab({ userId }: { userId: string }) {
         <div className="share-url">
           <input readOnly value={url} onFocus={e => e.currentTarget.select()} />
           <button className="primary" onClick={() => void shareLink()}>{'share' in navigator ? 'Share' : 'Copy'}</button>
-          <a href={`/s/${share.slug}`} target="_blank" rel="noreferrer">Preview</a>
+          <a href={`/s/${share.slug}?game=${currentGame()}`} target="_blank" rel="noreferrer">Preview</a>
         </div>
         {!share.enabled && <p className="share-off">This link is turned off — nobody can open it right now.</p>}
       </section>

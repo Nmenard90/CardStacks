@@ -24,8 +24,8 @@ import zio.json.*
 import java.time.Instant
 
 trait StorageRepository:
-  def findBoxesByUser(userId: String): Task[List[StorageBox]]
-  def createBox(userId: String, name: String, kind: String, boxType: String, capacity: Int, color: String): Task[StorageBox]
+  def findBoxesByUser(userId: String, game: String): Task[List[StorageBox]]
+  def createBox(userId: String, name: String, kind: String, boxType: String, capacity: Int, color: String, game: String): Task[StorageBox]
   def renameBox(userId: String, id: String, name: String): Task[Unit]
   def reorderBox(userId: String, id: String, position: Int): Task[Unit]
 
@@ -46,7 +46,7 @@ trait StorageRepository:
   def mergeBoxes(userId: String, targetBoxId: String, sourceBoxIds: List[String]): Task[Int]
 
   def findDrawerCards(userId: String, drawerId: String): Task[List[OwnedCard]]
-  def findUnassignedCards(userId: String): Task[List[OwnedCard]]
+  def findUnassignedCards(userId: String, game: String): Task[List[OwnedCard]]
 
   /** @return how many cards were actually moved. */
   def assignCards(userId: String, cardIds: List[String], drawerId: String): Task[Int]
@@ -65,14 +65,14 @@ object StorageRepository:
 
   final class Live(xa: Transactor[Task]) extends StorageRepository:
 
-    def findBoxesByUser(userId: String): Task[List[StorageBox]] =
+    def findBoxesByUser(userId: String, game: String): Task[List[StorageBox]] =
       val boxesQuery =
         sql"""
           SELECT id, user_id, name, kind, box_type, capacity, color, position,
                  space_id, storage_unit_id, shelf_index, stack_index, stack_level,
                  created_at, updated_at
           FROM storage_boxes
-          WHERE user_id = $userId
+          WHERE user_id = $userId AND game_id = $game
           ORDER BY position, created_at
         """
           .query[(String, String, String, String, String, Int, String, Int,
@@ -86,7 +86,7 @@ object StorageRepository:
                  d.auto_set_id, d.created_at, d.updated_at
           FROM storage_drawers d
           JOIN storage_boxes b ON b.id = d.box_id
-          WHERE b.user_id = $userId
+          WHERE b.user_id = $userId AND b.game_id = $game
           ORDER BY d.box_id, d.position, d.created_at
         """
           .query[(String, String, String, Int, Int, Option[String], Instant, Instant)]
@@ -107,15 +107,15 @@ object StorageRepository:
         }
       ).transact(xa)
 
-    def createBox(userId: String, name: String, kind: String, boxType: String, capacity: Int, color: String): Task[StorageBox] =
+    def createBox(userId: String, name: String, kind: String, boxType: String, capacity: Int, color: String, game: String): Task[StorageBox] =
       for
         nextPos <- sql"SELECT COALESCE(MAX(position) + 1, 0) FROM storage_boxes WHERE user_id = $userId"
                      .query[Int].unique.transact(xa)
         id       = java.util.UUID.randomUUID().toString
         now      = Instant.now()
         _       <- sql"""
-                     INSERT INTO storage_boxes (id, user_id, name, kind, box_type, capacity, color, position, created_at, updated_at)
-                     VALUES ($id, $userId, $name, $kind, $boxType, $capacity, $color, $nextPos, $now, $now)
+                     INSERT INTO storage_boxes (id, user_id, name, kind, box_type, capacity, color, position, created_at, updated_at, game_id)
+                     VALUES ($id, $userId, $name, $kind, $boxType, $capacity, $color, $nextPos, $now, $now, $game)
                    """.update.run.void.transact(xa)
       yield StorageBox(id, userId, name, kind, boxType, capacity, color, nextPos, None, None, None, None, None, Nil, now, now)
 
@@ -275,8 +275,8 @@ object StorageRepository:
         .map(toOwnedCards)
         .transact(xa)
 
-    def findUnassignedCards(userId: String): Task[List[OwnedCard]] =
-      (ownedCardQuery ++ fr"WHERE ce.user_id = $userId AND ce.drawer_id IS NULL ORDER BY ce.updated_at DESC")
+    def findUnassignedCards(userId: String, game: String): Task[List[OwnedCard]] =
+      (ownedCardQuery ++ fr"WHERE ce.user_id = $userId AND c.game_id = $game AND ce.drawer_id IS NULL ORDER BY ce.updated_at DESC")
         .query[(String, String, String, Instant, Option[String],
                 String, String, String, String, Option[String], Option[String],
                 String, String,

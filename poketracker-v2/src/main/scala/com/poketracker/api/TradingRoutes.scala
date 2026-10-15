@@ -69,8 +69,8 @@ object TradingRoutes:
   private def svc = ZIO.service[TradingService]
 
   val publicRoutes: Routes[TradingService, Nothing] = Routes(
-    Method.GET / "api" / "share" / string("slug") -> handler { (slug: String, _: Request) =>
-      respond(svc.flatMap(_.sharedProfile(slug)))
+    Method.GET / "api" / "share" / string("slug") -> handler { (slug: String, req: Request) =>
+      respond(svc.flatMap(_.sharedProfile(slug, GameParam.of(req))))
     }
   )
 
@@ -88,8 +88,8 @@ object TradingRoutes:
       respond(svc.flatMap(_.regenerateSlug(userId)))
     },
 
-    Method.GET / "api" / "trading" / string("userId") / "list" -> handler { (userId: String, _: Request) =>
-      respond(svc.flatMap(_.tradeList(userId)))
+    Method.GET / "api" / "trading" / string("userId") / "list" -> handler { (userId: String, req: Request) =>
+      respond(svc.flatMap(_.tradeList(userId, GameParam.of(req))))
     },
 
     Method.PUT / "api" / "trading" / string("userId") / "list" -> handler { (userId: String, req: Request) =>
@@ -102,8 +102,8 @@ object TradingRoutes:
         respond(svc.flatMap(_.removeTradeItem(userId, itemId)).as(Map("ok" -> true)))
     },
 
-    Method.GET / "api" / "trading" / string("userId") / "offers" -> handler { (userId: String, _: Request) =>
-      respond(svc.flatMap(_.offers(userId)))
+    Method.GET / "api" / "trading" / string("userId") / "offers" -> handler { (userId: String, req: Request) =>
+      respond(svc.flatMap(_.offers(userId, GameParam.of(req))))
     },
 
     Method.POST / "api" / "trading" / string("userId") / "offers" -> handler { (userId: String, req: Request) =>
@@ -126,7 +126,7 @@ object TradingRoutes:
         respond(body[MessageRequest](req).flatMap(b => svc.flatMap(_.postMessage(userId, offerId, b.body))))
     },
 
-    Method.GET / "api" / "trading" / string("userId") / "unread" -> handler { (userId: String, _: Request) =>
-      respond(svc.flatMap(_.unreadCount(userId)).map(n => Map("count" -> n)))
+    Method.GET / "api" / "trading" / string("userId") / "unread" -> handler { (userId: String, req: Request) =>
+      respond(svc.flatMap(_.unreadCount(userId, GameParam.of(req))).map(n => Map("count" -> n)))
     }
   )

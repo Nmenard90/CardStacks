@@ -10,6 +10,7 @@
  */
 import axios from 'axios'
 import { supabase } from '../lib/supabase'
+import { currentGame } from '../lib/game'
 
 const BASE = import.meta.env.VITE_API_BASE ?? ''
 
@@ -19,5 +20,9 @@ api.interceptors.request.use(async config => {
   const { data } = await supabase.auth.getSession()
   const token = data.session?.access_token
   if (token) config.headers.Authorization = `Bearer ${token}`
+  // Every request is for the game the app is showing (each game is its own
+  // collection/Spaces/trades). A call that sets `game` itself — e.g. someone
+  // else's share page in another game — keeps its own.
+  if (config.params?.game === undefined) config.params = { ...config.params, game: currentGame() }
   return config
 })

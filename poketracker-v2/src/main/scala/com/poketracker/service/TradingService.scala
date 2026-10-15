@@ -37,20 +37,20 @@ trait TradingService:
   def getShare(userId: String): Task[ShareSettings]
   def updateShare(userId: String, enabled: Boolean, collectionPublic: Boolean, bio: Option[String]): Task[ShareSettings]
   def regenerateSlug(userId: String): Task[ShareSettings]
-  def sharedProfile(slug: String): Task[SharedProfile]
+  def sharedProfile(slug: String, game: String): Task[SharedProfile]
 
-  def tradeList(userId: String): Task[List[TradeListItem]]
+  def tradeList(userId: String, game: String): Task[List[TradeListItem]]
   def saveTradeItem(userId: String, cardId: String, condition: String, quantity: Int,
     askingPrice: Option[Double], note: Option[String]): Task[List[TradeListItem]]
   def removeTradeItem(userId: String, itemId: String): Task[Unit]
 
   def makeOffer(buyerId: String, slug: String, wants: List[OfferLine], gives: List[OfferLine],
     cashAmount: Option[Double], message: Option[String]): Task[CardOffer]
-  def offers(userId: String): Task[List[CardOffer]]
+  def offers(userId: String, game: String): Task[List[CardOffer]]
   def offer(userId: String, offerId: String): Task[CardOffer]
   def setStatus(userId: String, offerId: String, status: String): Task[CardOffer]
   def postMessage(userId: String, offerId: String, body: String): Task[CardOffer]
-  def unreadCount(userId: String): Task[Int]
+  def unreadCount(userId: String, game: String): Task[Int]
 
 object TradingService:
 
@@ -100,16 +100,17 @@ object TradingService:
     def regenerateSlug(userId: String): Task[ShareSettings] =
       getShare(userId) *> repo.setSlug(userId, newSlug()) *> repo.ensureShare(userId, newSlug())
 
-    def sharedProfile(slug: String): Task[SharedProfile] =
+    def sharedProfile(slug: String, game: String): Task[SharedProfile] =
       for
         found <- repo.findShareBySlug(slug).someOrElseZIO(fail(404, "This share link doesn't exist or was turned off."))
         (ownerId, share) = found
         owner <- users.findById(ownerId).someOrElseZIO(fail(404, "This share link doesn't exist or was turned off."))
-        list  <- repo.listTradeItems(ownerId)
-        coll  <- if share.collectionPublic then repo.publicCollection(ownerId).map(Some(_)) else ZIO.none
-      yield SharedProfile(owner.username, owner.reputation, owner.createdAt, share.bio, list, coll)
+        list  <- repo.listTradeItems(ownerId, game)
+        coll  <- if share.collectionPublic then repo.publicCollection(ownerId, game).map(Some(_)) else ZIO.none
+        games <- repo.tradeGames(ownerId, share.collectionPublic)
+      yield SharedProfile(owner.username, owner.reputation, owner.createdAt, share.bio, list, coll, game, games)
 
-    def tradeList(userId: String): Task[List[TradeListItem]] = repo.listTradeItems(userId)
+    def tradeList(userId: String, game: String): Task[List[TradeListItem]] = repo.listTradeItems(userId, game)
 
     def saveTradeItem(userId: String, cardId: String, condition: String, quantity: Int,
                       askingPrice: Option[Double], note: Option[String]): Task[List[TradeListItem]] =
@@ -121,7 +122,9 @@ object TradingService:
         owned <- repo.ownedQuantity(userId, cardId, condition)
         _     <- ZIO.when(owned < quantity)(fail(400, s"You only own $owned of that card in $condition."))
         _     <- repo.upsertTradeItem(userId, cardId, condition, quantity, askingPrice, clean(note))
-        list  <- repo.listTradeItems(userId)
+        // Return the list for the game this card belongs to.
+        game  <- repo.gamesOfCards(List(cardId)).map(_.headOption.getOrElse(Game.DefaultId))
+        list  <- repo.listTradeItems(userId, game)
       yield list
 
     def removeTradeItem(userId: String, itemId: String): Task[Unit] = repo.deleteTradeItem(userId, itemId)
@@ -163,13 +166,18 @@ object TradingService:
                     repo.ownedQuantity(buyerId, l.cardId, l.condition)
                       .flatMap(n => ZIO.when(n < l.quantity)(fail(400, s"You only own $n of ${l.cardId} in ${l.condition}.")))
                   }
+        // Each game is its own world: an offer is for cards of exactly one game.
+        games  <- repo.gamesOfCards((wants ++ gives).map(_.cardId))
+        game   <- games match
+                    case List(g) => ZIO.succeed(g)
+                    case _       => fail(400, "An offer can only include cards from one game.")
         wantsC <- ZIO.foreach(merged(wants))(snapshot)
         givesC <- ZIO.foreach(merged(gives))(snapshot)
-        id     <- repo.createOffer(sellerId, buyerId, wantsC, givesC, cash, msg)
+        id     <- repo.createOffer(sellerId, buyerId, wantsC, givesC, cash, msg, game)
         offer  <- offer(buyerId, id)
       yield offer
 
-    def offers(userId: String): Task[List[CardOffer]] = repo.listOffers(userId)
+    def offers(userId: String, game: String): Task[List[CardOffer]] = repo.listOffers(userId, game)
 
     def offer(userId: String, offerId: String): Task[CardOffer] =
       repo.markRead(offerId, userId) *>
@@ -199,7 +207,7 @@ object TradingService:
         o       <- offer(userId, offerId)
       yield o
 
-    def unreadCount(userId: String): Task[Int] = repo.unreadCount(userId)
+    def unreadCount(userId: String, game: String): Task[Int] = repo.unreadCount(userId, game)
 
   val layer: ZLayer[TradingRepository & UserRepository, Nothing, TradingService] =
     ZLayer.fromFunction(new Live(_, _))

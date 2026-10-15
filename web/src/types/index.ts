@@ -319,6 +319,8 @@ export interface TradeListItem {
 }
 
 export interface SharedProfile {
+  game: string               // which game this page is showing
+  games: string[]            // every game the owner has something to show in
   username: string
   reputation: number
   memberSince: string
@@ -361,3 +363,19 @@ export interface CardOffer {
 }
 
 export interface OfferLine { cardId: string; condition: string; quantity: number }
+
+// ─── Games (see backend models/Game.scala) ──────────────────────────────────
+
+/** A card game the app supports. Each game is its own world: collection,
+ *  Spaces, boxes, binders and trades are separate per game. */
+export interface Game {
+  id: string               // 'pokemon', 'pokemon-jp', 'mtg', ...
+  name: string             // 'Pokémon (Japanese)'
+  shortName: string        // 'Pokémon JP'
+  source: string           // 'pokemontcg' | 'tcgtracking'
+  category: number
+  enabled: boolean
+  position: number
+  printPreference: string[]
+  hasFirstEdition: boolean
+}

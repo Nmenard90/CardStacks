@@ -45,8 +45,8 @@ object BinderRoutes:
 
   val routes: Routes[BinderService, Nothing] = Routes(
 
-    Method.GET / "api" / "binders" / string("userId") -> handler { (userId: String, _: Request) =>
-      ZIO.serviceWithZIO[BinderService](_.getBinders(userId))
+    Method.GET / "api" / "binders" / string("userId") -> handler { (userId: String, req: Request) =>
+      ZIO.serviceWithZIO[BinderService](_.getBinders(userId, GameParam.of(req)))
         .map(binders => Response.json(binders.toJson))
         .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
     },
@@ -60,7 +60,7 @@ object BinderRoutes:
                     .mapError(_ => RuntimeException(
                       s"Invalid pocketSize '${parsed.pocketSize}'. Must be Four, Nine, or Twelve."
                     ))
-        binder <- ZIO.serviceWithZIO[BinderService](_.createBinder(userId, parsed.name, size))
+        binder <- ZIO.serviceWithZIO[BinderService](_.createBinder(userId, parsed.name, size, GameParam.of(req)))
       yield Response.json(binder.toJson).status(Status.Created)
       ).catchAll(e => ZIO.succeed(Response.badRequest(e.getMessage)))
     },

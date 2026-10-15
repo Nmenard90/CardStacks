@@ -50,15 +50,18 @@ final case class TradeListItem(
 object TradeListItem:
   given JsonCodec[TradeListItem] = DeriveJsonCodec.gen[TradeListItem]
 
-/** What anyone with the link sees. `collection` is None unless the owner
- *  turned on collectionPublic. */
+/** What anyone with the link sees, for one game. `collection` is None
+ *  unless the owner turned on collectionPublic. `games` lists every game the
+ *  owner has something to show in, so the page can offer a game picker. */
 final case class SharedProfile(
   username:    String,
   reputation:  Int,
   memberSince: Instant,
   bio:         Option[String],
   tradeList:   List[TradeListItem],
-  collection:  Option[List[TradeCardView]]
+  collection:  Option[List[TradeCardView]],
+  game:        String,
+  games:       List[String]
 )
 object SharedProfile:
   given JsonCodec[SharedProfile] = DeriveJsonCodec.gen[SharedProfile]

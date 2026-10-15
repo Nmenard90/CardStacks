@@ -49,8 +49,8 @@ object StorageRoutes:
   val routes: Routes[StorageService & User, Nothing] = Routes(
 
     Method.GET / "api" / "storage" / string("userId") / "boxes" -> handler {
-      (userId: String, _: Request) =>
-        ZIO.serviceWithZIO[StorageService](_.getBoxes(userId))
+      (userId: String, req: Request) =>
+        ZIO.serviceWithZIO[StorageService](_.getBoxes(userId, GameParam.of(req)))
           .map(boxes => Response.json(boxes.toJson))
           .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
     },
@@ -61,7 +61,7 @@ object StorageRoutes:
           body   <- req.body.asString
           parsed <- ZIO.fromEither(body.fromJson[CreateBoxRequest])
                       .mapError(e => RuntimeException(s"Bad request: $e"))
-          box    <- ZIO.serviceWithZIO[StorageService](_.createBox(userId, parsed.name, parsed.kind.getOrElse("box"), parsed.boxType.getOrElse("custom"), parsed.capacity.getOrElse(0), parsed.color.getOrElse("#B99B67")))
+          box    <- ZIO.serviceWithZIO[StorageService](_.createBox(userId, parsed.name, parsed.kind.getOrElse("box"), parsed.boxType.getOrElse("custom"), parsed.capacity.getOrElse(0), parsed.color.getOrElse("#B99B67"), GameParam.of(req)))
         yield Response.json(box.toJson).status(Status.Created)
         ).catchAll(e => ZIO.succeed(Response.badRequest(e.getMessage)))
     },
@@ -149,8 +149,8 @@ object StorageRoutes:
     },
 
     Method.GET / "api" / "storage" / string("userId") / "unassigned" -> handler {
-      (userId: String, _: Request) =>
-        ZIO.serviceWithZIO[StorageService](_.getUnassignedCards(userId))
+      (userId: String, req: Request) =>
+        ZIO.serviceWithZIO[StorageService](_.getUnassignedCards(userId, GameParam.of(req)))
           .map(cards => Response.json(cards.toJson))
           .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
     },

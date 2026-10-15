@@ -21,13 +21,16 @@ import java.time.{Instant, LocalDate}
 trait CardRepository:
   def findSetById(id: String): Task[Option[CardSet]]
 
-  /** Newest first — fills the set dropdown. */
-  def findAllSets: Task[List[CardSet]]
+  /** One game's sets, newest first — fills the set dropdown. */
+  def findAllSets(game: String): Task[List[CardSet]]
+
+  /** The source's own id for a set (TCGTracking set id), for tcgtracking games. */
+  def findExternalSetId(setId: String): Task[Option[String]]
 
   def findCardsBySet(setId: String): Task[List[Card]]
   def findCardById(id: String): Task[Option[Card]]
 
-  def searchCards(query: String, limit: Int = 200): Task[List[Card]]
+  def searchCards(query: String, limit: Int = 200, game: String = Game.DefaultId): Task[List[Card]]
 
   /**
    * Cross-set catalog browse (the "All Sets" grid) — paginated and sorted.
@@ -36,9 +39,18 @@ trait CardRepository:
    * @param dir  "asc" or "desc".
    * @return Cards for this page, plus the total row count (for "N results" / paging).
    */
-  def browseCards(sort: String, dir: String, page: Int, pageSize: Int): Task[(List[Card], Int)]
+  def browseCards(sort: String, dir: String, page: Int, pageSize: Int, game: String = Game.DefaultId): Task[(List[Card], Int)]
 
-  def upsertSet(set: CardSet): Task[Unit]
+  /** @param externalId The source's own set id (TCGTracking), None for pokemontcg.io sets. */
+  def upsertSet(set: CardSet, game: String = Game.DefaultId, externalId: Option[String] = None): Task[Unit]
+
+  /** Batch writes for the TCGTracking importer — one transaction per call
+   *  instead of one per row (a game's set list is hundreds of rows). */
+  def upsertSets(sets: List[(CardSet, Option[String])], game: String): Task[Unit]
+  def upsertCards(cards: List[Card]): Task[Unit]
+  /** (cardId, default print's prices, every print's prices) */
+  def upsertPriceBatch(rows: List[(String, CardPrices, Map[String, CardPrices])]): Task[Unit]
+  def findCardIdsBySet(setId: String): Task[Set[String]]
 
   /**
    * @param fallbackPriceNm  Backup NM price pulled from pokemontcg.io's own
@@ -90,11 +102,12 @@ object CardRepository:
         })
         .transact(xa)
 
-    def findAllSets: Task[List[CardSet]] =
+    def findAllSets(game: String): Task[List[CardSet]] =
       sql"""
         SELECT id, name, series, printed_total, total,
                release_date, symbol_url, logo_url, ptcgo_code
         FROM card_sets
+        WHERE game_id = $game
         ORDER BY release_date DESC
       """
         .query[(String, String, String, Int, Int, LocalDate, String, String, Option[String])]
@@ -103,6 +116,9 @@ object CardRepository:
           CardSet(id, name, series, printed, total, date, SetImages(sym, logo), ptcgo)
         })
         .transact(xa)
+
+    def findExternalSetId(setId: String): Task[Option[String]] =
+      sql"SELECT external_id FROM card_sets WHERE id = $setId".query[Option[String]].option.map(_.flatten).transact(xa)
 
     private def toCardRow(
       id: String, setId: String, name: String, number: String,
@@ -214,7 +230,7 @@ object CardRepository:
           // Prints are extra detail — never fail a whole set load over them.
           .catchAll(e => ZIO.logWarning(s"withVariants failed: ${e.getMessage}").as(cards))
 
-    def searchCards(query: String, limit: Int = 200): Task[List[Card]] =
+    def searchCards(query: String, limit: Int = 200, game: String = Game.DefaultId): Task[List[Card]] =
       val likeQuery = s"%$query%"
 
       sql"""
@@ -232,7 +248,8 @@ object CardRepository:
           ORDER BY cp.fetched_at DESC, cp.id LIMIT 1
         ) p ON TRUE
         LEFT JOIN card_sets s ON s.id = c.set_id
-        WHERE to_tsvector('english', c.name) @@ plainto_tsquery('english', $query)
+        WHERE c.game_id = $game AND (
+              to_tsvector('english', c.name) @@ plainto_tsquery('english', $query)
            OR c.name ILIKE $likeQuery
            OR LOWER(c.number) = LOWER($query)
 
@@ -248,7 +265,7 @@ object CardRepository:
                     OR regexp_replace(c.number, '^0+(?=[0-9])', '')
                        = regexp_replace(split_part($query, '/', 1), '^0+(?=[0-9])', ''))
                AND (s.printed_total::text = split_part($query, '/', 2)
-                    OR s.total::text = split_part($query, '/', 2)))
+                    OR s.total::text = split_part($query, '/', 2))))
         ORDER BY (LOWER(c.number) = LOWER($query)) DESC,
                  (LOWER(c.name) = LOWER($query)) DESC,
                  s.release_date DESC, c.number
@@ -262,7 +279,7 @@ object CardRepository:
         .map(_.map(toCardRow.tupled))
         .transact(xa)
 
-    def browseCards(sort: String, dir: String, page: Int, pageSize: Int): Task[(List[Card], Int)] =
+    def browseCards(sort: String, dir: String, page: Int, pageSize: Int, game: String = Game.DefaultId): Task[(List[Card], Int)] =
       val asc = dir != "desc"
       // Whitelisted at the call site (CardRoutes) — never built from raw
       // user input, so Fragment.const here can't be used for injection.
@@ -292,6 +309,7 @@ object CardRepository:
           ORDER BY cp.fetched_at DESC, cp.id LIMIT 1
         ) p ON TRUE
         LEFT JOIN card_sets s ON s.id = c.set_id
+        WHERE c.game_id = $game
         ORDER BY """ ++ orderBy ++ sql"""
         LIMIT $pageSize OFFSET $offset
       """
@@ -311,13 +329,15 @@ object CardRepository:
         }
         .transact(xa)
 
-    def upsertSet(set: CardSet): Task[Unit] =
+    private def upsertSetIO(set: CardSet, game: String, externalId: Option[String]): ConnectionIO[Unit] =
       sql"""
         INSERT INTO card_sets (id, name, series, printed_total, total,
-                               release_date, symbol_url, logo_url, ptcgo_code)
+                               release_date, symbol_url, logo_url, ptcgo_code, game_id, external_id)
         VALUES (${set.id}, ${set.name}, ${set.series}, ${set.printedTotal}, ${set.total},
-                ${set.releaseDate}, ${set.images.symbol}, ${set.images.logo}, ${set.ptcgoCode})
+                ${set.releaseDate}, ${set.images.symbol}, ${set.images.logo}, ${set.ptcgoCode}, $game, $externalId)
         ON CONFLICT (id) DO UPDATE SET
+          game_id       = EXCLUDED.game_id,
+          external_id   = COALESCE(EXCLUDED.external_id, card_sets.external_id),
           name          = EXCLUDED.name,
           series        = EXCLUDED.series,
           printed_total = EXCLUDED.printed_total,
@@ -327,18 +347,36 @@ object CardRepository:
           logo_url      = EXCLUDED.logo_url,
           ptcgo_code    = EXCLUDED.ptcgo_code
       """
-        .update.run.void.transact(xa)
+        .update.run.void
 
-    def upsertCard(card: Card, fallbackPriceNm: Option[Double]): Task[Unit] =
+    def upsertSets(sets: List[(CardSet, Option[String])], game: String): Task[Unit] =
+      sets.traverse_ { case (set, ext) => upsertSetIO(set, game, ext) }.transact(xa)
+
+    def upsertCards(cards: List[Card]): Task[Unit] =
+      cards.traverse_(c => upsertCardIO(c, None)).transact(xa)
+
+    def upsertPriceBatch(rows: List[(String, CardPrices, Map[String, CardPrices])]): Task[Unit] =
+      rows.traverse_ { case (id, d, v) => upsertPricesIO(id, d) *> upsertVariantPricesIO(id, v) }.transact(xa)
+
+    def findCardIdsBySet(setId: String): Task[Set[String]] =
+      sql"SELECT id FROM cards WHERE set_id = $setId".query[String].to[List].map(_.toSet).transact(xa)
+
+    def upsertSet(set: CardSet, game: String = Game.DefaultId, externalId: Option[String] = None): Task[Unit] =
+      upsertSetIO(set, game, externalId).transact(xa)
+
+
+    private def upsertCardIO(card: Card, fallbackPriceNm: Option[Double]): ConnectionIO[Unit] =
       val detailsJson = card.details.map(_.toJson)
 
       sql"""
         INSERT INTO cards (id, set_id, name, number, rarity, artist,
-                           image_small, image_large, details, fallback_price_nm, updated_at)
+                           image_small, image_large, details, fallback_price_nm, updated_at, game_id)
         VALUES (${card.id}, ${card.setId}, ${card.name}, ${card.number},
                 ${card.rarity}, ${card.artist},
                 ${card.images.small}, ${card.images.large},
-                $detailsJson, $fallbackPriceNm, NOW())
+                $detailsJson, $fallbackPriceNm, NOW(),
+                -- A card always belongs to its set's game.
+                COALESCE((SELECT game_id FROM card_sets WHERE id = ${card.setId}), 'pokemon'))
         ON CONFLICT (id) DO UPDATE SET
           name              = EXCLUDED.name,
           number            = EXCLUDED.number,
@@ -350,7 +388,11 @@ object CardRepository:
           fallback_price_nm = EXCLUDED.fallback_price_nm,
           updated_at        = NOW()
       """
-        .update.run.void.transact(xa)
+        .update.run.void
+
+    def upsertCard(card: Card, fallbackPriceNm: Option[Double]): Task[Unit] =
+      upsertCardIO(card, fallbackPriceNm).transact(xa)
+
 
     /**
      * TCGTracking's per-condition `nm` is authoritative whenever it has one
@@ -375,7 +417,7 @@ object CardRepository:
       """
         .update.run.transact(xa)
 
-    def upsertPrices(cardId: String, prices: CardPrices): Task[Unit] =
+    private def upsertPricesIO(cardId: String, prices: CardPrices): ConnectionIO[Unit] =
       val upsertLatest = sql"""
         INSERT INTO card_prices (card_id, price_nm, price_lp, price_mp,
                                   price_hp, price_dmg, fetched_at)
@@ -397,9 +439,13 @@ object CardRepository:
         VALUES ($cardId, ${prices.nm}, ${prices.lp}, ${prices.mp}, ${prices.hp}, ${prices.dmg})
       """.update.run
 
-      (upsertLatest *> appendSnapshot).void.transact(xa)
+      (upsertLatest *> appendSnapshot).void
 
-    def upsertVariantPrices(cardId: String, variants: Map[String, CardPrices]): Task[Unit] =
+    def upsertPrices(cardId: String, prices: CardPrices): Task[Unit] =
+      upsertPricesIO(cardId, prices).transact(xa)
+
+
+    private def upsertVariantPricesIO(cardId: String, variants: Map[String, CardPrices]): ConnectionIO[Unit] =
       variants.toList.traverse_ { case (variant, p) =>
         sql"""
           INSERT INTO card_variant_prices (card_id, variant, price_nm, price_lp, price_mp,
@@ -412,8 +458,12 @@ object CardRepository:
             price_hp   = EXCLUDED.price_hp,
             price_dmg  = EXCLUDED.price_dmg,
             fetched_at = NOW()
-        """.update.run
-      }.transact(xa)
+        """.update.run.void
+      }
+
+    def upsertVariantPrices(cardId: String, variants: Map[String, CardPrices]): Task[Unit] =
+      upsertVariantPricesIO(cardId, variants).transact(xa)
+
 
     def findPriceHistory(cardId: String): Task[List[PriceHistoryPoint]] =
       sql"""

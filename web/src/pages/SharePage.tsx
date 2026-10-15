@@ -17,12 +17,14 @@
 
 import { useCallback, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useUser } from '../context/UserContext'
 import { useToast } from '../components/Toast'
 import { LoginScreen } from '../components/LoginScreen'
 import { getOwnedCards } from '../api/collection'
 import { getSharedProfile, makeOffer, tradingError } from '../api/trading'
+import { getGames } from '../api/cards'
+import { currentGame } from '../lib/game'
 import { money, RETURN_KEY } from '../lib/trading'
 import { condLabel } from '../lib/conditions'
 import { CardBrowser, SetLine, type BrowseFields } from '../components/CardBrowser'
@@ -47,12 +49,18 @@ const rememberReturn = (el: HTMLElement | null) => {
 
 export function SharePage() {
   const { slug = '' } = useParams()
+  // Each game is its own world: the link says which game's cards to show
+  // (TradePage adds ?game=), falling back to the visitor's own game.
+  const [search, setSearch] = useSearchParams()
+  const game = search.get('game') || currentGame()
+  const { data: games = [] } = useQuery({ queryKey: ['games'], queryFn: getGames })
+  const gameName = (id: string) => games.find(g => g.id === id)?.shortName ?? id
   const { user } = useUser()
   const toast = useToast()
   const navigate = useNavigate()
   const { data: profile, error, isLoading } = useQuery({
-    queryKey: ['shared', slug],
-    queryFn: () => getSharedProfile(slug),
+    queryKey: ['shared', slug, game],
+    queryFn: () => getSharedProfile(slug, game),
     retry: false,
   })
 
@@ -137,6 +145,14 @@ export function SharePage() {
         </p>
         {profile.bio && <p className="share-bio-text">{profile.bio}</p>}
         {isOwner && <p className="share-owner-note">This is your public page. <Link to="/trade?tab=share">Edit sharing</Link></p>}
+        {(profile.games.length > 1 || !profile.games.includes(game)) && profile.games.length > 0 && (
+          <nav className="trade-tabs share-games" aria-label="Game">
+            {profile.games.map(g => (
+              <button key={g} className={g === game ? 'active' : ''}
+                onClick={() => { setWants({}); setSearch({ game: g }) }}>{gameName(g)}</button>
+            ))}
+          </nav>
+        )}
       </header>
 
       <main className="trade-main">
@@ -221,7 +237,7 @@ export function SharePage() {
                   <label className="offer-cash-input">💵 Cash (USD)
                     <input inputMode="decimal" value={cash} onChange={e => setCash(e.target.value)} placeholder="0.00" />
                   </label>
-                  <GivePicker userId={user.id} gives={gives} setGives={setGives} />
+                  <GivePicker userId={user.id} game={game} gives={gives} setGives={setGives} />
                 </section>
                 <section>
                   <h4>Message</h4>
@@ -242,12 +258,14 @@ export function SharePage() {
 }
 
 /** Picks cards from the visitor's own collection to put into the offer. */
-function GivePicker({ userId, gives, setGives }: {
+function GivePicker({ userId, game, gives, setGives }: {
   userId: string
+  /** The page's game — you can only trade cards from the same game. */
+  game: string
   gives: Record<string, GiveLine>
   setGives: (fn: (prev: Record<string, GiveLine>) => Record<string, GiveLine>) => void
 }) {
-  const { data: owned = [] } = useQuery({ queryKey: ['owned', userId], queryFn: () => getOwnedCards(userId) })
+  const { data: owned = [] } = useQuery({ queryKey: ['owned', userId, game], queryFn: () => getOwnedCards(userId, game) })
   const [search, setSearch] = useState('')
   const matches = useMemo(() => {
     const q = search.trim().toLowerCase()

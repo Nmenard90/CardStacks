@@ -33,5 +33,7 @@ export const bulkSave = (userId: string, items: BulkItem[]) =>
   api.post(`/api/collection/${userId}/bulk`, items).then(r => r.data)
 
 /** Enriched with card name/image/price — avoids N+1 lookups on the owned-cards view. */
-export const getOwnedCards = (userId: string) =>
-  api.get<OwnedCard[]>(`/api/collection/${userId}/owned`).then(r => r.data)
+/** `game` overrides the app's current game (the share page offers cards in
+ *  the game of the page being viewed). */
+export const getOwnedCards = (userId: string, game?: string) =>
+  api.get<OwnedCard[]>(`/api/collection/${userId}/owned`, game ? { params: { game } } : undefined).then(r => r.data)

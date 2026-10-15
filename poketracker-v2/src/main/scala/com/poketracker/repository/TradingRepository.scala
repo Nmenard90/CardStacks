@@ -30,7 +30,7 @@ trait TradingRepository:
   /** (ownerUserId, settings) for an enabled share link, or None. */
   def findShareBySlug(slug: String): Task[Option[(String, ShareSettings)]]
 
-  def listTradeItems(userId: String): Task[List[TradeListItem]]
+  def listTradeItems(userId: String, game: String): Task[List[TradeListItem]]
   def upsertTradeItem(userId: String, cardId: String, condition: String, quantity: Int,
     askingPrice: Option[Double], note: Option[String]): Task[Unit]
   def deleteTradeItem(userId: String, itemId: String): Task[Unit]
@@ -40,13 +40,17 @@ trait TradingRepository:
   /** Copies of (card, condition key) in the user's collection. */
   def ownedQuantity(userId: String, cardId: String, condition: String): Task[Int]
   /** Every owned (card, condition) with quantity > 0, for a public collection. */
-  def publicCollection(userId: String): Task[List[TradeCardView]]
+  def publicCollection(userId: String, game: String): Task[List[TradeCardView]]
+  /** Games the user has trade-list items in (plus owned cards when `withCollection`). */
+  def tradeGames(userId: String, withCollection: Boolean): Task[List[String]]
+  /** Distinct games of the given cards. */
+  def gamesOfCards(cardIds: List[String]): Task[List[String]]
   def cardView(cardId: String, condition: String, quantity: Int): Task[Option[TradeCardView]]
 
   def createOffer(sellerId: String, buyerId: String, wants: List[OfferCard], gives: List[OfferCard],
-    cashAmount: Option[Double], firstMessage: Option[String]): Task[String]
+    cashAmount: Option[Double], firstMessage: Option[String], game: String): Task[String]
   /** Offers where the user is either side, newest activity first, no messages. */
-  def listOffers(userId: String): Task[List[CardOffer]]
+  def listOffers(userId: String, game: String): Task[List[CardOffer]]
   /** One offer with its full message thread, only if the user is a participant. */
   def findOffer(offerId: String, userId: String): Task[Option[CardOffer]]
   /** (sellerId, buyerId, status) */
@@ -56,7 +60,7 @@ trait TradingRepository:
   def setStatus(offerId: String, from: String, to: String, actorId: String): Task[Boolean]
   def addMessage(offerId: String, senderId: String, body: String): Task[Unit]
   def markRead(offerId: String, userId: String): Task[Unit]
-  def unreadCount(userId: String): Task[Int]
+  def unreadCount(userId: String, game: String): Task[Int]
 
 object TradingRepository:
 
@@ -132,11 +136,11 @@ object TradingRepository:
 
     // ── trade list ──────────────────────────────────────────────────────────
 
-    def listTradeItems(userId: String): Task[List[TradeListItem]] =
+    def listTradeItems(userId: String, game: String): Task[List[TradeListItem]] =
       (fr"SELECT t.id, t.condition, t.quantity, t.asking_price, t.note, t.updated_at," ++ cardCols ++
         fr"""FROM trade_list_items t
              JOIN cards c ON c.id = t.card_id""" ++ priceJoin(fr"t.condition") ++
-        fr"""WHERE t.user_id = $userId
+        fr"""WHERE t.user_id = $userId AND c.game_id = $game
              ORDER BY c.name, t.condition""")
         .query[((String, String, Int, Option[Double], Option[String], Instant), CardRow)].to[List]
         .map(_.map { case ((id, cond, qty, ask, note, at), card) =>
@@ -169,16 +173,28 @@ object TradingRepository:
             WHERE ce.user_id = $userId AND ce.card_id = $cardId AND item->>'condition' = $condition"""
         .query[Int].unique.transact(xa)
 
-    def publicCollection(userId: String): Task[List[TradeCardView]] =
+    def publicCollection(userId: String, game: String): Task[List[TradeCardView]] =
       (fr"SELECT item->>'condition', (item->>'quantity')::int," ++ cardCols ++
         fr"""FROM collection_entries ce
              CROSS JOIN LATERAL jsonb_array_elements(ce.conditions::jsonb) item
              JOIN cards c ON c.id = ce.card_id""" ++ priceJoin(fr"item->>'condition'") ++
-        fr"""WHERE ce.user_id = $userId AND COALESCE((item->>'quantity')::int, 0) > 0
+        fr"""WHERE ce.user_id = $userId AND c.game_id = $game AND COALESCE((item->>'quantity')::int, 0) > 0
              ORDER BY c.set_id, c.number, item->>'condition'""")
         .query[((String, Int), CardRow)].to[List]
         .map(_.map { case ((cond, qty), card) => view(card, cond, qty) })
         .transact(xa)
+
+    def tradeGames(userId: String, withCollection: Boolean): Task[List[String]] =
+      sql"""SELECT DISTINCT c.game_id FROM trade_list_items t JOIN cards c ON c.id = t.card_id WHERE t.user_id = $userId
+            UNION
+            SELECT DISTINCT c.game_id FROM collection_entries ce JOIN cards c ON c.id = ce.card_id
+            WHERE $withCollection AND ce.user_id = $userId"""
+        .query[String].to[List].transact(xa)
+
+    def gamesOfCards(cardIds: List[String]): Task[List[String]] =
+      cardIds.distinct match
+        case Nil => ZIO.succeed(Nil)
+        case ids => sql"SELECT DISTINCT game_id FROM cards WHERE id = ANY(${ids.toArray})".query[String].to[List].transact(xa)
 
     def cardView(cardId: String, condition: String, quantity: Int): Task[Option[TradeCardView]] =
       (fr"SELECT" ++ cardCols ++
@@ -188,13 +204,13 @@ object TradingRepository:
     // ── offers ──────────────────────────────────────────────────────────────
 
     def createOffer(sellerId: String, buyerId: String, wants: List[OfferCard], gives: List[OfferCard],
-                    cashAmount: Option[Double], firstMessage: Option[String]): Task[String] =
+                    cashAmount: Option[Double], firstMessage: Option[String], game: String): Task[String] =
       val id = java.util.UUID.randomUUID().toString
       val wantsJson = wants.toJson
       val givesJson = gives.toJson
       (for
-        _ <- sql"""INSERT INTO card_offers (id, seller_id, buyer_id, wants, gives, cash_amount, buyer_read_at)
-                   VALUES ($id, $sellerId, $buyerId, $wantsJson::jsonb, $givesJson::jsonb, $cashAmount, NOW())""".update.run
+        _ <- sql"""INSERT INTO card_offers (id, seller_id, buyer_id, wants, gives, cash_amount, buyer_read_at, game_id)
+                   VALUES ($id, $sellerId, $buyerId, $wantsJson::jsonb, $givesJson::jsonb, $cashAmount, NOW(), $game)""".update.run
         _ <- firstMessage.traverse_ { body =>
                sql"INSERT INTO offer_messages (offer_id, sender_id, body) VALUES ($id, $buyerId, $body)".update.run
              }
@@ -227,8 +243,8 @@ object TradingRepository:
         messages   = messages
       )
 
-    def listOffers(userId: String): Task[List[CardOffer]] =
-      (offerSelect ++ fr"WHERE o.seller_id = $userId OR o.buyer_id = $userId ORDER BY o.updated_at DESC LIMIT 200")
+    def listOffers(userId: String, game: String): Task[List[CardOffer]] =
+      (offerSelect ++ fr"WHERE (o.seller_id = $userId OR o.buyer_id = $userId) AND o.game_id = $game ORDER BY o.updated_at DESC LIMIT 200")
         .query[OfferRow].to[List].map(_.map(toOffer(userId, Nil))).transact(xa)
 
     def findOffer(offerId: String, userId: String): Task[Option[CardOffer]] =
@@ -271,10 +287,11 @@ object TradingRepository:
               buyer_read_at  = CASE WHEN buyer_id  = $userId THEN NOW() ELSE buyer_read_at  END
             WHERE id = $offerId""".update.run.void.transact(xa)
 
-    def unreadCount(userId: String): Task[Int] =
+    def unreadCount(userId: String, game: String): Task[Int] =
       sql"""SELECT COUNT(*)::int FROM card_offers
-            WHERE (seller_id = $userId AND (seller_read_at IS NULL OR seller_read_at < updated_at))
-               OR (buyer_id  = $userId AND (buyer_read_at  IS NULL OR buyer_read_at  < updated_at))"""
+            WHERE game_id = $game AND (
+                  (seller_id = $userId AND (seller_read_at IS NULL OR seller_read_at < updated_at))
+               OR (buyer_id  = $userId AND (buyer_read_at  IS NULL OR buyer_read_at  < updated_at)))"""
         .query[Int].unique.transact(xa)
 
   val layer: ZLayer[Transactor[Task], Nothing, TradingRepository] =

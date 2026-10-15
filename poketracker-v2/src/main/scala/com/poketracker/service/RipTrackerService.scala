@@ -122,7 +122,7 @@ object RipTrackerService:
     private def isSetComplete(userId: String, setId: String): Task[Boolean] =
       for
         setCards    <- cardRepo.findCardsBySet(setId)
-        userEntries <- collectionRepo.findByUser(userId)
+        userEntries <- collectionRepo.findByUser(userId, Game.DefaultId)
         ownedIds     = userEntries.map(_.cardId).toSet
         setCardIds   = setCards.map(_.id).toSet
 
@@ -217,7 +217,7 @@ object RipTrackerService:
             marginal   <- userId match
                             case None => ZIO.succeed(None)
                             case Some(uid) =>
-                              collectionRepo.findByUser(uid).map { entries =>
+                              collectionRepo.findByUser(uid, Game.DefaultId).map { entries =>
                                 val owned = entries.map(_.cardId).toSet
                                 Some(RipOrHoldEngine.marginalValue(
                                   engineRates, prices, owned, floor.total, product.packCount, ownedDiscount = 0.2

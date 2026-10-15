@@ -76,7 +76,7 @@ class TradingDbSuite extends munit.FunSuite:
     assertEquals(run(svc.getShare(seller)).slug, a.slug)
     val b = run(svc.regenerateSlug(seller))
     assertNotEquals(b.slug, a.slug)
-    failsWith(404)(svc.sharedProfile(a.slug))
+    failsWith(404)(svc.sharedProfile(a.slug, "pokemon"))
     failsWith(403)(svc.getShare(demo))
   }
 
@@ -87,22 +87,22 @@ class TradingDbSuite extends munit.FunSuite:
     assertEquals(item.card.marketPrice, Some(2.0))
     assertEquals(item.note, Some("minor edge wear"))
     run(svc.saveTradeItem(seller, "itset-2", "NM 1st Ed", 1, None, None))
-    val all = run(svc.tradeList(seller))
+    val all = run(svc.tradeList(seller, "pokemon"))
     assertEquals(all.find(_.card.cardId == "itset-2").get.card.marketPrice, Some(300.0))
   }
 
   test("share page hides collection until made public, and turns off") {
     val slug = run(svc.getShare(seller)).slug
-    val p = run(svc.sharedProfile(slug))
+    val p = run(svc.sharedProfile(slug, "pokemon"))
     assertEquals(p.username, seller)
     assertEquals(p.tradeList.size, 2)
     assertEquals(p.collection, None)
     run(svc.updateShare(seller, enabled = true, collectionPublic = true, bio = Some("hi")))
-    val p2 = run(svc.sharedProfile(slug))
+    val p2 = run(svc.sharedProfile(slug, "pokemon"))
     assertEquals(p2.collection.map(_.map(c => (c.cardId, c.condition, c.quantity)).toSet),
       Some(Set(("itset-1", "NM", 3), ("itset-1", "LP", 1), ("itset-2", "NM 1st Ed", 1))))
     run(svc.updateShare(seller, enabled = false, collectionPublic = true, bio = Some("hi")))
-    failsWith(404)(svc.sharedProfile(slug))
+    failsWith(404)(svc.sharedProfile(slug, "pokemon"))
     run(svc.updateShare(seller, enabled = true, collectionPublic = false, bio = None))
   }
 
@@ -132,19 +132,19 @@ class TradingDbSuite extends munit.FunSuite:
     assertEquals(o.messages.map(_.body), List("Would you take this?"))
     assert(!o.unread)
 
-    assertEquals(run(svc.unreadCount(seller)), 1)
-    assertEquals(run(svc.unreadCount(buyer)), 0)
-    assert(run(svc.offers(seller)).exists(x => x.id == o.id && x.unread && x.role == "seller"))
+    assertEquals(run(svc.unreadCount(seller, "pokemon")), 1)
+    assertEquals(run(svc.unreadCount(buyer, "pokemon")), 0)
+    assert(run(svc.offers(seller, "pokemon")).exists(x => x.id == o.id && x.unread && x.role == "seller"))
 
     val seen = run(svc.offer(seller, o.id))
     assert(!seen.unread)
-    assertEquals(run(svc.unreadCount(seller)), 0)
+    assertEquals(run(svc.unreadCount(seller, "pokemon")), 0)
 
     failsWith(404)(svc.offer(demo, o.id))
     failsWith(400)(svc.setStatus(buyer, o.id, "Accepted"))
     val accepted = run(svc.setStatus(seller, o.id, "Accepted"))
     assertEquals(accepted.status, "Accepted")
-    assertEquals(run(svc.unreadCount(buyer)), 1)
+    assertEquals(run(svc.unreadCount(buyer, "pokemon")), 1)
 
     val replied = run(svc.postMessage(buyer, o.id, "Great — PayPal G&S ok?"))
     assertEquals(replied.messages.size, 2)

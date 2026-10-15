@@ -33,11 +33,11 @@ object RoomRoutes:
   private def bad(e:Throwable)=Response.badRequest(e.getMessage)
 
   val routes:Routes[RoomService,Nothing]=Routes(
-    Method.GET / "api" / "spaces" / string("userId") -> handler { (userId:String,_:Request) =>
-      ZIO.serviceWithZIO[RoomService](_.listSpaces(userId)).map(v=>Response.json(v.toJson)).catchAll(e=>ZIO.succeed(bad(e)))
+    Method.GET / "api" / "spaces" / string("userId") -> handler { (userId:String,req:Request) =>
+      ZIO.serviceWithZIO[RoomService](_.listSpaces(userId,GameParam.of(req))).map(v=>Response.json(v.toJson)).catchAll(e=>ZIO.succeed(bad(e)))
     },
     Method.POST / "api" / "spaces" / string("userId") -> handler { (userId:String,req:Request) =>
-      (for p<-bodyAs[CreateSpaceRequest](req); v<-ZIO.serviceWithZIO[RoomService](_.createSpace(userId,p.name,p.spaceType.getOrElse("custom")))
+      (for p<-bodyAs[CreateSpaceRequest](req); v<-ZIO.serviceWithZIO[RoomService](_.createSpace(userId,p.name,p.spaceType.getOrElse("custom"),GameParam.of(req)))
       yield Response.json(v.toJson).status(Status.Created)).catchAll(e=>ZIO.succeed(bad(e)))
     },
     Method.POST / "api" / "spaces" / string("userId") / "storage-units" -> handler { (userId:String,req:Request) =>
@@ -60,8 +60,8 @@ object RoomRoutes:
       (for p<-bodyAs[LightsRequest](req); _<-ZIO.serviceWithZIO[RoomService](_.setDisplayLights(userId,caseId,p.enabled))
       yield Response.json("""{"ok":true}""")).catchAll(e=>ZIO.succeed(bad(e)))
     },
-    Method.GET / "api" / "spaces" / string("userId") / "inventory" -> handler { (userId:String,_:Request) =>
-      ZIO.serviceWithZIO[RoomService](_.getInventory(userId)).map(v=>Response.json(v.toJson)).catchAll(e=>ZIO.succeed(bad(e)))
+    Method.GET / "api" / "spaces" / string("userId") / "inventory" -> handler { (userId:String,req:Request) =>
+      ZIO.serviceWithZIO[RoomService](_.getInventory(userId,GameParam.of(req))).map(v=>Response.json(v.toJson)).catchAll(e=>ZIO.succeed(bad(e)))
     },
     Method.GET / "api" / "spaces" / string("userId") / "drawers" / string("drawerId") / "allocations" -> handler { (userId:String,drawerId:String,_:Request) =>
       ZIO.serviceWithZIO[RoomService](_.getDrawerAllocations(userId,drawerId)).map(v=>Response.json(v.toJson)).catchAll(e=>ZIO.succeed(bad(e)))

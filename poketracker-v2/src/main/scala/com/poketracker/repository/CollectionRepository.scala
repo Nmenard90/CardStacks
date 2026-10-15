@@ -19,7 +19,7 @@ import zio.json.*
 import java.time.Instant
 
 trait CollectionRepository:
-  def findByUser(userId: String): Task[List[CollectionEntry]]
+  def findByUser(userId: String, game: String): Task[List[CollectionEntry]]
   def findEntry(userId: String, cardId: String): Task[Option[CollectionEntry]]
   def upsertEntry(entry: CollectionEntry): Task[Unit]
   def deleteEntry(userId: String, cardId: String): Task[Unit]
@@ -32,7 +32,7 @@ trait CollectionRepository:
    * the frontend gets it all in one request. A card since removed from the
    * catalog (no matching `cards` row) is silently dropped.
    */
-  def findByUserWithCards(userId: String): Task[List[OwnedCard]]
+  def findByUserWithCards(userId: String, game: String): Task[List[OwnedCard]]
 
 object CollectionRepository:
 
@@ -70,8 +70,9 @@ object CollectionRepository:
                         val drawerId = java.util.UUID.randomUUID().toString
                         for
                           nextPos <- sql"SELECT COALESCE(MAX(position)+1,0) FROM storage_boxes WHERE user_id=$userId".query[Int].unique
-                          _ <- sql"""INSERT INTO storage_boxes(id,user_id,name,kind,box_type,capacity,color,position,created_at,updated_at)
-                            VALUES($boxId,$userId,$boxName,'box',$boxType,0,'#B99B67',$nextPos,NOW(),NOW())""".update.run
+                          _ <- sql"""INSERT INTO storage_boxes(id,user_id,name,kind,box_type,capacity,color,position,created_at,updated_at,game_id)
+                            VALUES($boxId,$userId,$boxName,'box',$boxType,0,'#B99B67',$nextPos,NOW(),NOW(),
+                              COALESCE((SELECT game_id FROM card_sets WHERE id=$setId),'pokemon'))""".update.run
                           _ <- sql"""INSERT INTO storage_drawers(id,box_id,name,position,auto_set_id,created_at,updated_at)
                             VALUES($drawerId,$boxId,'Main compartment',0,$setId,NOW(),NOW())""".update.run
                         yield Some(drawerId)
@@ -152,12 +153,13 @@ object CollectionRepository:
         }
       yield ()
 
-    def findByUser(userId: String): Task[List[CollectionEntry]] =
+    def findByUser(userId: String, game: String): Task[List[CollectionEntry]] =
       (sql"""
-        SELECT id, user_id, card_id, conditions, selected_cond, updated_at
-        FROM collection_entries
-        WHERE user_id = $userId
-        ORDER BY updated_at DESC
+        SELECT ce.id, ce.user_id, ce.card_id, ce.conditions, ce.selected_cond, ce.updated_at
+        FROM collection_entries ce
+        JOIN cards c ON c.id = ce.card_id AND c.game_id = $game
+        WHERE ce.user_id = $userId
+        ORDER BY ce.updated_at DESC
       """
         .query[(String, String, String, String, String, Instant)]
         .to[List]
@@ -226,7 +228,7 @@ object CollectionRepository:
         """.update.run.void *> syncInventoryLots(entry))
       }.transact(xa)
 
-    def findByUserWithCards(userId: String): Task[List[OwnedCard]] =
+    def findByUserWithCards(userId: String, game: String): Task[List[OwnedCard]] =
       sql"""
         SELECT
           ce.card_id, ce.conditions, ce.selected_cond, ce.updated_at, ce.drawer_id,
@@ -236,7 +238,7 @@ object CollectionRepository:
         FROM collection_entries ce
         JOIN cards c ON c.id = ce.card_id
         LEFT JOIN card_prices p ON p.card_id = ce.card_id
-        WHERE ce.user_id = $userId
+        WHERE ce.user_id = $userId AND c.game_id = $game
         ORDER BY ce.updated_at DESC
       """
         .query[(String, String, String, Instant, Option[String],
