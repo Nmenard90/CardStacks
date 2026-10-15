@@ -2,6 +2,9 @@ files/node_modules/
 files/card-data/
 files/package-lock.json
 package-lock.json
+# web/ commits its lockfile: without it every Railway build re-resolved
+# dependencies from scratch and broke on an npm install crash (2026-10-15).
+!web/package-lock.json
 
 # Applied patch files from the Claude workflow — never commit these
 *.patch
