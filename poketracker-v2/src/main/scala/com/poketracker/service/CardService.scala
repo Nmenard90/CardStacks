@@ -440,7 +440,10 @@ object CardService:
               .flatMap(parse[ApiCardsResp])
               .flatMap { resp =>
                 val pairs = resp.data.map(ac => (toCard(ac), fallbackNm(ac)))
-                ZIO.foreach(pairs)((c, fb) => repo.upsertCard(c, fb)).as(pairs.map(_._1))
+                // Read them back so they carry our stored prices — the API
+                // response alone has none, which showed as "no price".
+                ZIO.foreach(pairs)((c, fb) => repo.upsertCard(c, fb)) *>
+                  repo.findCardsByIds(pairs.map(_._1.id)).map(found => if found.nonEmpty then found else pairs.map(_._1))
               }
               .catchAll { e =>
                 ZIO.logWarning(s"PokéTCG API search fallback failed for '$q': ${e.getMessage}")

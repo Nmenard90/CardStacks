@@ -28,6 +28,8 @@ trait CardRepository:
   def findExternalSetId(setId: String): Task[Option[String]]
 
   def findCardsBySet(setId: String): Task[List[Card]]
+  /** Cards with their stored prices, in the order given (unknown ids skipped). */
+  def findCardsByIds(ids: List[String]): Task[List[Card]]
   def findCardById(id: String): Task[Option[Card]]
 
   def searchCards(query: String, limit: Int = 200, game: String = Game.DefaultId): Task[List[Card]]
@@ -176,6 +178,34 @@ object CardRepository:
         .transact(xa)
         .flatMap(withVariants)
 
+    def findCardsByIds(ids: List[String]): Task[List[Card]] =
+      if ids.isEmpty then ZIO.succeed(Nil)
+      else
+        val arr = ids.toArray
+        sql"""
+          SELECT c.id, c.set_id, c.name, c.number, c.rarity, c.artist,
+                 c.image_small, c.image_large,
+                 p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg,
+                 c.details, p.price_source
+          FROM cards c
+          LEFT JOIN LATERAL (
+            SELECT cp.price_nm, cp.price_lp, cp.price_mp, cp.price_hp, cp.price_dmg, cp.price_source
+            FROM card_prices cp WHERE cp.card_id = c.id
+            ORDER BY cp.fetched_at DESC, cp.id LIMIT 1
+          ) p ON TRUE
+          WHERE c.id = ANY($arr)
+        """
+          .query[(String, String, String, String, Option[String], Option[String],
+                  String, String,
+                  Option[Double], Option[Double], Option[Double], Option[Double], Option[Double],
+                  Option[String], Option[String])]
+          .to[List]
+          .map(_.map(toCardRow.tupled))
+          .transact(xa)
+          .flatMap(withVariants)
+          // Keep the caller's order.
+          .map { found => val byId = found.map(c => c.id -> c).toMap; ids.flatMap(byId.get) }
+
     def findCardById(id: String): Task[Option[Card]] =
       sql"""
         SELECT c.id, c.set_id, c.name, c.number, c.rarity, c.artist,
@@ -270,8 +300,12 @@ object CardRepository:
                AND (LOWER(c.number) = LOWER(split_part($query, '/', 1))
                     OR regexp_replace(c.number, '^0+(?=[0-9])', '')
                        = regexp_replace(split_part($query, '/', 1), '^0+(?=[0-9])', ''))
-               AND (s.printed_total::text = split_part($query, '/', 2)
-                    OR s.total::text = split_part($query, '/', 2))))
+               -- A half-typed total ("14/", "14/10") matches every set
+               -- whose total starts with it, so results narrow while typing
+               -- instead of falling through to the live API (unpriced).
+               AND (split_part($query, '/', 2) = ''
+                    OR s.printed_total::text LIKE split_part($query, '/', 2) || '%'
+                    OR s.total::text LIKE split_part($query, '/', 2) || '%')))
         ORDER BY (LOWER(c.number) = LOWER($query)) DESC,
                  (LOWER(c.name) = LOWER($query)) DESC,
                  s.release_date DESC, c.number
