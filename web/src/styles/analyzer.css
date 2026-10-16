@@ -236,6 +236,7 @@
 .page-analyzer .cp-card .price-ribbon{font-size:8px;padding:1px 4px;top:2px;left:1px}
 
 @media (max-width:720px){
+  .page-analyzer #bar{height:auto;min-height:52px;flex-wrap:wrap;padding:8px 12px;gap:8px;}
   .page-analyzer #page{padding:20px 14px 80px}
   .page-analyzer #verdict{flex-wrap:wrap;padding:16px}
   .page-analyzer .verdict-bar{margin-left:0}
