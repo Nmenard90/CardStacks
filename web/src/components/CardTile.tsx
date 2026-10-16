@@ -252,7 +252,7 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
                 key={c}
                 className={`cbtn ${c}${count > 0 ? ' has-count' : ''}${baseCond(selCond) === c ? ' sel' : ''}`}
                 onClick={() => onSelectCond(c)}
-                onContextMenu={e => { e.preventDefault(); onAdjCond(c, -1) }}
+                onContextMenu={e => { e.preventDefault(); onAdjCond(makeKey(c, selectedVariant), -1) }}
                 title={`Select ${c} (right-click removes one)`}
               >
                 <span className="cbtn-label">{c}</span>
