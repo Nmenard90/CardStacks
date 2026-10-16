@@ -212,6 +212,12 @@
 .page-binder .leaf-face.back{transform:rotateY(180deg)}
 @keyframes leaf-fwd{from{transform:rotateY(0)}to{transform:rotateY(-180deg)}}
 @keyframes leaf-back{from{transform:rotateY(0)}to{transform:rotateY(180deg)}}
+/* Phones: the bar's buttons scroll sideways inside it instead of running off screen. */
+@media (max-width:720px){
+  .page-binder #bar{overflow-x:auto;gap:8px;padding:0 10px;scrollbar-width:none}
+  .page-binder #bar>*{flex-shrink:0}
+  .page-binder #bname{width:120px}
+}
 @media (prefers-reduced-motion: reduce){
   .page-binder .leaf{animation-duration:.01s}
 }

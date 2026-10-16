@@ -69,7 +69,9 @@ export function BinderViewPage() {
   const { user } = useUser()
   const toast = useToast()
   const navigate = useNavigate()
-  const { binderId = '' } = useParams()
+  const { binderId = '', spaceId } = useParams()
+  // Back to the Binder Library this binder was opened from.
+  const library = `/?area=binders${spaceId && spaceId !== 'default' ? `&space=${spaceId}` : ''}`
   const preview = usePreview()
 
   const [binder, setBinder] = useState<Binder | null>(null)
@@ -106,7 +108,7 @@ export function BinderViewPage() {
         }
         setSlots(m)
       })
-      .catch(() => { toast('Could not load that binder.'); navigate('/shelf') })
+      .catch(() => { toast('Could not load that binder.'); navigate(library) })
   }, [user, binderId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Defaults to "Nine" until the real binder loads — see the early return below.
@@ -181,7 +183,7 @@ export function BinderViewPage() {
       : `Delete "${name}"?`
     if (!window.confirm(warning)) return
     deleteBinder(user.id, binderId)
-      .then(() => navigate('/shelf'))
+      .then(() => navigate(library))
       .catch(() => toast('Could not delete this binder.'))
   }
 
@@ -301,7 +303,7 @@ export function BinderViewPage() {
   return (
     <div className="page-binder">
       <div id="bar">
-        <Link className="back" to="/shelf">← Shelf</Link>
+        <Link className="back" to={library}>← Shelf</Link>
         <input id="bname" value={name} onChange={e => rename(e.target.value)} />
         <div className="sp" />
 
