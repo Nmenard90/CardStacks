@@ -13,7 +13,7 @@ import { useState } from 'react'
 import { getPriceHistory } from '../api/cards'
 import { CardThumb } from './CardThumb'
 import type { PreviewOpts } from './CardPreview'
-import { CONDS, COND_COLORS, baseCond, basePrice, cardValue, condLabel, condPrice, defaultVariant, dominantCondClass, makeKey, totalQty, variantLabel, type CondMap, type PurchaseMap } from '../lib/conditions'
+import { CONDS, COND_COLORS, baseCond, basePrice, cardValue, condLabel, condPrice, defaultVariant, dominantCondClass, keyPrint, makeKey, totalQty, variantLabel, type CondMap, type PurchaseMap } from '../lib/conditions'
 import type { Card, PriceHistoryPoint } from '../types'
 
 interface Props {
@@ -109,6 +109,10 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
 
   // NM→LP→MP→HP→DMG order; within a condition the default print first,
   // then "1st Ed" and other prints.
+  /** Copies owned of one print (undefined = default print), every condition. */
+  const printQty = (print?: string) =>
+    Object.entries(conds).reduce((n, [k, q]) => (keyPrint(k) === print ? n + q : n), 0)
+
   const ownedKeys = Object.keys(conds)
     .filter(k => conds[k] > 0)
     .sort((a, b) => CONDS.indexOf(baseCond(a)) - CONDS.indexOf(baseCond(b)) || a.length - b.length || a.localeCompare(b))
@@ -145,12 +149,13 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
             <div className="variant-row" title="Other prints of this card — select one to see its price and add/remove copies of that print">
               {altPrints.map(v => {
                 const nm = basePrice(card, v.name)
+                const have = printQty(v.name)
                 return (
                   <button
                     key={v.name}
                     className={'variant-chip' + (selectedVariant === v.name ? ' sel' : '')}
                     onClick={() => setSelectedVariant(sel => sel === v.name ? undefined : v.name)}
-                  >{variantLabel(v.name)}{nm > 0 ? ` $${nm.toFixed(2)}` : ''}</button>
+                  >{variantLabel(v.name)}{nm > 0 ? ` $${nm.toFixed(2)}` : ''}{have > 0 ? ` · ×${have}` : ''}</button>
                 )
               })}
             </div>
@@ -237,9 +242,11 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
       <div className="cond-section">
         <div className="cond-row">
           {CONDS.map(c => {
-            // Every key in this condition — plain, 1st Ed and every print —
-            // so e.g. the NM badge counts NM Normal + NM Reverse together.
-            const count = Object.entries(conds).reduce((n, [k, q]) => (baseCond(k) === c ? n + q : n), 0)
+            // Only the print being edited (plain + 1st Ed for the default
+            // print) — counting every print together made adding a Reverse
+            // look like it bumped the Normal count. Each print's own total
+            // is on its chip; Details lists every key.
+            const count = Object.entries(conds).reduce((n, [k, q]) => (baseCond(k) === c && keyPrint(k) === selectedVariant ? n + q : n), 0)
             return (
               <span
                 key={c}
