@@ -80,7 +80,7 @@ export function SharePage() {
     [profile, tab])
   /** Sort/total by the asking price where the owner set one, else market. */
   const cardFields = useCallback((c: TradeCardView): BrowseFields => ({
-    name: c.name, setId: c.setId, number: c.number, quantity: c.quantity,
+    name: c.name, setId: c.setId, number: c.number, quantity: c.quantity, rarity: c.rarity,
     value: asking.get(key(c.cardId, c.condition)) ?? c.marketPrice ?? null,
   }), [asking])
 

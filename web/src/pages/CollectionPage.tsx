@@ -29,6 +29,8 @@ import { HeaderNav } from '../components/HeaderNav'
 import { ImportModal } from '../components/ImportModal'
 import { LoginScreen } from '../components/LoginScreen'
 import { ALL_SETS, SetSelector } from '../components/SetSelector'
+import { SortControl } from '../components/SortControl'
+import { compareBy, type SortDir, type SortFields, type SortKey } from '../lib/cardSort'
 import { useToast } from '../components/Toast'
 import { useUser } from '../context/UserContext'
 import {
@@ -41,14 +43,9 @@ import type { Card } from '../types'
 /** Local state for one card: counts per condition + the active condition. */
 interface Entry { conds: CondMap; selCond: string }
 
-type SortMode = 'number' | 'value' | 'qty' | 'name'
-
-/** Card numbers sort numerically when possible ("2" before "10"). */
-const numKey = (n: string) => {
-  const m = n.match(/\d+/)
-  // No digits at all (an all-letter promo code) sorts to the very end.
-  return m ? parseInt(m[0], 10) : Number.MAX_SAFE_INTEGER
-}
+/** Sorts for a set's cards and for search results (the All Sets browse is
+ *  sorted by the server instead). */
+const CARD_SORTS: SortKey[] = ['number', 'name', 'value', 'qty', 'rarity', 'artist', 'set']
 
 export function CollectionPage() {
   const { user } = useUser()
@@ -62,7 +59,8 @@ export function CollectionPage() {
   // Narrows any card grid to cards you own, or to the ones you're missing.
   const [ownership, setOwnership] = useState<'all' | 'owned' | 'missing'>('all')
   const toggleOwnership = (mode: 'owned' | 'missing') => setOwnership(o => (o === mode ? 'all' : mode))
-  const [sort, setSort] = useState<SortMode>('number')
+  const [sort, setSort] = useState<SortKey>('number')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [importOpen, setImportOpen] = useState(false)
 
   // Which card currently has its "add to binder" popup open.
@@ -141,6 +139,9 @@ export function CollectionPage() {
     if (globalTimer.current) clearTimeout(globalTimer.current)
     const q = search.trim()
 
+    // Set once the box changes again: a slower reply to an older query
+    // ("14/10") must not land after, and replace, the newer one ("14/101").
+    let stale = false
     globalTimer.current = window.setTimeout(async () => {
       if (q.length < 2 || activeSetId !== ALL_SETS) {
         setGlobalHits([])
@@ -149,13 +150,14 @@ export function CollectionPage() {
       }
       setGlobalSearching(true)
       try {
-        setGlobalHits(narrowByCollectorNumber(await searchCards(q), q, setTotals))
+        const hits = narrowByCollectorNumber(await searchCards(q), q, setTotals)
+        if (!stale) setGlobalHits(hits)
       }
-      catch { setGlobalHits([]); toast('Search failed - please try again.') }
-      finally { setGlobalSearching(false) }
+      catch { if (!stale) { setGlobalHits([]); toast('Search failed - please try again.') } }
+      finally { if (!stale) setGlobalSearching(false) }
     }, 300)
 
-    return () => { if (globalTimer.current) clearTimeout(globalTimer.current) }
+    return () => { stale = true; if (globalTimer.current) clearTimeout(globalTimer.current) }
   }, [search, setTotals, activeSetId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Loads page 0 of the whole-catalog browse whenever "All Sets" is picked
@@ -348,21 +350,21 @@ export function CollectionPage() {
     return ownership === 'owned' ? owned : !owned
   }, [coll, ownership])
 
+  const setDates = useMemo(() => new Map(sets.map(s => [s.id, s.releaseDate])), [sets])
+  const byChosenSort = useMemo(() => compareBy((c: Card): SortFields => ({
+    name: c.name, setId: c.setId, number: c.number, rarity: c.rarity, artist: c.artist,
+    // A card's value if owned, or its base market price otherwise — so
+    // sorting by value still makes sense while just browsing.
+    value: cardValue(coll[c.id]?.conds ?? {}, c) || basePrice(c) || null,
+    qty: totalQty(coll[c.id]?.conds ?? {}),
+  }), sort, sortDir, id => setDates.get(id)), [coll, sort, sortDir, setDates])
+
   // The set-browsing card list, filtered by Owned only / Missing only and sorted.
   const filtered = useMemo(() => {
     const list = cards.filter(c => keepCard(c))
 
-    // A card's value if owned, or its base market price otherwise — so
-    // sorting by value still makes sense while just browsing.
-    const val = (c: Card) => cardValue(coll[c.id]?.conds ?? {}, c) || basePrice(c)
-    const qty = (c: Card) => totalQty(coll[c.id]?.conds ?? {})
-
-    if (sort === 'number') list.sort((a, b) => numKey(a.number) - numKey(b.number) || a.number.localeCompare(b.number))
-    if (sort === 'value')  list.sort((a, b) => val(b) - val(a))
-    if (sort === 'qty')    list.sort((a, b) => qty(b) - qty(a))
-    if (sort === 'name')   list.sort((a, b) => a.name.localeCompare(b.name))
-    return list
-  }, [cards, coll, keepCard, sort])
+    return list.sort(byChosenSort)
+  }, [cards, keepCard, byChosenSort])
 
   // Within-set search (done right here, no network call) used when a
   // specific set is selected — "All Sets" instead uses the backend search above.
@@ -385,7 +387,7 @@ export function CollectionPage() {
   // Which single list of cards to actually show, based on the current
   // combination of search-mode and set-scope.
   const displayCards = isSearchMode
-    ? (allSets ? globalHits : withinSetHits).filter(c => keepCard(c))
+    ? (allSets ? globalHits : withinSetHits).filter(c => keepCard(c)).sort(byChosenSort)
     : allSets ? browseDisplay : filtered
 
   const set = sets.find(s => s.id === activeSetId)
@@ -487,12 +489,7 @@ export function CollectionPage() {
           </div>
         ) : (
           <div className="toolbar">
-            <span className="sort-label">Sort:</span>
-            {(['number', 'value', 'qty', 'name'] as SortMode[]).map(m => (
-              <button key={m} className={'tb-btn' + (sort === m ? ' active' : '')} onClick={() => setSort(m)}>
-                {m === 'number' ? 'Card #' : m === 'value' ? 'Value ↓' : m === 'qty' ? 'Qty ↓' : 'Name'}
-              </button>
-            ))}
+            <SortControl keys={CARD_SORTS} sort={sort} dir={sortDir} onChange={(k, d) => { setSort(k); setSortDir(d) }} />
             <button className={'tb-btn' + (ownership === 'owned' ? ' active' : '')} onClick={() => toggleOwnership('owned')}>
               Owned only
             </button>

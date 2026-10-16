@@ -21,6 +21,8 @@ import { useQuery } from '@tanstack/react-query'
 import { getSets } from '../api/cards'
 import { usePagedList } from '../lib/usePagedList'
 import { money } from '../lib/trading'
+import { compareBy, DEFAULT_DIR, type SortDir, type SortKey } from '../lib/cardSort'
+import { SortControl } from './SortControl'
 
 export interface BrowseFields {
   name: string
@@ -32,37 +34,36 @@ export interface BrowseFields {
   quantity?: number
   /** ISO timestamp for "Recently added"; omit to hide that sort. */
   addedAt?: string
+  /** Omit when unknown — the Rarity / Artist sorts only show if some row has one. */
+  rarity?: string | null
+  artist?: string | null
 }
 
-export type BrowseSort = 'value-desc' | 'value-asc' | 'name' | 'set' | 'recent'
-
-const SORT_LABELS: Record<BrowseSort, string> = {
-  'value-desc': 'Value: high → low',
-  'value-asc': 'Value: low → high',
-  name: 'Name A → Z',
-  set: 'Set (newest first)',
-  recent: 'Recently added',
-}
-
-const byNumber = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true })
-
-export function CardBrowser<T>({ items, fields, renderTile, itemKey, empty, defaultSort = 'value-desc' }: {
+export function CardBrowser<T>({ items, fields, renderTile, itemKey, empty, defaultSort = 'value' }: {
   items: T[]
   fields: (item: T) => BrowseFields
   renderTile: (item: T) => ReactNode
   itemKey: (item: T) => string
   empty: ReactNode
-  defaultSort?: BrowseSort
+  defaultSort?: SortKey
 }) {
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets })
   const setInfo = useMemo(() => new Map(sets.map(s => [s.id, s])), [sets])
 
   const [q, setQ] = useState('')
   const [setFilter, setSetFilter] = useState('')
-  const [sort, setSort] = useState<BrowseSort>(defaultSort)
+  const [sort, setSort] = useState<SortKey>(defaultSort)
+  const [sortDir, setSortDir] = useState<SortDir>(DEFAULT_DIR[defaultSort])
 
   const rows = useMemo(() => items.map(item => ({ item, f: fields(item) })), [items, fields])
-  const hasDates = rows.some(r => r.f.addedAt)
+  const sortKeys = useMemo(() => {
+    const keys: SortKey[] = ['value', 'name', 'set', 'number']
+    if (rows.some(r => r.f.rarity)) keys.push('rarity')
+    if (rows.some(r => r.f.artist)) keys.push('artist')
+    if (rows.some(r => r.f.quantity !== undefined)) keys.push('qty')
+    if (rows.some(r => r.f.addedAt)) keys.push('recent')
+    return keys
+  }, [rows])
 
   /** Sets that actually appear in this list, newest first, with counts. */
   const setOptions = useMemo(() => {
@@ -78,24 +79,13 @@ export function CardBrowser<T>({ items, fields, renderTile, itemKey, empty, defa
     const list = rows.filter(r =>
       (!setFilter || r.f.setId === setFilter) &&
       (!needle || r.f.name.toLowerCase().includes(needle)))
-    const date = (id: string) => setInfo.get(id)?.releaseDate ?? ''
-    const val = (v: number | null, dir: 1 | -1) => (v == null ? Infinity : dir * v)
-    list.sort((a, b) => {
-      switch (sort) {
-        case 'value-desc': return val(a.f.value, -1) - val(b.f.value, -1) || a.f.name.localeCompare(b.f.name)
-        case 'value-asc':  return val(a.f.value, 1) - val(b.f.value, 1) || a.f.name.localeCompare(b.f.name)
-        case 'name':       return a.f.name.localeCompare(b.f.name) || byNumber(a.f.number, b.f.number)
-        case 'set':        return date(b.f.setId).localeCompare(date(a.f.setId)) || a.f.setId.localeCompare(b.f.setId) || byNumber(a.f.number, b.f.number)
-        case 'recent':     return (b.f.addedAt ?? '').localeCompare(a.f.addedAt ?? '')
-      }
-    })
-    return list
-  }, [rows, q, setFilter, sort, setInfo])
+    return list.sort(compareBy(r => ({ ...r.f, qty: r.f.quantity }), sort, sortDir, id => setInfo.get(id)?.releaseDate))
+  }, [rows, q, setFilter, sort, sortDir, setInfo])
 
   const total = filtered.reduce((s, r) => s + (r.f.value ?? 0) * (r.f.quantity ?? 1), 0)
   const copies = filtered.reduce((s, r) => s + (r.f.quantity ?? 1), 0)
 
-  const page = usePagedList(filtered, `${q}|${setFilter}|${sort}|${items.length}`, 48)
+  const page = usePagedList(filtered, `${q}|${setFilter}|${sort}|${sortDir}|${items.length}`, 48)
 
   // Load the next page when the sentinel below the grid scrolls into view.
   const sentinel = useRef<HTMLDivElement>(null)
@@ -118,10 +108,7 @@ export function CardBrowser<T>({ items, fields, renderTile, itemKey, empty, defa
           <option value="">All sets ({rows.length})</option>
           {setOptions.map(s => <option key={s.id} value={s.id}>{s.name} ({s.n})</option>)}
         </select>
-        <select value={sort} onChange={e => setSort(e.target.value as BrowseSort)} aria-label="Sort">
-          {(Object.keys(SORT_LABELS) as BrowseSort[]).filter(s => s !== 'recent' || hasDates)
-            .map(s => <option key={s} value={s}>{SORT_LABELS[s]}</option>)}
-        </select>
+        <SortControl keys={sortKeys} sort={sort} dir={sortDir} onChange={(k, d) => { setSort(k); setSortDir(d) }} />
       </div>
       <p className="browser-summary">
         {filtered.length} card{filtered.length === 1 ? '' : 's'}

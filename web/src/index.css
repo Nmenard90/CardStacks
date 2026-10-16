@@ -201,3 +201,8 @@ body{font-family:'Nunito',sans-serif;font-size:var(--fs-base);background:var(--b
     82% 65%,85% 84%,66% 80%,58% 98%,46% 82%,27% 92%,26% 73%,6% 72%,
     16% 55%,2% 42%,20% 34%,18% 15%,36% 20%);
 }
+
+/* SortControl: "Sort: [field ▾] [direction]" — sits in any toolbar. */
+.sort-control{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.sort-control select{min-width:0;}
+.sort-control .sort-dir{white-space:nowrap;}

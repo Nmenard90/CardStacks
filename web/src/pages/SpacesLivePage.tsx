@@ -36,7 +36,9 @@ import { CardThumb } from '../components/CardThumb'
 import { OwnedCardTile } from '../components/OwnedCardTile'
 import { CardTile } from '../components/CardTile'
 import { BulkAddControls } from '../components/BulkAddControls'
-import { baseCond, condLabel, lotKey, type CondMap } from '../lib/conditions'
+import { baseCond, basePrice, condLabel, condPrice, lotKey, type CondMap } from '../lib/conditions'
+import { compareBy, type SortDir, type SortFields, type SortKey } from '../lib/cardSort'
+import { SortControl } from '../components/SortControl'
 import { usePagedList } from '../lib/usePagedList'
 import { createBinder, getBinder, listBinders, updateBinder } from '../api/binders'
 import { getSets } from '../api/cards'
@@ -995,8 +997,10 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   // An auto-filed box holds exactly one set, so "sort by set" (which is for
   // boxes mixing several) wouldn't show anything useful — collector number
   // is how a single-set box actually gets organized by hand.
-  const [sort, setSort] = useState<'name' | 'condition' | 'number' | 'set'>(isAutoSetBox ? 'number' : 'name')
+  const [sort, setSort] = useState<SortKey>(isAutoSetBox ? 'number' : 'name')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [setNameById, setSetNameById] = useState<Record<string, string>>({})
+  const [setDateById, setSetDateById] = useState<Record<string, string>>({})
   const [renaming, setRenaming] = useState(false)
   const [movingAllocation, setMovingAllocation] = useState<CardAllocation | null>(null)
   // null = no bulk-move modal open. 'all' moves every card in the box;
@@ -1110,9 +1114,10 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   // Only for the "Set" sort's divider labels/order — id alone ("sv3pt5")
   // doesn't read as a set to a person filing cards by hand.
   useEffect(() => { getSets().then(list => {
-    const m: Record<string, string> = {}
-    for (const s of list) m[s.id] = s.name
+    const m: Record<string, string> = {}, d: Record<string, string> = {}
+    for (const s of list) { m[s.id] = s.name; d[s.id] = s.releaseDate }
     setSetNameById(m)
+    setSetDateById(d)
   }).catch(() => {}) }, [])
 
   /** Saving a card auto-files any newly-owned surplus straight into that
@@ -1488,17 +1493,16 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
     if (protectionFilter && (a.protection || 'raw') !== protectionFilter) return false
     return matchesLot(lots.find(l => l.id === a.lotId))
   }
-  const byChosenSort = (aLot?: InventoryLot, bLot?: InventoryLot) => {
-    if (sort === 'condition') return (aLot?.condition || '').localeCompare(bLot?.condition || '')
-    if (sort === 'number') return (cardFor(aLot?.cardId || '')?.number || '').localeCompare(cardFor(bLot?.cardId || '')?.number || '', undefined, { numeric: true })
-    if (sort === 'set') {
-      const aSet = cardFor(aLot?.cardId || '')?.setId || '', bSet = cardFor(bLot?.cardId || '')?.setId || ''
-      return aSet !== bSet
-        ? (setNameById[aSet] || aSet).localeCompare(setNameById[bSet] || bSet)
-        : (cardFor(aLot?.cardId || '')?.number || '').localeCompare(cardFor(bLot?.cardId || '')?.number || '', undefined, { numeric: true })
+  const byChosenSort = compareBy((lot?: InventoryLot): SortFields => {
+    const card = cardFor(lot?.cardId || '')
+    const key = lot ? lotKey(lot) : ''
+    return {
+      name: card?.name || lot?.cardId || '', setId: card?.setId || '', number: card?.number || '',
+      rarity: card?.rarity, artist: card?.artist, condition: key || undefined,
+      value: (card && (condPrice(card, key) || basePrice(card))) || null,
+      qty: lot?.quantity,
     }
-    return (cardFor(aLot?.cardId || '')?.name || '').localeCompare(cardFor(bLot?.cardId || '')?.name || '')
-  }
+  }, sort, sortDir, id => setDateById[id])
 
   const conditions = [...new Set(lots.map(l => l.condition))].sort()
   const protections = [...new Set(placements.map(a => a.protection || 'raw'))].sort()
@@ -1559,7 +1563,9 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   const insideGroups = [...groupMap.values()]
   insideGroups.sort((a, b) =>
     (multiCompartment ? (drawerOrder.get(a.drawerId ?? '') ?? 0) - (drawerOrder.get(b.drawerId ?? '') ?? 0) : 0)
-    || (multiSetBox ? setLabel(a.card?.setId).localeCompare(setLabel(b.card?.setId)) : 0))
+    // Sets in release order, oldest first.
+    || (multiSetBox ? (setDateById[a.card?.setId ?? ''] ?? '').localeCompare(setDateById[b.card?.setId ?? ''] ?? '')
+                      || setLabel(a.card?.setId).localeCompare(setLabel(b.card?.setId)) : 0))
   /** What a tile shows: saved copies + still-queued adds, with any
    *  half-typed quantity shown as typed. Queued adds and typing only show
    *  on the tile in the compartment they're going into. */
@@ -1584,8 +1590,8 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
   // in the hundreds of thousands must stay browsable instead of silently
   // hiding everything past some fixed count. Resets to page one whenever
   // the search/filter/sort combo changes, not on every render.
-  const insideBoxPage = usePagedList(insideGroups, `${q}|${conditionFilter}|${variantFilter}|${protectionFilter}|${setFilter}|${duplicatesOnly}|${sort}`)
-  const availablePage = usePagedList(available, `${q}|${conditionFilter}|${variantFilter}|${setFilter}|${sort}`)
+  const insideBoxPage = usePagedList(insideGroups, `${q}|${conditionFilter}|${variantFilter}|${protectionFilter}|${setFilter}|${duplicatesOnly}|${sort}|${sortDir}`)
+  const availablePage = usePagedList(available, `${q}|${conditionFilter}|${variantFilter}|${setFilter}|${sort}|${sortDir}`)
 
   return (
     <section className="inside-box-view">
@@ -1623,12 +1629,10 @@ function BoxInventory({ userId, box, drawer, otherBoxes, binders, displayCases, 
       <div className="box-toolbar">
         <label className="inventory-search"><span>🔍</span><input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search inside this box…" /></label>
         <div className="inventory-filters">
-          <select value={sort} onChange={e => setSort(e.target.value as 'name' | 'condition' | 'number' | 'set')}>
-            <option value="name">Sort: Name</option>
-            <option value="number">Sort: Number</option>
-            <option value="condition">Sort: Condition</option>
-            <option value="set">Sort: Set</option>
-          </select>
+          <SortControl
+            keys={['name', 'number', 'value', 'qty', 'rarity', 'artist', 'condition', ...(isAutoSetBox ? [] : ['set'] as SortKey[])]}
+            sort={sort} dir={sortDir} onChange={(k, d) => { setSort(k); setSortDir(d) }}
+          />
           <select value={conditionFilter} onChange={e => setConditionFilter(e.target.value)}>
             <option value="">All conditions</option>
             {conditions.map(c => <option key={c} value={c}>{c}</option>)}

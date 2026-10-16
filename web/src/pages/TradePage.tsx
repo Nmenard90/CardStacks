@@ -279,10 +279,12 @@ const ownedValue = (o: OwnedCard): number | null => {
 }
 const ownedFields = (o: OwnedCard): BrowseFields => ({
   name: o.card.name, setId: o.card.setId, number: o.card.number, value: ownedValue(o),
+  rarity: o.card.rarity, artist: o.card.artist,
   quantity: o.conditions.reduce((n, c) => n + Math.max(0, c.quantity), 0), addedAt: o.updatedAt,
 })
 const listedFields = (i: TradeListItem): BrowseFields => ({
   name: i.card.name, setId: i.card.setId, number: i.card.number, value: i.askingPrice ?? i.card.marketPrice ?? null,
+  rarity: i.card.rarity,
   quantity: i.card.quantity, addedAt: i.updatedAt,
 })
 

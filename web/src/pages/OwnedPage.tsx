@@ -16,6 +16,9 @@ import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { getOwnedCards, saveEntry } from '../api/collection'
+import { getSets } from '../api/cards'
+import { SortControl } from '../components/SortControl'
+import { compareBy, type SortDir, type SortFields, type SortKey } from '../lib/cardSort'
 import { CardTile } from '../components/CardTile'
 import { usePreview } from '../components/CardPreview'
 import { LoginScreen } from '../components/LoginScreen'
@@ -28,7 +31,7 @@ import type { Card, OwnedCard } from '../types'
 
 /** Local per-card editing state: the condition/quantity map, plus which condition tab is active. */
 interface Entry { conds: CondMap; selCond: string }
-type SortMode = 'name' | 'qty' | 'value' | 'set'
+const OWNED_SORTS: SortKey[] = ['name', 'value', 'qty', 'rarity', 'artist', 'set', 'number', 'recent']
 
 export function OwnedPage() {
   const { user } = useUser()
@@ -44,7 +47,9 @@ export function OwnedPage() {
 
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [sort, setSort] = useState<SortMode>('name')
+  const [sort, setSort] = useState<SortKey>('name')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets })
 
   const userId = user?.id ?? ''
 
@@ -189,13 +194,16 @@ export function OwnedPage() {
         )
       : [...cards]
 
-    if (sort === 'name')  list.sort((a, b) => a.name.localeCompare(b.name))
-    if (sort === 'qty')   list.sort((a, b) => totalQty(coll[b.id]?.conds ?? {}) - totalQty(coll[a.id]?.conds ?? {}))
-    // Ties broken by base NM price.
-    if (sort === 'value') list.sort((a, b) => cardValue(coll[b.id]?.conds ?? {}, b) - cardValue(coll[a.id]?.conds ?? {}, a) || basePrice(b) - basePrice(a))
-    if (sort === 'set')   list.sort((a, b) => a.setId.localeCompare(b.setId) || parseInt(a.number) - parseInt(b.number))
-    return list
-  }, [cards, coll, search, sort])
+    const setDates = new Map(sets.map(s => [s.id, s.releaseDate]))
+    // "Recently added" = when the card's quantities last changed.
+    const changedAt = new Map((owned ?? []).map(o => [o.cardId, o.updatedAt]))
+    return list.sort(compareBy((c: Card): SortFields => ({
+      name: c.name, setId: c.setId, number: c.number, rarity: c.rarity, artist: c.artist,
+      value: cardValue(coll[c.id]?.conds ?? {}, c) || basePrice(c) || null,
+      qty: totalQty(coll[c.id]?.conds ?? {}),
+      addedAt: changedAt.get(c.id),
+    }), sort, sortDir, id => setDates.get(id)))
+  }, [cards, coll, search, sort, sortDir, sets, owned])
 
   if (!user) return <div className="page-tracker"><LoginScreen /></div>
 
@@ -237,12 +245,7 @@ export function OwnedPage() {
         </div>
 
         <div className="toolbar">
-          <span className="sort-label">Sort:</span>
-          {(['name', 'qty', 'value', 'set'] as SortMode[]).map(m => (
-            <button key={m} className={'tb-btn' + (sort === m ? ' active' : '')} onClick={() => setSort(m)}>
-              {m === 'name' ? 'Name' : m === 'qty' ? 'Qty ↓' : m === 'value' ? 'Value ↓' : 'Set'}
-            </button>
-          ))}
+          <SortControl keys={OWNED_SORTS} sort={sort} dir={sortDir} onChange={(k, d) => { setSort(k); setSortDir(d) }} />
         </div>
 
         <div id="app-wrap">
