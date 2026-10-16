@@ -169,16 +169,22 @@ object CardService:
         case _                    => ZIO.fail(IllegalArgumentException(s"Unknown game '$id'"))
       }
 
-    /** The TCGTracking game a set belongs to, if it's one of those. */
-    private def tcgGameOf(setId: String): Task[Option[Game]] =
-      games.findBySetId(setId).map(_.filter(_.isTcgTracking))
+    /** A set whose cards come from TCGTracking: every set of a TCGTracking
+     *  game, plus the English Pokémon sets added from it (ids "tt…"). */
+    private def isTcgSet(game: Game, setId: String): Boolean = game.isTcgTracking || setId.startsWith("tt")
 
-    /** Re-syncs a TCGTracking game's set list at most every 12h per process. */
+    /** The game of a set whose cards come from TCGTracking, if it's one of those. */
+    private def tcgGameOf(setId: String): Task[Option[Game]] =
+      games.findBySetId(setId).map(_.filter(isTcgSet(_, setId)))
+
+    /** Re-syncs a game's TCGTracking set list at most every 12h per process
+     *  (for English Pokémon, just the sets pokemontcg.io lacks). */
     private def syncSetListIfDue(game: Game): Task[Unit] =
       val now = java.time.Instant.now()
+      val only = if game.isTcgTracking then None else Some(TcgTrackingCatalog.PokemonExtraSets)
       setListSynced.get.flatMap { m =>
         val due = m.get(game.id).forall(_.isBefore(now.minusSeconds(12 * 3600)))
-        ZIO.when(due)(tcg.syncSets(game) *> setListSynced.update(_.updated(game.id, now))).unit
+        ZIO.when(due)(tcg.syncSets(game, only) *> setListSynced.update(_.updated(game.id, now))).unit
       }
 
     def listGames: Task[List[Game]] = games.listEnabled
@@ -328,18 +334,23 @@ object CardService:
                            .catchAll(e => ZIO.logWarning(s"Set list sync failed for ${game.id}: ${e.getMessage}"))
                            .forkDaemon.as(sets)
           }
-        case game => pokemonSets(game.id)
+        case game => pokemonSets(game)
       }
 
-    private def pokemonSets(gameId: String): Task[List[CardSet]] =
-      repo.findAllSets(gameId).flatMap {
-        case sets if sets.nonEmpty => ZIO.succeed(sets)
+    private def pokemonSets(game: Game): Task[List[CardSet]] =
+      repo.findAllSets(game.id).flatMap {
+        case sets if sets.nonEmpty =>
+          // The TCGplayer-only sets: added in the background, or right away
+          // the first time so they show up at once.
+          val extras = syncSetListIfDue(game).catchAll(e => ZIO.logWarning(s"Extra set sync failed: ${e.getMessage}"))
+          if sets.exists(_.id.startsWith("tt")) then extras.forkDaemon.as(sets)
+          else extras *> repo.findAllSets(game.id)
         case _ =>
           for
             resp <- get(s"$base/sets?orderBy=-releaseDate&pageSize=250")
                       .flatMap(parse[ApiSetsResp])
             sets  = resp.data.map(toSet)
-            _    <- ZIO.foreach(sets)(s => repo.upsertSet(s, gameId))
+            _    <- ZIO.foreach(sets)(s => repo.upsertSet(s, game.id))
           yield sets
       }
 
@@ -530,9 +541,10 @@ object CardService:
 
     def warmCatalog: Task[Int] =
       for
-        tcgGames <- games.listEnabled.map(_.filter(_.isTcgTracking))
+        // English Pokémon too, for its TCGplayer-only sets.
+        tcgGames <- games.listEnabled.map(_.filter(g => g.isTcgTracking || g.id == Game.DefaultId))
         counts   <- ZIO.foreach(tcgGames) { game =>
-                      ((syncSetListIfDue(game) *> repo.findAllSets(game.id)).flatMap { sets =>
+                      ((syncSetListIfDue(game) *> repo.findAllSets(game.id).map(_.filter(s => isTcgSet(game, s.id)))).flatMap { sets =>
                         // Newest sets first, so search covers current cards soonest.
                         ZIO.foldLeft(sets)(0) { (n, set) =>
                           repo.findCardsBySet(set.id).flatMap {
@@ -542,7 +554,7 @@ object CardService:
                             case _ => ZIO.succeed(n)
                           }
                         }
-                      } <* repo.setsWithUnpricedCards(game.id).flatMap { ids =>
+                      } <* repo.setsWithUnpricedCards(game.id).map(_.filter(isTcgSet(game, _))).flatMap { ids =>
                         // Sets with cards still missing a price get the fallback
                         // chain (other-condition TCGplayer sale, then Cardmarket) — one at a time.
                         ZIO.foreachDiscard(ids)(id =>

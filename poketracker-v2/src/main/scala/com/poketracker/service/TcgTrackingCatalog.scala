@@ -10,6 +10,10 @@
  *   - importSet: GET /{category}/sets/{id}/cards → cards with id
  *     "{setId}-{productId}" (keeps the "cardId = setId + '-' + suffix" rule
  *     CardService.setIdOf relies on), then prices.
+ *   - English Pokémon comes from pokemontcg.io, which lacks some products
+ *     TCGplayer sells (XY/SM/BW Trainer Kits, Battle Academy, Trick or
+ *     Trade…). Those TCGTracking sets (PokemonExtraSets) are added to the
+ *     "pokemon" game the same way; a set id starting "tt" marks them.
  *   - refreshPrices: GET /{category}/sets/{id}/skus → per printing, per
  *     condition market prices. The game's print_preference picks which
  *     printing is the card's default price (card_prices); every printing
@@ -31,7 +35,7 @@ import java.time.LocalDate
 
 trait TcgTrackingCatalog:
   /** Downloads the game's set list and saves it. @return sets saved. */
-  def syncSets(game: Game): Task[Int]
+  def syncSets(game: Game, only: Option[Set[Int]] = None): Task[Int]
   /** Downloads a set's cards and prices. */
   def importSet(game: Game, setId: String): Task[Unit]
   /** Re-prices a set's already-imported cards. */
@@ -80,6 +84,34 @@ object TcgTrackingCatalog:
   private given JsonDecoder[TtSku] = DeriveJsonDecoder.gen
   private case class TtSkus(products: Map[String, Map[String, TtSku]])
   private given JsonDecoder[TtSkus] = DeriveJsonDecoder.gen
+
+  /** English Pokémon sets on TCGplayer that pokemontcg.io doesn't have
+   *  (TCGTracking category 3 set ids). Grab-bag promo groups with no real
+   *  release date (Blister Exclusives, Alternate Art Promos…) are left out.
+   *  If pokemontcg.io sets are ever re-synced, skip ones listed here. */
+  val PokemonExtraSets: Set[Int] = Set(
+    // Trainer Kits
+    1532, 1533, 1536, 1796, 2069, 2208, 1538, 1540, 1541,
+    // Battle Academy, Trick or Trade, McDonald's 2023-24, Prize Pack, starter products
+    2686, 3051, 23520, 3179, 23266, 23561, 23306, 24163, 22880, 23330, 23323, 2776, 24584,
+    // Mega Evolution era sets and promos not on pokemontcg.io yet
+    24688, 24722, 24837, 24831, 24451, 24461,
+    // Other dated products
+    1840, 1539, 2214, 2155, 24864, 24529, 1663
+  )
+
+  /** pokemontcg.io's era names, so added English sets group with the rest. */
+  private[service] def pokemonEra(date: LocalDate): String =
+    List(
+      "2025-09-26" -> "Mega Evolution", "2023-03-31" -> "Scarlet & Violet", "2020-02-07" -> "Sword & Shield",
+      "2017-02-03" -> "Sun & Moon", "2014-02-05" -> "XY", "2011-04-25" -> "Black & White",
+      "2010-02-01" -> "HeartGold & SoulSilver", "2007-05-01" -> "Diamond & Pearl", "2003-06-18" -> "EX"
+    ).collectFirst { case (from, era) if !date.isBefore(LocalDate.parse(from)) => era }.getOrElse("Base")
+
+  /** The printed set size from collector numbers ("20/30" → 30), the most common one. */
+  private[service] def printedTotal(numbers: List[Option[String]]): Option[Int] =
+    numbers.flatten.flatMap(_.split("/").lift(1).flatMap(_.trim.toIntOption)).groupBy(identity)
+      .maxByOption { case (n, xs) => (xs.size, n) }.map(_._1)
 
   /** Our set id for a TCGTracking set. */
   def setId(game: Game, tcgSetId: Int): String = s"tt${game.category}-$tcgSetId"
@@ -199,16 +231,19 @@ object TcgTrackingCatalog:
     private def parse[A: JsonDecoder](body: String): Task[A] =
       ZIO.fromEither(body.fromJson[A]).mapError(e => RuntimeException(s"TCGTracking JSON: $e"))
 
-    def syncSets(game: Game): Task[Int] =
+    def syncSets(game: Game, only: Option[Set[Int]] = None): Task[Int] =
       for
         resp <- get(s"$Base/${game.category}/sets").flatMap(parse[TtSets])
-        sets  = resp.sets.filter(_.productCount.forall(_ > 0))
+        sets  = resp.sets.filter(s => s.productCount.forall(_ > 0) && only.forall(_(s.id)))
+        // Keep the printed size importSet worked out from the card numbers.
+        known <- repo.findAllSets(game.id).map(_.map(s => s.id -> s.printedTotal).toMap)
         _    <- repo.upsertSets(sets.map { s =>
                   val date = s.publishedOn.flatMap(d => scala.util.Try(LocalDate.parse(d.take(10))).toOption)
                                .getOrElse(LocalDate.of(2000, 1, 1))
                   val count = s.productCount.getOrElse(0)
                   val symbol = s.symbolUrl.getOrElse("")
-                  (CardSet(setId(game, s.id), s.name, date.getYear.toString, count, count, date,
+                  val series = if game.isTcgTracking then date.getYear.toString else pokemonEra(date)
+                  (CardSet(setId(game, s.id), s.name, series, known.getOrElse(setId(game, s.id), count), count, date,
                            SetImages(symbol, symbol), s.abbreviation), Some(s.id.toString))
                 }, game.id)
       yield sets.size
@@ -231,6 +266,12 @@ object TcgTrackingCatalog:
                      details = None
                    ) -> p.cardmarketId
                  })
+        // "20/30" numbers give the printed size, so a "20/30" search finds the set.
+        stored <- repo.findSetById(ourSetId)
+        size    = printedTotal(resp.products.map(_.number))
+        _      <- ZIO.foreachDiscard(stored.zip(size).filter { case (s, n) => s.printedTotal != n }) {
+                    case (s, n) => repo.upsertSets(List(s.copy(printedTotal = n) -> Some(ext)), game.id)
+                  }
         _     <- refreshPrices(game, ourSetId)
       yield ()
 

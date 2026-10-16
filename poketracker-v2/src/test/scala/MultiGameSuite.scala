@@ -35,6 +35,18 @@ class MultiGameSuite extends munit.FunSuite:
     assertEquals(TcgTrackingCatalog.collectorNumber(None), "")
   }
 
+  test("printed set size comes from the most common collector-number total") {
+    assertEquals(TcgTrackingCatalog.printedTotal(List(Some("20/30"), Some("1/30"), None, Some("31/30"), Some("SV01"))), Some(30))
+    assertEquals(TcgTrackingCatalog.printedTotal(List(Some("SWSH001"), None)), None)
+  }
+
+  test("added English sets get pokemontcg.io's era names") {
+    def d(s: String) = java.time.LocalDate.parse(s)
+    assertEquals(TcgTrackingCatalog.pokemonEra(d("2016-04-27")), "XY")
+    assertEquals(TcgTrackingCatalog.pokemonEra(d("2026-07-17")), "Mega Evolution")
+    assertEquals(TcgTrackingCatalog.pokemonEra(d("1999-01-09")), "Base")
+  }
+
   test("name loses TCGTracking's ' - number' disambiguation suffix") {
     assertEquals(TcgTrackingCatalog.cleanName("Moltres - 006/103", Some("006/103")), "Moltres")
     assertEquals(TcgTrackingCatalog.cleanName("Exeggcute", Some("001/103")), "Exeggcute")
