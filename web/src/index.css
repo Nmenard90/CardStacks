@@ -167,7 +167,7 @@ body{font-family:'Nunito',sans-serif;font-size:var(--fs-base);background:var(--b
   .page-tracker .header-search{width:100%;order:3;flex:1 1 100%;}
   .page-tracker .set-selector,.page-tracker .set-selector-btn{min-width:0;width:100%;}
 
-  .page-tracker .stats-bar{grid-template-columns:repeat(3,1fr);}
+  .page-tracker .stats-bar{grid-template-columns:repeat(3,minmax(0,1fr));}
   .page-tracker .stat{padding:6px 8px;}
   .page-tracker .stat-label{font-size:10px;letter-spacing:.02em;margin-bottom:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .page-tracker .stat-value{font-size:15px;}
