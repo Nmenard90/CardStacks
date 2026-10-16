@@ -172,7 +172,7 @@
 
 /* ── CardBrowser (sort / filter / scroll) ── */
 .card-browser { display: grid; gap: 8px; }
-.browser-toolbar { display: grid; grid-template-columns: 1fr minmax(140px, 220px) minmax(140px, 190px); gap: 8px; }
+.browser-toolbar { display: grid; grid-template-columns: 1fr minmax(140px, 220px) minmax(140px, 190px); gap: 8px; align-items: start; }
 .trade-main .browser-toolbar select, .trade-main .browser-toolbar input { width: 100%; }
 .browser-summary { margin: 0; color: var(--muted); font-size: .85rem; }
 .browser-cell { display: flex; }

@@ -252,7 +252,8 @@ object TcgTrackingCatalog:
       for
         ext   <- repo.findExternalSetId(ourSetId).someOrFail(RuntimeException(s"Set $ourSetId has no TCGTracking id"))
         resp  <- get(s"$Base/${game.category}/sets/$ext/cards").flatMap(parse[TtProducts])
-        _     <- repo.upsertCards(resp.products.map { p =>
+        // Code cards (online-game redemption codes) aren't collectible cards.
+        _     <- repo.upsertCards(resp.products.filterNot(_.rarity.exists(_.trim.equalsIgnoreCase("Code Card"))).map { p =>
                    val small = p.imageUrl.getOrElse("")
                    Card(
                      id     = s"$ourSetId-${p.id}",

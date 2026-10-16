@@ -304,7 +304,7 @@ export function BulkAddControls({ onAdd, have, haveLabel = 'in session', preview
           {CONDS.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--muted)' }}>
-          Copies per add ×<input type="number" min={1} value={step} style={{ width: 54 }}
+          Copies per add ×<input type="number" min={1} value={step} className="copies-input"
             onChange={e => setStep(Math.max(1, parseInt(e.target.value, 10) || 1))} />
         </label>
         {/* Kept well away from the quantity box, and only offered when the

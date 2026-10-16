@@ -44,7 +44,10 @@ type Tab = 'offers' | 'list' | 'share'
 export function TradePage() {
   const { user } = useUser()
   const [params, setParams] = useSearchParams()
-  const [tab, setTab] = useState<Tab>(params.get('offer') ? 'offers' : ((params.get('tab') as Tab) || 'offers'))
+  // The tab is in the URL (?tab=list), so the back button steps between tabs.
+  const urlTab = params.get('tab')
+  const tab: Tab = params.get('offer') ? 'offers' : urlTab === 'list' || urlTab === 'share' ? urlTab : 'offers'
+  const setTab = (t: Tab) => { if (t !== tab) setParams(t === 'offers' ? {} : { tab: t }) }
 
   const { data: offers = [] } = useQuery({
     queryKey: ['offers', user?.id],
