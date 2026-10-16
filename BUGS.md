@@ -7,7 +7,7 @@ IDs sequential and never reuse a number.
 **Status:** `OPEN` · `IN PROGRESS` · `FIXED` · `WONTFIX` · `NEEDS REPRO`
 **Severity:** `S1` blocker/crash · `S2` correctness · `S3` minor/UX · `S4` hygiene/docs · `ENH` enhancement
 
-_Last updated: 2026-10-14._
+_Last updated: 2026-10-16._
 
 ---
 
@@ -43,6 +43,11 @@ _Last updated: 2026-10-14._
 | 026 | S1 | FIXED | Pricing (set matching) | 9 sets were priced from a DIFFERENT TCGTracking set via shared code/release date: Battle Styles→EX Battle Stadium, Lost Thunder→McDonald's 2018, BREAKpoint→Burger King, Black & White→BW Trainer Kit, Call of Legends→TCG Classic, SM/HGSS/WotC promos→wrong sets. Candidates are now verified by card-name agreement (≥30%); cards only take prices from name-agreeing products; sibling sets (Generations: Radiant Collection) are merged in. |
 | 027 | S2 | FIXED | Pricing (WotC sets) | Old sets' main price could come from 1st Edition (Shining Charizard Neo Destiny $7,583). Unlimited now ranks ahead of 1st Edition. |
 | 028 | S2 | FIXED | Pricing (refresh) | Owned cards only re-priced when someone opened their exact set, so collection values went stale. Background job re-prices every owned set every 6h. |
+| 029 | S2 | FIXED | Navigation | Browser back never returned to the previous view — Spaces area/room/unit/case/box, Explore's set and Trade's tabs were component state. Now in the URL; Binder's "← Shelf" returns to the Binder Library (816aeff, 0d6edfa, dfc7538). |
+| 030 | S2 | FIXED | Phone layout | Bottom nav bar sat at the TOP on Trade Analyzer and Convention Mode — a blurred header (`backdrop-filter`) became its containing block (0d6edfa, 77c7be7, 8498201). |
+| 031 | S3 | FIXED | Phone layout | Sideways scroll / clipping at 390px: Analyzer and Convention headers, Explore stats row, Trade browser toolbar, Binder header, Add Cards copies box (0d6edfa, 93a58b5, 747750d, dfc7538). |
+| 032 | S2 | FIXED | Catalog | English sets TCGplayer sells but pokemontcg.io lacks were missing (e.g. XY Trainer Kit — Tierno 20/30). Added from TCGTracking as `tt` sets in the Pokémon game (3c470a5). |
+| 033 | S3 | FIXED | Catalog | "Code Card" products (online redemption codes) were imported as cards in TCGTracking sets. Import skips them; 34 unowned rows deleted in production (0d6edfa). |
 
 ---
 

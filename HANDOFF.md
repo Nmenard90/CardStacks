@@ -3,7 +3,7 @@
 Working context for continuing development. For the public-facing overview see
 `README.md`; for the live defect list see `BUGS.md`.
 
-_Last updated: 2026-10-14._
+_Last updated: 2026-10-16._
 
 **Every session: read this file and `BUGS.md` before starting, and update
 "Current state" (and `BUGS.md`) before finishing.**
@@ -126,17 +126,49 @@ tcg/
   `card_variant_prices`; `card_prices` stays one row per card (default print).
 - **Which print a physical copy is can't be derived** — all prints share the
   number, so it has to be the user's choice (BUG-023).
+- **English Pokémon has two catalog sources.** Most sets come from
+  pokemontcg.io; sets it lacks but TCGplayer sells (Trainer Kits, Battle
+  Academy, Trick or Trade, McDonald's, newest Mega Evolution sets…) come from
+  TCGTracking and live in the same `pokemon` game with ids starting `tt`
+  (`TcgTrackingCatalog.PokemonExtraSets`, `CardService.isTcgSet`). Their
+  printed total is worked out from the "20/30" numbers so number search finds
+  them. Add a set by adding its TCGTracking id to `PokemonExtraSets`. Code
+  Cards (online redemption codes) are never imported.
 - **Conditions** are stored as a condition→quantity map; keys include a
   `" 1st Ed"` suffix variant. `lib/conditions.ts` holds the price math and
   list↔map conversions; `baseCond` strips the suffix for the backend
   `selectedCond`.
 
-## Current state (2026-10-14)
+## Frontend gotchas
+
+- **Back button = URL.** Any view the user would expect "back" to undo must
+  live in the URL (`useSearchParams`), not component state. Spaces uses
+  `?area=&space=&unit=&case=&box=`, Explore `?set=`, Trade `?tab=`. Spaces'
+  `closeBox` only calls `navigate(-1)` when the box was opened on this page
+  (`location.state.boxOpenedHere`), so a shared/reloaded box link doesn't
+  leave the site. Don't add popstate handlers or in-memory history stacks.
+- **`backdrop-filter`/`filter` on an ancestor traps `position:fixed`
+  children** (they position against the ancestor, not the screen). That's why
+  the phone bottom bar sat at the top on Analyzer/Convention; `index.css`
+  turns off the blur on any ancestor of `.bottom-nav` under 720px. Write only
+  the unprefixed `backdrop-filter` — the minifier adds `-webkit-` and, if
+  both are written, collapses them wrongly.
+- **Phone width:** grid columns need `minmax(0,1fr)` (plain `1fr` won't
+  shrink below content); page headers wrap or scroll rather than clip. Check
+  with a 390px-wide view for any element past the right edge.
+
+## Current state (2026-10-16)
 
 Live: Supabase auth + demo mode, collection/bulk add, binders, Spaces (shelves,
 boxes with compartments, display cases, auto-filing into per-set boxes), Trade
 Analyzer, Rip Tracker, price history, "Missing only" per-set view, per-print
-prices with a picker on card tiles.
+prices with a picker on card tiles, multiple card games, share-link trading.
+
+Recent (2026-10-16): "Arrange by date" orders set boxes by release date
+across every shelf unit in a room (`RoomRepository.arrangeSetBoxesByDate`);
+TCGplayer-only English sets added; back button works everywhere (see
+Frontend gotchas); full phone-width audit fixed overflow on every main page.
+Unowned Code Card rows were deleted from production (34 rows).
 
 **Git history was rewritten** (old copy in `C:\Users\nicho\tcg-before-history-rewrite-backup`).
 `C:\Users\nicho\tcg` is still on the OLD history — don't work or commit there;
@@ -149,7 +181,7 @@ needs them is pushed.
 - `migration_014_card_variant_prices.sql` (per-print prices) — run 2026-10-14.
 - `migration_015_trading.sql` (share-link trading) — run 2026-10-14.
 - `migration_016_multi_game.sql` (games table + game_id columns) — run 2026-10-15.
-- `migration_017_price_fallbacks.sql` (cardmarket_id, price_source, games.cardmarket_game) — NOT YET RUN; required before the price-fallback backend deploys.
+- `migration_017_price_fallbacks.sql` (cardmarket_id, price_source, games.cardmarket_game) — run (the price-fallback code is live on main and serving prices).
 - Migration 003 (per-variant `card_prices`) is DISABLED — never run it.
 
 ### Pricing audit (2026-10-14)
@@ -159,8 +191,8 @@ TCGTracking: re-run one after any pricing change. After deploying a pricing
 fix, run `UPDATE card_sets SET prices_fetched_at = NULL;` so every set
 re-prices instead of keeping stored wrong values until its next refresh.
 
-### In flight / not yet on main
-- **Multiple card games** (migration 016). `games` table; each game is a
+### Feature notes
+- **Multiple card games** (migration 016) — LIVE. `games` table; each game is a
   separate world (collection, Spaces, boxes, binders, trades scoped by
   `game_id`; card-derived rows inherit via `cards.game_id`). English Pokémon
   stays on pokemontcg.io; every other game (Pokémon JP enabled; Magic,
@@ -181,6 +213,9 @@ re-prices instead of keeping stored wrong values until its next refresh.
   no market price for them either, at most a seller's asking price).
 - **Per-print ownership** shipped (BUG-023 phase 2): condition keys
   `"NM · reverse"`; Bulk Add's entry form still has no print picker (phase 3).
+- **Not covered yet:** TCGplayer's catch-all promo groups (Blister
+  Exclusives, Alternate Art Promos — no real release date) and Japanese One
+  Piece.
 - **Share-link trading** — LIVE. (`/trade`, public `/s/:slug`): trade list, share
   link (optionally exposing the whole collection), offers with cash and/or
   cards, per-offer message thread, unread badge on the Trade nav link. No
@@ -188,10 +223,6 @@ re-prices instead of keeping stored wrong values until its next refresh.
   `TradingRoutes/Service/Repository`, `models/Trading.scala`. Live on main
   (migration 015 run). `TradingDbSuite` is an opt-in DB test (set `TRADING_IT_DB_URL`).
   The older `trade_listings`/`trade_offers` tables are unrelated and unused.
-- **BUG-023 per-print pricing:** card tiles show only alternate prints as
-  small chips ("Reverse $1.37"). Phase 2 (record which print an owned copy is,
-  via a print suffix on condition keys → `inventory_lots.variant_key`) and
-  Phase 3 (print selector in Bulk Add) not started.
 - **Excel export by set:** uncommitted in the `tcg-excel` worktree
   (`web/src/lib/xlsxExport.ts`, `CollectionPage.tsx`, `package.json`).
 - **TCGTracking PriceService rewrite:** uncommitted in
@@ -201,7 +232,7 @@ re-prices instead of keeping stored wrong values until its next refresh.
 ## Known issues & next steps
 
 Tracked in `BUGS.md`. Highest-value next items:
-1. **BUG-023** — finish per-print ownership (Phase 2) and Bulk Add (Phase 3).
+1. **BUG-023** — Bulk Add print picker (Phase 3).
 2. Land or drop the Excel export and the PriceService rewrite worktrees.
 3. **BUG-013** — shared design system.
 4. **BUG-018** — TCGplayer last-sold pricing.
