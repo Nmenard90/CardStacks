@@ -127,6 +127,17 @@ const BINDER_SPINE_COLORS = ['#8b443b', '#315c75', '#66507b', '#b18642', '#4e684
 /** Deterministic so a binder's spine color survives reloads/reordering —
  *  there's no `color` column on binders yet, so this derives one from the
  *  immutable id instead of storing anything. */
+/** How many Spaces history entries deep `state` is (0 = Spaces home). */
+function spacesDepth(state: unknown): number {
+  return (state as { spacesDepth?: number } | null)?.spacesDepth ?? 0
+}
+
+/** Pushes a same-URL history entry at `depth`, keeping React Router's own
+ *  fields on history.state intact. */
+function pushSpacesDepth(depth: number) {
+  window.history.pushState({ ...(window.history.state ?? {}), spacesDepth: depth }, '', location.href)
+}
+
 function colorForBinder(id: string): string {
   let hash = 0
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0
@@ -197,17 +208,34 @@ export function SpacesLivePage() {
   // "close the currently-open box, if any" handler here so a single
   // popstate handler can give the innermost thing open first crack at
   // handling back, regardless of which area is currently mounted.
+  //
+  // Each pushed entry records its depth (1 = area, 2 = open box), so
+  // popstate can tell how far back the user went — one press, or the
+  // multi-step history.go() from "All spaces" — and close exactly what's
+  // above that depth.
   const closeBoxHandler = useRef<(() => boolean) | null>(null)
   useEffect(() => {
-    const onPopState = () => { if (!closeBoxHandler.current?.()) setView('home') }
+    const onPopState = (e: PopStateEvent) => {
+      const depth = spacesDepth(e.state)
+      if (depth < 2) closeBoxHandler.current?.()
+      if (depth < 1) setView('home')
+    }
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
   }, [])
   const enterView = (v: View) => {
-    if (view === 'home' && v !== 'home') window.history.pushState({}, '', location.href)
+    if (view === 'home' && v !== 'home') pushSpacesDepth(1)
     if (v === 'storage' && view !== 'storage') { setStorageUnitId(''); setOpeningBoxId('') }
     if (v === 'displays' && view !== 'displays') setDisplayCaseId('')
     setView(v)
+  }
+  /** Back to the Spaces home, unwinding the history entries enterView (and
+   *  an open box) pushed — otherwise they'd linger and the back button
+   *  would need extra do-nothing presses before it actually left the page. */
+  const goHome = () => {
+    const depth = spacesDepth(window.history.state)
+    if (depth > 0) window.history.go(-depth)
+    else setView('home')
   }
 
   const loadedUserId = user?.id || ''
@@ -279,10 +307,10 @@ export function SpacesLivePage() {
     // inside the default Space's "Unplaced" area — never the currently
     // selected Space, which may not be the default one.
     const defaultSpaceId = spaces.find(s => s.isDefault)?.id || space?.id || ''
-    if (hit.kind === 'space') { setSpaceId(hit.id); setView('home') }
+    if (hit.kind === 'space') { setSpaceId(hit.id); goHome() }
     else if (hit.kind === 'box') {
       const box = boxes.find(candidate => candidate.id === hit.id)
-      if (view === 'home') window.history.pushState({}, '', location.href)
+      if (view === 'home') pushSpacesDepth(1)
       setSpaceId(hit.spaceId || defaultSpaceId)
       if (box?.storageUnitId) setStorageUnitId(box.storageUnitId)
       setOpeningBoxId(hit.id)
@@ -290,7 +318,7 @@ export function SpacesLivePage() {
     }
     else if (hit.kind === 'binder') navigate(`/binder/${hit.id}`)
     else {
-      if (view === 'home') window.history.pushState({}, '', location.href)
+      if (view === 'home') pushSpacesDepth(1)
       setSpaceId(hit.spaceId)
       setDisplayCaseId(hit.id)
       setView('displays')
@@ -323,7 +351,7 @@ export function SpacesLivePage() {
     <main className="page-tracker spaces-concept">
       <div id="app" style={{ display: 'block' }}>
         <header className="spaces-site-header">
-          <button className="logo spaces-home-button" onClick={() => setView('home')}>MY <span>SPACES</span></button>
+          <button className="logo spaces-home-button" onClick={goHome}>MY <span>SPACES</span></button>
           <div className="user-badge">● <b>{user?.username || 'Collector'}</b></div>
           <div className="header-search-wrap">
             <input
@@ -351,7 +379,7 @@ export function SpacesLivePage() {
 
         {space && view !== 'home' && (
           <nav className="section-nav">
-            <button onClick={() => setView('home')}>‹ All spaces</button>
+            <button onClick={goHome}>‹ All spaces</button>
             <div>
               <button className={view === 'storage' ? 'active' : ''} onClick={() => enterView('storage')}>
                 <i>▦</i><span><b>Storage</b><small>{roomBoxes.length} boxes</small></span>
@@ -711,7 +739,7 @@ function Storage({ userId, space, boxes, binders, reload, unitId, setUnitId, ope
       try {
         const drawer = box.drawers[0] || await createDrawer(box.id, 'Main compartment')
         window.setTimeout(() => {
-          window.history.pushState({}, '', location.href)
+          pushSpacesDepth(2)
           setSelected({ box, drawer })
           setOpening('')
         }, 520)
@@ -724,7 +752,9 @@ function Storage({ userId, space, boxes, binders, reload, unitId, setUnitId, ope
 
   const drop = async (shelf: number, stack: number) => {
     if (!unit || !armed) return
-    const current = boxes.filter(x => x.storageUnitId === unit.id && x.shelfIndex === shelf && x.stackIndex === stack)
+    // Excludes the box being moved: re-dropping a box on its own stack must
+    // not count it against the height limit or the next free level.
+    const current = boxes.filter(x => x.id !== armed && x.storageUnitId === unit.id && x.shelfIndex === shelf && x.stackIndex === stack)
     if (current.length >= unit.maxStackHeight) { setMessage('That stack is already at its maximum height.'); return }
     const boxId = armed
     setArmed('')

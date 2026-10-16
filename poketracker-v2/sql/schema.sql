@@ -358,6 +358,11 @@ CREATE TABLE IF NOT EXISTS card_price_history (
 
 CREATE INDEX IF NOT EXISTS idx_card_price_history_card_id ON card_price_history(card_id, recorded_at);
 
+/* MIGRATION 003 (DISABLED — DO NOT RUN)
+-- Superseded: per-print prices live in card_variant_prices (migration 014),
+-- and card_prices stays one row per card. Running this would break every
+-- price upsert (ON CONFLICT (card_id) needs the card_id unique constraint it
+-- drops) and duplicate cards in queries that join card_prices.
 -- Migration 003: Per-variant prices (Normal / Holofoil / Reverse Holofoil /
 -- Poké Ball Pattern / Master Ball Pattern).
 -- card_prices held one row per card, so a Reverse Holofoil print's higher
@@ -373,6 +378,7 @@ ALTER TABLE card_prices ADD COLUMN IF NOT EXISTS variant TEXT NOT NULL DEFAULT '
 ALTER TABLE card_prices DROP CONSTRAINT IF EXISTS card_prices_card_id_key;
 ALTER TABLE card_prices DROP CONSTRAINT IF EXISTS card_prices_card_id_variant_key;
 ALTER TABLE card_prices ADD CONSTRAINT card_prices_card_id_variant_key UNIQUE (card_id, variant);
+*/
 
 -- Migration 004 (Rip Tracker — Agent 1: schema only, no app logic/routes/UI).
 -- Data model for sealed products, their contents, published pull rates, and
