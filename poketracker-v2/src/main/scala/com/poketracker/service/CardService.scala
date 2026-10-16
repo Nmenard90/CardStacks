@@ -541,7 +541,7 @@ object CardService:
                         }
                       } <* repo.setsWithUnpricedCards(game.id).flatMap { ids =>
                         // Sets with cards still missing a price get the fallback
-                        // chain (Cardmarket, then estimate) — one at a time.
+                        // chain (other-condition TCGplayer sale, then Cardmarket) — one at a time.
                         ZIO.foreachDiscard(ids)(id =>
                           (tcg.refreshPrices(game, id) *> ZIO.sleep(1.second))
                             .catchAll(e => ZIO.logWarning(s"warmCatalog: price gaps in $id: ${e.getMessage}")))

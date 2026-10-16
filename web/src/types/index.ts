@@ -64,9 +64,9 @@ export interface Card {
   images: CardImage
   prices?: CardPrices
   variants?: CardVariant[]
-  /** Absent = TCGplayer market price. 'cardmarket' / 'estimate' when TCGplayer
+  /** Absent = TCGplayer market price. 'cardmarket' when TCGplayer
    *  has no market price and a fallback filled it in. */
-  priceSource?: 'cardmarket' | 'estimate'
+  priceSource?: 'cardmarket'
 }
 
 // ─── Users ───────────────────────────────────────────────────────────────────

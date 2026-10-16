@@ -1,13 +1,13 @@
--- Migration 017: price fallbacks so every card has a price.
+-- Migration 017: price fallbacks so every card that has sold has a price.
 --
--- TCGplayer (via TCGTracking) has no market price for some cards — no recent
--- sales. For TCGTracking-sourced games those cards now fall back to
--- Cardmarket's public price guide (converted to the TCGplayer scale), and
--- failing that to an estimate from similar cards in the same set.
+-- TCGplayer (via TCGTracking) has no NM market price for some cards — no
+-- recent sales. For TCGTracking-sourced games those cards now use a
+-- TCGplayer sale in another condition, else Cardmarket's public price guide
+-- (converted to the TCGplayer scale). Never an estimate.
 --
 --   cards.cardmarket_id      — Cardmarket product id (TCGTracking provides it)
 --   card_prices.price_source — NULL = TCGplayer market price;
---                              'cardmarket' or 'estimate' for fallbacks
+--                              'cardmarket' for the Cardmarket fallback
 --   games.cardmarket_game    — Cardmarket's game id for its price-guide file
 --
 -- Purely additive and safe to re-run. Run manually in Railway's SQL editor

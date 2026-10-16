@@ -103,18 +103,19 @@ class MultiGameSuite extends munit.FunSuite:
     assertEquals(out.head._2.nm, Some(11.0))
   }
 
-  test("no TCGplayer or Cardmarket price: estimate from same-rarity cards, else the set's low quartile") {
-    val cards = List(("u1", Some("U"), None), ("u2", Some("U"), None), ("u3", Some("U"), None),
-                     ("c1", Some("C"), None), ("x", Some("U"), None), ("y", Some("SR"), None))
-    val tcg = Map("u1" -> tp(1.0), "u2" -> tp(3.0), "u3" -> tp(5.0), "c1" -> tp(0.5))
-    val out = TcgTrackingCatalog.fillGaps(cards, tcg, Map.empty).map(r => r._1 -> (r._2.nm, r._4)).toMap
-    assertEquals(out("x"), (Some(3.0), Some("estimate")))   // median of U
-    assertEquals(out("y"), (Some(0.5), Some("estimate")))   // too few SR: set low quartile
-    assertEquals(out.size, 6)
+  test("only an LP copy sold on TCGplayer: that real price wins over Cardmarket, other conditions filled from it") {
+    val lpOnly = CardPrices(None, Some(3.0), None, None, None)
+    val out = TcgTrackingCatalog.fillGaps(List(("x", None, Some(7))), Map("x" -> (lpOnly, Map("1st-edition" -> lpOnly))), Map(7 -> 50.0))
+    val (_, p, v, src) = out.head
+    assertEquals(src, None)
+    assertEquals((p.nm, p.lp, p.mp), (Some(3.53), Some(3.0), Some(2.47)))
+    assertEquals(v("1st-edition").nm, Some(3.53))
   }
 
-  test("a set with no prices anywhere stays unpriced (e.g. unreleased)") {
-    assertEquals(TcgTrackingCatalog.fillGaps(List(("x", None, None)), Map.empty, Map.empty), Nil)
+  test("never estimates: a card with no sale on TCGplayer or Cardmarket stays unpriced") {
+    val cards = List(("u1", Some("U"), None), ("u2", Some("U"), None), ("u3", Some("U"), None), ("x", Some("U"), None))
+    val tcg = Map("u1" -> tp(1.0), "u2" -> tp(3.0), "u3" -> tp(5.0))
+    assertEquals(TcgTrackingCatalog.fillGaps(cards, tcg, Map.empty).map(_._1), List("u1", "u2", "u3"))
   }
 
   test("Cardmarket value is the middle of trend/averages, skipping zeros") {
@@ -219,7 +220,7 @@ class MultiGameSuite extends munit.FunSuite:
     val imported = run(cards.findCardsBySet(set.id))
     assert(imported.size >= set.total / 2, s"${set.name}: only ${imported.size} of ${set.total} cards")
     assert(imported.forall(c => c.id.startsWith(set.id + "-") && c.images.small.nonEmpty))
-    // Every card gets a price: TCGplayer, else Cardmarket, else an estimate.
+    // Every card in this set has sold somewhere: TCGplayer, else Cardmarket.
     val unpriced = imported.filterNot(_.prices.exists(_.nm.isDefined))
     assert(unpriced.isEmpty, s"unpriced: ${unpriced.map(_.name).take(5)}")
     assert(run(cards.searchCards(imported.head.name, 20, "pokemon-jp")).exists(_.id == imported.head.id))

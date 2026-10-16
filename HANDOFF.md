@@ -171,11 +171,14 @@ re-prices instead of keeping stored wrong values until its next refresh.
   games so search covers them. Web: `?game=` on every request (api/client.ts
   interceptor, `lib/game.ts`), header switcher reloads into the chosen game.
   Old index `uq_collection_spaces_default` is deliberately kept (see 016).
-- **Every card has a price** (TCGTracking games): TCGplayer market price,
-  else Cardmarket's public daily price guide (`CardmarketGuide`, converted
-  with a value-banded TCGplayer/Cardmarket ratio from similar cards in the
-  set), else an estimate from same-rarity cards. `card_prices.price_source`
-  records which; card tiles show "via Cardmarket" / "est.".
+- **Price fallbacks, never estimates** (TCGTracking games): TCGplayer NM
+  market price, else a TCGplayer sale in another condition (other conditions
+  filled by typical discounts), else Cardmarket's public daily price guide
+  (`CardmarketGuide`, converted with a value-banded TCGplayer/Cardmarket
+  ratio from similar cards in the set). `card_prices.price_source` records
+  Cardmarket; tiles show "via Cardmarket". Cards never sold on either
+  marketplace stay unpriced (~13% of JP — old event promos; TCGplayer shows
+  no market price for them either, at most a seller's asking price).
 - **Per-print ownership** shipped (BUG-023 phase 2): condition keys
   `"NM · reverse"`; Bulk Add's entry form still has no print picker (phase 3).
 - **Share-link trading** — LIVE. (`/trade`, public `/s/:slug`): trade list, share

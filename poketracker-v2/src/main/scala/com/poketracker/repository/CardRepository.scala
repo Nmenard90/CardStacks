@@ -438,7 +438,7 @@ object CardRepository:
       """
         .update.run.transact(xa)
 
-    /** @param source None = TCGplayer market price; "cardmarket"/"estimate" for fallbacks. */
+    /** @param source None = TCGplayer market price; "cardmarket" for the Cardmarket fallback. */
     private def upsertPricesIO(cardId: String, prices: CardPrices, source: Option[String] = None): ConnectionIO[Unit] =
       val upsertLatest = sql"""
         INSERT INTO card_prices (card_id, price_nm, price_lp, price_mp,

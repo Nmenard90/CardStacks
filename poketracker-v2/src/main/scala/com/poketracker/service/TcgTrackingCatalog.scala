@@ -116,13 +116,23 @@ object TcgTrackingCatalog:
       val default = game.printPreference.find(byPrint.contains).getOrElse(byPrint.keys.toList.sorted.head)
       Some((byPrint(default), byPrint.map { case (k, v) => printKey(k) -> v }))
 
-  /** A fallback price is NM-based; other conditions follow typical market
-   *  discounts so an LP/MP/... copy still gets a value. */
-  private val CondFactors = (0.85, 0.70, 0.50, 0.35)
+  /** Typical market discounts for NM, LP, MP, HP, DMG — used to fill the
+   *  conditions that have no sale of their own. */
+  private val CondFactors = List(1.0, 0.85, 0.70, 0.50, 0.35)
   private def round2(d: Double) = math.max(0.01, math.round(d * 100) / 100.0)
+
+  /** Keeps every real price and fills the missing conditions from the best
+   *  condition that did sell (an LP sale of $3 → NM $3.53). */
+  private[service] def completeConditions(p: CardPrices): CardPrices =
+    val vals = List(p.nm, p.lp, p.mp, p.hp, p.dmg)
+    vals.zip(CondFactors).collectFirst { case (Some(v), f) => v / f } match
+      case None => p
+      case Some(nm) =>
+        val f = vals.zip(CondFactors).map { case (o, k) => o.orElse(Some(round2(nm * k))) }
+        CardPrices(f(0), f(1), f(2), f(3), f(4))
+
   private[service] def fromNm(nm: Double): CardPrices =
-    val (lp, mp, hp, dmg) = CondFactors
-    CardPrices(Some(round2(nm)), Some(round2(nm * lp)), Some(round2(nm * mp)), Some(round2(nm * hp)), Some(round2(nm * dmg)))
+    completeConditions(CardPrices(Some(nm), None, None, None, None)).copy(nm = Some(round2(nm)))
 
   private def median(xs: List[Double]): Option[Double] =
     xs.sorted match
@@ -130,20 +140,21 @@ object TcgTrackingCatalog:
       case s   => Some(if s.size % 2 == 1 then s(s.size / 2) else (s(s.size / 2 - 1) + s(s.size / 2)) / 2)
 
   /**
-   * Every card in a set gets a price:
-   *   1. TCGplayer market price (`tcg`) — source None.
-   *   2. Cardmarket's price guide (EUR), scaled to the TCGplayer level by the
+   * Every card that has sold anywhere gets a real price — never an estimate:
+   *   1. TCGplayer NM market price (`tcg`) — source None.
+   *   2. A TCGplayer market price in another condition (only an LP copy has
+   *      sold recently); the other conditions are filled from it — source
+   *      None, it's a real TCGplayer sale (TCGplayer's own "Market Price"
+   *      shows it the same way).
+   *   3. Cardmarket's price guide (EUR), scaled to the TCGplayer level by the
    *      median TCGplayer/Cardmarket ratio of this set's cards that have
    *      both AND are of similar value (Cardmarket price within 3x either
    *      way; needs 5+ such cards; kept within 0.8–2x). Bulk cards can't
    *      set the ratio for valuable ones: TCGplayer's ~$0.25 floor vs
    *      Cardmarket's €0.05 commons is a 4-5x gap that would wildly inflate
    *      a €500 card. Otherwise plain EUR→USD 1.1 — source "cardmarket".
-   *   3. An estimate from similar cards in the set: the median TCGplayer NM
-   *      price of cards with the same rarity (3+ of them), else the set's
-   *      25th-percentile price — source "estimate".
-   * Cards in a set with no TCGplayer or Cardmarket price at all (e.g. not
-   * released yet) stay unpriced — there's nothing to estimate from.
+   * A card no one has sold on either marketplace stays unpriced: TCGplayer
+   * shows no market price for it either.
    *
    * @param cards (cardId, rarity, Cardmarket product id)
    */
@@ -158,23 +169,12 @@ object TcgTrackingCatalog:
     def ratioFor(eur: Double): Double =
       val similar = pairs.collect { case (c, t) if c >= eur / 3 && c <= eur * 3 => t / c }
       if similar.size >= 5 then median(similar).map(r => math.min(2.0, math.max(0.8, r))).getOrElse(1.1) else 1.1
-    val nmByRarity = cards.flatMap { case (id, rar, _) => tcgNm.get(id).map(rar.getOrElse("") -> _) }.groupMap(_._1)(_._2)
-    val setLowQuartile = tcgNm.values.toList.sorted match
-      case Nil => None
-      case s   => Some(s((s.size - 1) / 4))
-    cards.flatMap { case (id, rarity, cmId) =>
+    cards.flatMap { case (id, _, cmId) =>
       tcg.get(id) match
         case Some((d, v)) if d.nm.isDefined => Some((id, d, v, None))
-        case known =>
-          val variants = known.map(_._2).getOrElse(Map.empty)
-          cmId.flatMap(cm.get).map(eur => (id, fromNm(eur * ratioFor(eur)), variants, Some("cardmarket")))
-            .orElse {
-              val similar = nmByRarity.getOrElse(rarity.getOrElse(""), Nil)
-              val est = if similar.size >= 3 then median(similar) else setLowQuartile
-              est.map(nm => (id, fromNm(nm), variants, Some("estimate")))
-            }
-            // Partial TCGplayer data (no NM but e.g. an LP price) beats nothing.
-            .orElse(known.map { case (d, v) => (id, d, v, None) })
+        // `pricing` only keeps prints with at least one condition priced.
+        case Some((d, v)) => Some((id, completeConditions(d), v.view.mapValues(completeConditions).toMap, None))
+        case None => cmId.flatMap(cm.get).map(eur => (id, fromNm(eur * ratioFor(eur)), Map.empty, Some("cardmarket")))
     }
 
   final class Live(repo: CardRepository, cardmarket: CardmarketGuide) extends TcgTrackingCatalog:

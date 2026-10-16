@@ -503,7 +503,6 @@
   /* Shown above the stepper while a print chip is selected: −/+ edit that print. */
   /* Where a fallback price came from (CardTile). */
   .page-tracker .price-source{display:inline-block;margin-left:6px;padding:0 5px;border-radius:6px;font-size:10px;font-weight:700;vertical-align:middle;background:var(--surface3);color:var(--muted);}
-  .page-tracker .price-source.estimate{font-style:italic;}
   .page-tracker .variant-editing{font-size:11px;color:var(--accent2);margin:4px 0 -2px;}
   .page-tracker .variant-editing b{color:var(--text);}
 

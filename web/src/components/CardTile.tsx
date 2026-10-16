@@ -135,10 +135,8 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
             {price > 0 && card.priceSource && (
               <span
                 className={`price-source ${card.priceSource}`}
-                title={card.priceSource === 'cardmarket'
-                  ? 'No recent TCGplayer sales — price from Cardmarket, converted to USD'
-                  : 'No recent sales anywhere — estimated from similar cards in this set'}
-              >{card.priceSource === 'cardmarket' ? 'via Cardmarket' : 'est.'}</span>
+                title="No recent TCGplayer sales — price from Cardmarket, converted to USD"
+              >via Cardmarket</span>
             )}
             <button className="history-toggle" title="Price history" onClick={toggleHistory}>📈</button>
           </div>
