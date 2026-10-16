@@ -48,6 +48,11 @@ object RoomRoutes:
       (for p<-bodyAs[BoxPlacementRequest](req); _<-ZIO.serviceWithZIO[RoomService](_.placeBox(userId,boxId,p.spaceId,p.unitId,p.shelfIndex,p.stackIndex,p.stackLevel))
       yield Response.json("""{"ok":true}""")).catchAll(e=>ZIO.succeed(bad(e)))
     },
+    // Set boxes on one shelf unit, by set release date (?order=newest flips it).
+    Method.POST / "api" / "spaces" / string("userId") / "storage-units" / string("unitId") / "arrange-by-date" -> handler { (userId:String,unitId:String,req:Request) =>
+      ZIO.serviceWithZIO[RoomService](_.arrangeSetBoxesByDate(userId,unitId,req.url.queryParams.getAll("order").headOption.contains("newest")))
+        .map(n=>Response.json(s"""{"arranged":$n}""")).catchAll(e=>ZIO.succeed(bad(e)))
+    },
     Method.PUT / "api" / "spaces" / string("userId") / "binders" / string("binderId") / "placement" -> handler { (userId:String,binderId:String,req:Request) =>
       (for p<-bodyAs[BinderPlacementRequest](req); _<-ZIO.serviceWithZIO[RoomService](_.placeBinder(userId,binderId,p.spaceId,p.unitId,p.shelfIndex,p.shelfPosition))
       yield Response.json("""{"ok":true}""")).catchAll(e=>ZIO.succeed(bad(e)))

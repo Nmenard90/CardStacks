@@ -42,7 +42,7 @@ import { createBinder, getBinder, listBinders, updateBinder } from '../api/binde
 import { getSets } from '../api/cards'
 import { getOwnedCards, saveEntry } from '../api/collection'
 import {
-  createDisplayCase, createSpace, createStorageUnit, getCaseAllocations,
+  arrangeSetBoxesByDate, createDisplayCase, createSpace, createStorageUnit, getCaseAllocations,
   getDrawerPlacements, getSpaceInventory, listSpaces, placeBinder, placeBox,
   placeCopies, placeInBinderSlot, removePlacement, setDisplayLights,
 } from '../api/rooms'
@@ -567,6 +567,8 @@ function Storage({ userId, space, boxes, binders, reload, unitId, setUnitId, ope
   }, [selected]) // eslint-disable-line react-hooks/exhaustive-deps
   const [picking, setPicking] = useState(false)
   const [pickingUnit, setPickingUnit] = useState(false)
+  // The order the last "Sets by date" press used — the button offers the other.
+  const [dateOrder, setDateOrder] = useState<'oldest' | 'newest'>('newest')
   // The box currently armed to be placed — set by an HTML5 drag, the
   // "Move" button, or (on touch) a long-press on the box itself — so every
   // path shares one drop().
@@ -776,6 +778,22 @@ function Storage({ userId, space, boxes, binders, reload, unitId, setUnitId, ope
       />
     )
   }
+  /** Each press flips the order: oldest first, then newest first, … */
+  const arrangeByDate = async () => {
+    if (!unit) return
+    const order = dateOrder === 'oldest' ? 'newest' : 'oldest'
+    try {
+      const { arranged } = await arrangeSetBoxesByDate(userId, unit.id, order)
+      setDateOrder(order)
+      await reload()
+      setMessage(arranged
+        ? `${arranged} set box${arranged === 1 ? '' : 'es'} on ${unit.name} now go ${order} set first.`
+        : `No set boxes on ${unit.name} to arrange.`)
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : 'Could not arrange the set boxes.')
+    }
+  }
+
   if (picking) return <BoxPicker cancel={() => setPicking(false)} choose={choice => void createChosen(choice)} />
   if (pickingUnit) return <ShelfUnitPicker cancel={() => setPickingUnit(false)} choose={choice => void createUnit(choice)} />
 
@@ -783,7 +801,15 @@ function Storage({ userId, space, boxes, binders, reload, unitId, setUnitId, ope
     <section className="storage-view box-unit-view">
       <header className="gallery-heading">
         <div><small>{space.name.toUpperCase()} / STORAGE</small><h2>Card Archive</h2><p>{boxes.length} real boxes · drag and stack vertically</p></div>
-        <div><button onClick={() => setPickingUnit(true)}>+ Shelf unit</button><button className="primary" onClick={() => setPicking(true)}>+ Box</button></div>
+        <div>
+          {unit && (
+            <button
+              title="Put this shelf unit's set boxes in set release order. Other boxes stay where they are."
+              onClick={() => void arrangeByDate()}
+            >⇅ Sets {dateOrder === 'oldest' ? 'newest' : 'oldest'} first</button>
+          )}
+          <button onClick={() => setPickingUnit(true)}>+ Shelf unit</button><button className="primary" onClick={() => setPicking(true)}>+ Box</button>
+        </div>
       </header>
 
       {message && <div className="spaces-action-message">{message}</div>}

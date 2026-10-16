@@ -11,6 +11,7 @@ trait RoomService:
     shelfCount:Int,positionsPerShelf:Int,maxStackHeight:Int,config:String): Task[StorageUnit]
   def placeBox(userId:String,boxId:String,spaceId:String,unitId:String,shelf:Int,stack:Int,level:Int): Task[Unit]
   def placeBinder(userId:String,binderId:String,spaceId:String,unitId:String,shelf:Int,position:Int): Task[Unit]
+  def arrangeSetBoxesByDate(userId:String,unitId:String,newestFirst:Boolean): Task[Int]
   def createDisplayCase(userId:String,spaceId:String,name:String,caseType:String,preset:String,frameColor:String,
     lightColor:String,shelfCount:Int,slotsPerShelf:Int,config:String): Task[DisplayCase]
   def setDisplayLights(userId:String,caseId:String,enabled:Boolean): Task[Unit]
@@ -43,6 +44,8 @@ object RoomService:
     def placeBox(userId:String,boxId:String,spaceId:String,unitId:String,shelf:Int,stack:Int,level:Int)=
       ZIO.fail(IllegalArgumentException("Placement coordinates cannot be negative")).when(shelf<0||stack<0||level<0) *>
         repo.placeBox(userId,boxId,spaceId,unitId,shelf,stack,level)
+    def arrangeSetBoxesByDate(userId:String,unitId:String,newestFirst:Boolean)=
+      repo.arrangeSetBoxesByDate(userId,unitId,newestFirst)
     def placeBinder(userId:String,binderId:String,spaceId:String,unitId:String,shelf:Int,position:Int)=
       ZIO.fail(IllegalArgumentException("Placement coordinates cannot be negative")).when(shelf<0||position<0) *>
         repo.placeBinder(userId,binderId,spaceId,unitId,shelf,position)

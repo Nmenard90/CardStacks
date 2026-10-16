@@ -144,11 +144,14 @@ class MultiGameSuite extends munit.FunSuite:
     val user = (id: String) =>
       sql"""INSERT INTO users (id, supabase_user_id, username, email) VALUES ($id, ${"sb-" + id}, $id, ${id + "@example.test"})""".update.run
     (sql"DELETE FROM users WHERE id IN ($u1, $u2)".update.run *>
-      sql"DELETE FROM card_sets WHERE id IN ('mgset', 'tt85-mg')".update.run *>
+      sql"DELETE FROM card_sets WHERE id IN ('mgset', 'tt85-mg', 'mgA', 'mgB', 'mgC')".update.run *>
       user(u1) *> user(u2) *>
       sql"""INSERT INTO card_sets (id, name, series, printed_total, total, release_date, symbol_url, logo_url, game_id) VALUES
             ('mgset', 'MG English', 'MG', 1, 1, '2026-01-01', '', '', 'pokemon'),
-            ('tt85-mg', 'MG Japanese', '2026', 1, 1, '2026-01-01', '', '', 'pokemon-jp')""".update.run *>
+            ('tt85-mg', 'MG Japanese', '2026', 1, 1, '2026-01-01', '', '', 'pokemon-jp'),
+            ('mgA', 'MG 2020', 'MG', 1, 1, '2020-05-01', '', '', 'pokemon'),
+            ('mgB', 'MG 2010', 'MG', 1, 1, '2010-05-01', '', '', 'pokemon'),
+            ('mgC', 'MG 2015', 'MG', 1, 1, '2015-05-01', '', '', 'pokemon')""".update.run *>
       sql"""INSERT INTO cards (id, set_id, name, number, image_small, image_large, game_id) VALUES
             ('mgset-1', 'mgset', 'Pikachu EN', '1', '', '', 'pokemon'),
             ('tt85-mg-1', 'tt85-mg', 'Pikachu JP', '1', '', '', 'pokemon-jp')""".update.run
@@ -157,7 +160,7 @@ class MultiGameSuite extends munit.FunSuite:
 
   override def afterAll(): Unit = if url.nonEmpty then run {
     (sql"DELETE FROM users WHERE id IN ($u1, $u2)".update.run *>
-      sql"DELETE FROM card_sets WHERE id IN ('mgset', 'tt85-mg')".update.run).transact(xa).unit
+      sql"DELETE FROM card_sets WHERE id IN ('mgset', 'tt85-mg', 'mgA', 'mgB', 'mgC')".update.run).transact(xa).unit
   }
 
   dbTest("a game's collection never shows another game's cards; auto-filed boxes follow the card's game") {
@@ -173,6 +176,26 @@ class MultiGameSuite extends munit.FunSuite:
     assertEquals(run(storage.findBoxesByUser(u1, "pokemon")).map(_.name), List("MG English"))
     assertEquals(run(storage.findBoxesByUser(u1, "pokemon-jp")).map(_.name), List("MG Japanese"))
     assertEquals(run(RoomRepository.Live(xa).listLots(u1, "pokemon-jp")).map(_.cardId), List("tt85-mg-1"))
+  }
+
+  dbTest("set boxes reorder by release date among their own positions; other boxes stay put") {
+    val rooms = RoomRepository.Live(xa)
+    val space = run(rooms.listSpaces(u1, "pokemon")).head
+    val unit = run(rooms.createStorageUnit(u1, space.id, "Arrange rack", "rack", "collector_rack", "#000", 1, 3, 2, "{}"))
+    def box(id: String, boxType: String, stack: Int, level: Int) =
+      sql"""INSERT INTO storage_boxes (id, user_id, name, box_type, space_id, storage_unit_id, shelf_index, stack_index, stack_level)
+            VALUES ($id, $u1, $id, $boxType, ${space.id}, ${unit.id}, 0, $stack, $level)""".update.run
+    run((box("bx-2020", "auto_set:mgA", 0, 0) *> box("bx-custom", "custom", 1, 0) *>
+         box("bx-2015", "auto_set:mgC", 2, 0) *> box("bx-2010", "auto_set:mgB", 0, 1)).transact(xa))
+    def layout = run(sql"SELECT id, stack_index, stack_level FROM storage_boxes WHERE storage_unit_id = ${unit.id}"
+      .query[(String, Int, Int)].to[List].transact(xa)).map(r => r._1 -> (r._2, r._3)).toMap
+
+    assertEquals(run(rooms.arrangeSetBoxesByDate(u1, unit.id, newestFirst = false)), 3)
+    assertEquals(layout, Map("bx-2010" -> (0, 0), "bx-2015" -> (0, 1), "bx-2020" -> (2, 0), "bx-custom" -> (1, 0)))
+    run(rooms.arrangeSetBoxesByDate(u1, unit.id, newestFirst = true))
+    assertEquals(layout, Map("bx-2020" -> (0, 0), "bx-2015" -> (0, 1), "bx-2010" -> (2, 0), "bx-custom" -> (1, 0)))
+    // Someone else's unit: nothing moves.
+    assertEquals(run(rooms.arrangeSetBoxesByDate(u2, unit.id, newestFirst = false)), 0)
   }
 
   dbTest("each game gets its own home Space, created once even under concurrent loads") {
