@@ -26,7 +26,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { HeaderNav } from '../components/HeaderNav'
 import { LoginScreen } from '../components/LoginScreen'
 import { useUser } from '../context/UserContext'
@@ -129,17 +129,6 @@ const BINDER_SPINE_COLORS = ['#8b443b', '#315c75', '#66507b', '#b18642', '#4e684
 /** Deterministic so a binder's spine color survives reloads/reordering —
  *  there's no `color` column on binders yet, so this derives one from the
  *  immutable id instead of storing anything. */
-/** How many Spaces history entries deep `state` is (0 = Spaces home). */
-function spacesDepth(state: unknown): number {
-  return (state as { spacesDepth?: number } | null)?.spacesDepth ?? 0
-}
-
-/** Pushes a same-URL history entry at `depth`, keeping React Router's own
- *  fields on history.state intact. */
-function pushSpacesDepth(depth: number) {
-  window.history.pushState({ ...(window.history.state ?? {}), spacesDepth: depth }, '', location.href)
-}
-
 function colorForBinder(id: string): string {
   let hash = 0
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0
@@ -183,61 +172,55 @@ export function SpacesLivePage() {
   const [spaces, setSpaces] = useState<CollectionSpace[]>([])
   const [boxes, setBoxes] = useState<StorageBox[]>([])
   const [binders, setBinders] = useState<Binder[]>([])
-  const [spaceId, setSpaceId] = useState('')
-  const [view, setView] = useState<View>('home')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  // Storage and display selection live here so a header-search click can
-  // update the destination directly, in the same user action that opens it.
-  const [storageUnitId, setStorageUnitId] = useState('')
+  // Where you are in Spaces is in the URL — ?area=storage&unit=…&box=… — so
+  // the browser's back and forward buttons step through it like pages, a
+  // reload keeps your place, and coming back from another page returns to
+  // the box you left. Going deeper (an area, a box) pushes a history entry;
+  // lateral moves (another shelf unit, display case, space) replace it.
+  const [params, setParams] = useSearchParams()
+  const location = useLocation()
+  const go = (patch: Record<string, string | null>, replace = false, state?: unknown) =>
+    setParams(p => {
+      const next = new URLSearchParams(p)
+      for (const [k, v] of Object.entries(patch)) { if (v) next.set(k, v); else next.delete(k) }
+      return next
+    }, { replace, state })
+  const area = params.get('area')
+  const view: View = area === 'storage' || area === 'binders' || area === 'displays' ? area : 'home'
+  const spaceId = params.get('space') || ''
+  const setSpaceId = (id: string) => go({ space: id }, true)
+  const storageUnitId = params.get('unit') || ''
+  const setStorageUnitId = (id: string) => go({ unit: id }, true)
+  const displayCaseId = params.get('case') || ''
+  const setDisplayCaseId = (id: string) => go({ case: id }, true)
+  const openBoxId = params.get('box') || ''
+  // Box opening plays a short animation before the box's URL is pushed.
   const [openingBoxId, setOpeningBoxId] = useState('')
-  const [displayCaseId, setDisplayCaseId] = useState('')
 
   const [addSpaceOpen, setAddSpaceOpen] = useState(false)
   const [query, setQuery] = useState('')
 
-  // Neither entering a Space's area (Storage/Binders/Displays) nor opening
-  // a box inside Storage ever changed the URL or touched browser history —
-  // the phone's hardware/gesture back button (and the desktop back button)
-  // had nothing of ours to undo, so it just left the app entirely instead
-  // of closing the box or area a person was actually looking at.
-  //
-  // Only one entry gets pushed for "left home", not one per sub-view — the
-  // three area tabs are lateral moves at the same depth, so switching
-  // between them shouldn't add extra steps to undo. A box open inside
-  // Storage pushes its own entry on top of that; Storage registers a
-  // "close the currently-open box, if any" handler here so a single
-  // popstate handler can give the innermost thing open first crack at
-  // handling back, regardless of which area is currently mounted.
-  //
-  // Each pushed entry records its depth (1 = area, 2 = open box), so
-  // popstate can tell how far back the user went — one press, or the
-  // multi-step history.go() from "All spaces" — and close exactly what's
-  // above that depth.
-  const closeBoxHandler = useRef<(() => boolean) | null>(null)
-  useEffect(() => {
-    const onPopState = (e: PopStateEvent) => {
-      const depth = spacesDepth(e.state)
-      if (depth < 2) closeBoxHandler.current?.()
-      if (depth < 1) setView('home')
-    }
-    window.addEventListener('popstate', onPopState)
-    return () => window.removeEventListener('popstate', onPopState)
-  }, [])
+  /** Opens an area of the current space. From the home it's a step in; the
+   *  area tabs are lateral, so switching between them replaces. */
   const enterView = (v: View) => {
-    if (view === 'home' && v !== 'home') pushSpacesDepth(1)
-    if (v === 'storage' && view !== 'storage') { setStorageUnitId(''); setOpeningBoxId('') }
-    if (v === 'displays' && view !== 'displays') setDisplayCaseId('')
-    setView(v)
+    if (v === view) return
+    setOpeningBoxId('')
+    go({ area: v === 'home' ? null : v, unit: null, box: null, case: null }, view !== 'home')
   }
-  /** Back to the Spaces home, unwinding the history entries enterView (and
-   *  an open box) pushed — otherwise they'd linger and the back button
-   *  would need extra do-nothing presses before it actually left the page. */
   const goHome = () => {
-    const depth = spacesDepth(window.history.state)
-    if (depth > 0) window.history.go(-depth)
-    else setView('home')
+    if (view === 'home' && !openBoxId) return
+    setOpeningBoxId('')
+    go({ area: null, unit: null, box: null, case: null })
+  }
+  /** Opens a box (after its opening animation). Marked so closing it can
+   *  step back instead of stacking another entry. */
+  const openBox = (id: string) => go({ box: id }, false, { boxOpenedHere: true })
+  const closeBox = () => {
+    if ((location.state as { boxOpenedHere?: boolean } | null)?.boxOpenedHere) navigate(-1)
+    else go({ box: null }, true)
   }
 
   const loadedUserId = user?.id || ''
@@ -255,7 +238,6 @@ export function SpacesLivePage() {
       setSpaces(s)
       setBoxes(b)
       setBinders(bi)
-      setSpaceId(id => id || s.find(x => x.isDefault)?.id || s[0]?.id || '')
       setError('')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load spaces')
@@ -272,7 +254,6 @@ export function SpacesLivePage() {
         setSpaces(nextSpaces)
         setBoxes(nextBoxes)
         setBinders(nextBinders)
-        setSpaceId(id => id || nextSpaces.find(x => x.isDefault)?.id || nextSpaces[0]?.id || '')
         setError('')
       })
       .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : 'Could not load spaces') })
@@ -280,7 +261,7 @@ export function SpacesLivePage() {
     return () => { cancelled = true }
   }, [user?.id])
 
-  const space = spaces.find(x => x.id === spaceId) || spaces[0]
+  const space = spaces.find(x => x.id === spaceId) || spaces.find(x => x.isDefault) || spaces[0]
   // Legacy boxes/binders created before Spaces existed have no spaceId — they
   // belong to the default Space's "Unplaced" areas rather than disappearing.
   const roomBoxes = useMemo(
@@ -309,22 +290,14 @@ export function SpacesLivePage() {
     // inside the default Space's "Unplaced" area — never the currently
     // selected Space, which may not be the default one.
     const defaultSpaceId = spaces.find(s => s.isDefault)?.id || space?.id || ''
-    if (hit.kind === 'space') { setSpaceId(hit.id); goHome() }
+    if (hit.kind === 'space') go({ space: hit.id, area: null, unit: null, box: null, case: null })
     else if (hit.kind === 'box') {
       const box = boxes.find(candidate => candidate.id === hit.id)
-      if (view === 'home') pushSpacesDepth(1)
-      setSpaceId(hit.spaceId || defaultSpaceId)
-      if (box?.storageUnitId) setStorageUnitId(box.storageUnitId)
+      go({ space: hit.spaceId || defaultSpaceId, area: 'storage', unit: box?.storageUnitId || null, box: null, case: null })
       setOpeningBoxId(hit.id)
-      setView('storage')
     }
     else if (hit.kind === 'binder') navigate(`/binder/${hit.id}`)
-    else {
-      if (view === 'home') pushSpacesDepth(1)
-      setSpaceId(hit.spaceId)
-      setDisplayCaseId(hit.id)
-      setView('displays')
-    }
+    else go({ space: hit.spaceId, area: 'displays', case: hit.id, unit: null, box: null })
   }
 
   const createNewSpace = async (name: string, spaceType: SpaceType) => {
@@ -332,7 +305,7 @@ export function SpacesLivePage() {
     try {
       const made = await createSpace(user.id, name, spaceType)
       setSpaces(x => [...x, made])
-      setSpaceId(made.id)
+      go({ space: made.id, area: null, unit: null, box: null, case: null })
       setAddSpaceOpen(false)
       toast(`Created ${made.name}.`)
     } catch (e) {
@@ -405,7 +378,7 @@ export function SpacesLivePage() {
             userId={user?.id || ''} space={space} boxes={roomBoxes} binders={roomBinders} reload={load}
             unitId={storageUnitId} setUnitId={setStorageUnitId}
             opening={openingBoxId} setOpening={setOpeningBoxId}
-            registerBackHandler={fn => { closeBoxHandler.current = fn }}
+            openBoxId={openBoxId} openBox={openBox} closeBox={closeBox}
           />
         ) : view === 'binders' ? (
           <Binders userId={user?.id || ''} space={space} binders={roomBinders} reload={load} open={id => navigate(`/spaces/${space.id}/binders/${id}`)} />
@@ -546,27 +519,33 @@ function Home({ space, spaces, boxes, binders, onView, onSelect, onAdd }: {
 
 // ─── Storage ────────────────────────────────────────────────────────────────
 
-function Storage({ userId, space, boxes, binders, reload, unitId, setUnitId, opening, setOpening, registerBackHandler }: {
+function Storage({ userId, space, boxes, binders, reload, unitId, setUnitId, opening, setOpening, openBoxId, openBox, closeBox }: {
   userId: string; space: CollectionSpace; boxes: StorageBox[]; binders: Binder[]; reload: () => Promise<void>
   unitId: string; setUnitId: (id: string) => void
   opening: string; setOpening: (id: string) => void
-  registerBackHandler: (fn: (() => boolean) | null) => void
+  /** The box open per the URL; openBox/closeBox change it. */
+  openBoxId: string; openBox: (id: string) => void; closeBox: () => void
 }) {
   const [message, setMessage] = useState('')
   const [selected, setSelected] = useState<{ box: StorageBox; drawer: StorageDrawer } | null>(null)
 
-  // Lets the browser/hardware back button close an open box instead of
-  // leaving the whole page — see the matching popstate handler in
-  // SpacesLivePage, which calls whatever's registered here before falling
-  // back to its own "leave this area" handling.
+  // The open box follows the URL: back/forward or a reload open and close it.
   useEffect(() => {
-    registerBackHandler(() => {
-      if (!selected) return false
-      setSelected(null)
-      return true
-    })
-    return () => registerBackHandler(null)
-  }, [selected]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!openBoxId) { setSelected(null); return }
+    if (selected?.box.id === openBoxId) return
+    const box = boxes.find(x => x.id === openBoxId)
+    if (!box) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const drawer = box.drawers[0] || await createDrawer(box.id, 'Main compartment')
+        if (!cancelled) setSelected({ box, drawer })
+      } catch (e) {
+        if (!cancelled) setMessage(e instanceof Error ? e.message : 'Could not open this box.')
+      }
+    })()
+    return () => { cancelled = true }
+  }, [openBoxId, boxes]) // eslint-disable-line react-hooks/exhaustive-deps
   const [picking, setPicking] = useState(false)
   const [pickingUnit, setPickingUnit] = useState(false)
   // The order the last "Sets by date" press used — the button offers the other.
@@ -739,20 +718,12 @@ function Storage({ userId, space, boxes, binders, reload, unitId, setUnitId, ope
     if (!opening || selected) return
     const box = boxes.find(x => x.id === opening)
     if (!box) return
-    void (async () => {
-      try {
-        const drawer = box.drawers[0] || await createDrawer(box.id, 'Main compartment')
-        window.setTimeout(() => {
-          pushSpacesDepth(2)
-          setSelected({ box, drawer })
-          setOpening('')
-        }, 520)
-      } catch (e) {
-        setMessage(e instanceof Error ? e.message : 'Could not open this box.')
-        setOpening('')
-      }
-    })()
-  }, [opening]) // eslint-disable-line react-hooks/exhaustive-deps
+    const t = window.setTimeout(() => {
+      setOpening('')
+      openBox(box.id)
+    }, 520)
+    return () => window.clearTimeout(t)
+  }, [opening, boxes]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const drop = async (shelf: number, stack: number) => {
     if (!unit || !armed) return
@@ -776,7 +747,7 @@ function Storage({ userId, space, boxes, binders, reload, unitId, setUnitId, ope
         userId={userId} box={selected.box} drawer={selected.drawer}
         otherBoxes={boxes.filter(b => b.id !== selected.box.id)}
         binders={binders} displayCases={space.displayCases}
-        close={() => window.history.back()} onRenamed={reload}
+        close={closeBox} onRenamed={reload}
       />
     )
   }

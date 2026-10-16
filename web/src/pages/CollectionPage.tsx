@@ -20,6 +20,7 @@
 import { currentGame } from '../lib/game'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { browseCards, getCards, getSets, searchCards, type BrowseSort } from '../api/cards'
 import { bulkSave, getCollection, getOwnedCards, getStats, saveEntry } from '../api/collection'
 import { BinderPickerModal } from '../components/BinderPickerModal'
@@ -53,8 +54,20 @@ export function CollectionPage() {
   const qc = useQueryClient()
   const preview = usePreview()
 
-  // Restores whichever set was open last time, read once on first load.
-  const [setId, setSetId] = useState<string | null>(() => localStorage.getItem(`poketracker_set:${currentGame()}`))
+  // The open set is in the URL (?set=<id>, ?set=all), so picking a set is a
+  // history step the back button undoes. A bare /explore shows the set that
+  // was open last time — read once, so going back to it doesn't jump to
+  // whatever was picked since.
+  const [params, setParams] = useSearchParams()
+  const [remembered] = useState<string | null>(() => {
+    try { return localStorage.getItem(`poketracker_set:${currentGame()}`) } catch { return null }
+  })
+  const urlSet = params.get('set')
+  const setId = urlSet === 'all' ? ALL_SETS : urlSet ?? remembered
+  const setSetId = (id: string) => {
+    if (id === setId) return
+    setParams(p => { const next = new URLSearchParams(p); next.set('set', id === ALL_SETS ? 'all' : id); return next })
+  }
   const [search, setSearch] = useState('')
   // Narrows any card grid to cards you own, or to the ones you're missing.
   const [ownership, setOwnership] = useState<'all' | 'owned' | 'missing'>('all')
@@ -116,7 +129,7 @@ export function CollectionPage() {
 
   // Remembers the active set for next time.
   useEffect(() => {
-    if (activeSetId) localStorage.setItem(`poketracker_set:${currentGame()}`, activeSetId)
+    try { if (activeSetId) localStorage.setItem(`poketracker_set:${currentGame()}`, activeSetId) } catch { /* storage blocked */ }
   }, [activeSetId])
 
   // Loads the user's full collection once we know who they are.
