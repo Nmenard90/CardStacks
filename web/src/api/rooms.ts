@@ -9,7 +9,7 @@ export interface NewStorageUnit { spaceId:string;name:string;unitType:StorageUni
 export const createStorageUnit=(userId:string,value:NewStorageUnit)=>api.post<StorageUnit>(`/api/spaces/${userId}/storage-units`,value).then(r=>r.data)
 export const placeBox=(userId:string,boxId:string,value:{spaceId:string;unitId:string;shelfIndex:number;stackIndex:number;stackLevel:number})=>
   api.put(`/api/spaces/${userId}/boxes/${boxId}/placement`,value).then(r=>r.data)
-/** Reorders a shelf unit's set boxes by set release date, among the positions they already hold. */
+/** Reorders the set boxes on every shelf unit in that unit's room by set release date, among the positions they already hold. */
 export const arrangeSetBoxesByDate=(userId:string,unitId:string,order:'oldest'|'newest'='oldest')=>
   api.post<{arranged:number}>(`/api/spaces/${userId}/storage-units/${unitId}/arrange-by-date?order=${order}`).then(r=>r.data)
 export const placeBinder=(userId:string,binderId:string,value:{spaceId:string;unitId:string;shelfIndex:number;shelfPosition:number})=>

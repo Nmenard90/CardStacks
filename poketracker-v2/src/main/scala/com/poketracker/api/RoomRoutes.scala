@@ -48,7 +48,7 @@ object RoomRoutes:
       (for p<-bodyAs[BoxPlacementRequest](req); _<-ZIO.serviceWithZIO[RoomService](_.placeBox(userId,boxId,p.spaceId,p.unitId,p.shelfIndex,p.stackIndex,p.stackLevel))
       yield Response.json("""{"ok":true}""")).catchAll(e=>ZIO.succeed(bad(e)))
     },
-    // Set boxes on one shelf unit, by set release date (?order=newest flips it).
+    // Set boxes on every shelf unit in this unit's room, by set release date (?order=newest flips it).
     Method.POST / "api" / "spaces" / string("userId") / "storage-units" / string("unitId") / "arrange-by-date" -> handler { (userId:String,unitId:String,req:Request) =>
       ZIO.serviceWithZIO[RoomService](_.arrangeSetBoxesByDate(userId,unitId,req.url.queryParams.getAll("order").headOption.contains("newest")))
         .map(n=>Response.json(s"""{"arranged":$n}""")).catchAll(e=>ZIO.succeed(bad(e)))

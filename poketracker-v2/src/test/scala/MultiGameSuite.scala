@@ -178,22 +178,27 @@ class MultiGameSuite extends munit.FunSuite:
     assertEquals(run(RoomRepository.Live(xa).listLots(u1, "pokemon-jp")).map(_.cardId), List("tt85-mg-1"))
   }
 
-  dbTest("set boxes reorder by release date among their own positions; other boxes stay put") {
+  dbTest("set boxes reorder by release date across the room's units; other boxes stay put") {
     val rooms = RoomRepository.Live(xa)
     val space = run(rooms.listSpaces(u1, "pokemon")).head
     val unit = run(rooms.createStorageUnit(u1, space.id, "Arrange rack", "rack", "collector_rack", "#000", 1, 3, 2, "{}"))
-    def box(id: String, boxType: String, stack: Int, level: Int) =
+    val unit2 = run(rooms.createStorageUnit(u1, space.id, "Arrange rack 2", "rack", "collector_rack", "#000", 1, 3, 2, "{}"))
+    def box(id: String, boxType: String, u: String, stack: Int, level: Int) =
       sql"""INSERT INTO storage_boxes (id, user_id, name, box_type, space_id, storage_unit_id, shelf_index, stack_index, stack_level)
-            VALUES ($id, $u1, $id, $boxType, ${space.id}, ${unit.id}, 0, $stack, $level)""".update.run
-    run((box("bx-2020", "auto_set:mgA", 0, 0) *> box("bx-custom", "custom", 1, 0) *>
-         box("bx-2015", "auto_set:mgC", 2, 0) *> box("bx-2010", "auto_set:mgB", 0, 1)).transact(xa))
-    def layout = run(sql"SELECT id, stack_index, stack_level FROM storage_boxes WHERE storage_unit_id = ${unit.id}"
-      .query[(String, Int, Int)].to[List].transact(xa)).map(r => r._1 -> (r._2, r._3)).toMap
+            VALUES ($id, $u1, $id, $boxType, ${space.id}, $u, 0, $stack, $level)""".update.run
+    run((box("bx-2020", "auto_set:mgA", unit.id, 0, 0) *> box("bx-custom", "custom", unit.id, 1, 0) *>
+         box("bx-2015", "auto_set:mgC", unit2.id, 0, 0) *> box("bx-2010", "auto_set:mgB", unit.id, 0, 1)).transact(xa))
+    def layout = run(sql"""SELECT id, storage_unit_id, stack_index, stack_level FROM storage_boxes
+                            WHERE storage_unit_id IN (${unit.id}, ${unit2.id})"""
+      .query[(String, String, Int, Int)].to[List].transact(xa)).map(r => r._1 -> (r._2, r._3, r._4)).toMap
 
-    assertEquals(run(rooms.arrangeSetBoxesByDate(u1, unit.id, newestFirst = false)), 3)
-    assertEquals(layout, Map("bx-2010" -> (0, 0), "bx-2015" -> (0, 1), "bx-2020" -> (2, 0), "bx-custom" -> (1, 0)))
+    // Oldest at the top of the first stack, the next below it, then on into the second unit.
+    assertEquals(run(rooms.arrangeSetBoxesByDate(u1, unit2.id, newestFirst = false)), 3)
+    assertEquals(layout, Map("bx-2010" -> (unit.id, 0, 1), "bx-2015" -> (unit.id, 0, 0),
+      "bx-2020" -> (unit2.id, 0, 0), "bx-custom" -> (unit.id, 1, 0)))
     run(rooms.arrangeSetBoxesByDate(u1, unit.id, newestFirst = true))
-    assertEquals(layout, Map("bx-2020" -> (0, 0), "bx-2015" -> (0, 1), "bx-2010" -> (2, 0), "bx-custom" -> (1, 0)))
+    assertEquals(layout, Map("bx-2020" -> (unit.id, 0, 1), "bx-2015" -> (unit.id, 0, 0),
+      "bx-2010" -> (unit2.id, 0, 0), "bx-custom" -> (unit.id, 1, 0)))
     // Someone else's unit: nothing moves.
     assertEquals(run(rooms.arrangeSetBoxesByDate(u2, unit.id, newestFirst = false)), 0)
   }

@@ -789,7 +789,7 @@ function Storage({ userId, space, boxes, binders, reload, unitId, setUnitId, ope
       setDateOrder(order)
       await reload()
       setMessage(arranged
-        ? `${arranged} set box${arranged === 1 ? '' : 'es'} on ${unit.name} now go ${order} set first.`
+        ? `${arranged} set box${arranged === 1 ? '' : 'es'} across your shelf units now go ${order} set first.`
         : `No set boxes on ${unit.name} to arrange.`)
     } catch (e) {
       setMessage(e instanceof Error ? e.message : 'Could not arrange the set boxes.')
@@ -806,7 +806,7 @@ function Storage({ userId, space, boxes, binders, reload, unitId, setUnitId, ope
         <div>
           {unit && (
             <button
-              title="Put this shelf unit's set boxes in set release order. Other boxes stay where they are."
+              title="Put the set boxes on all your shelf units in set release order. Other boxes stay where they are."
               onClick={() => void arrangeByDate()}
             >⇅ Sets {dateOrder === 'oldest' ? 'newest' : 'oldest'} first</button>
           )}

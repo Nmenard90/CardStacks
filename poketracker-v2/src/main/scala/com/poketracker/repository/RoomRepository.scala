@@ -40,9 +40,10 @@ trait RoomRepository:
   def placeInBinderSlot(userId: String, binderId: String, slotIndex: Int, lotId: String,
     quantity: Int, protection: Option[String], notes: Option[String]): Task[CardAllocation]
   def removeAllocation(userId: String, allocationId: String): Task[Unit]
-  /** Reorders a shelf unit's set boxes by set release date (oldest first).
-   *  They swap among the positions they already hold, so other boxes never
-   *  move. Returns how many set boxes were arranged. */
+  /** Reorders the set boxes on every shelf unit in unitId's room by set
+   *  release date (oldest first), as one run: unit by unit, shelf by shelf,
+   *  left to right, top of a stack down. They swap among the positions they
+   *  already hold, so other boxes never move. Returns how many were arranged. */
   def arrangeSetBoxesByDate(userId: String, unitId: String, newestFirst: Boolean): Task[Int]
 
 object RoomRepository:
@@ -131,28 +132,29 @@ object RoomRepository:
       // A set box: auto-filed ("auto_set:<setId>") or holding a compartment
       // tagged with a set. Several sets → its earliest one.
       val rowsQ = sql"""
-        SELECT b.id, b.name, b.shelf_index, b.stack_index, b.stack_level,
+        SELECT b.id, b.name, su.id, su.position, su.created_at, b.shelf_index, b.stack_index, b.stack_level,
                (SELECT MIN(cs.release_date) FROM card_sets cs
                  WHERE cs.id = substring(b.box_type from '^auto_set:(.*)$$')
                     OR cs.id IN (SELECT d.auto_set_id FROM storage_drawers d WHERE d.box_id = b.id))
         FROM storage_boxes b
         JOIN storage_units su ON su.id = b.storage_unit_id
         JOIN collection_spaces s ON s.id = su.space_id
-        WHERE b.storage_unit_id = $unitId AND b.user_id = $userId AND s.user_id = $userId
+        WHERE su.space_id = (SELECT space_id FROM storage_units WHERE id = $unitId)
+          AND b.user_id = $userId AND s.user_id = $userId
           AND b.shelf_index IS NOT NULL AND b.stack_index IS NOT NULL AND b.stack_level IS NOT NULL"""
-        .query[(String, String, Int, Int, Int, Option[java.time.LocalDate])].to[List]
+        .query[(String, String, String, Int, java.time.Instant, Int, Int, Int, Option[java.time.LocalDate])].to[List]
       (for
         rows <- rowsQ
-        sets  = rows.collect { case (id, name, sh, st, lv, Some(d)) => (id, name, (sh, st, lv), d) }
-        // Reading order: shelf by shelf, left to right, bottom of a stack up.
-        slots = sets.map(_._3).sortBy(identity)
-        byDate = sets.sortBy { case (_, name, _, d) => (d.toEpochDay * (if newestFirst then -1 else 1), name.toLowerCase) }
-        ids   = sets.map(_._1)
-        // Lift them off the unit first so the unique position index can't
+        sets  = rows.collect { case (id, name, u, upos, ucreated, sh, st, lv, Some(d)) =>
+                  (id, name, (u, sh, st, lv), (upos, ucreated.toEpochMilli, sh, st, -lv), d) }
+        // Reading order: unit by unit, shelf by shelf, left to right, top of a stack down.
+        slots = sets.sortBy(_._4).map(_._3)
+        byDate = sets.sortBy { case (_, name, _, _, d) => (d.toEpochDay * (if newestFirst then -1 else 1), name.toLowerCase) }
+        // Lift them off their units first so the unique position index can't
         // trip on a half-finished swap.
-        _ <- ids.traverse_(id => sql"UPDATE storage_boxes SET storage_unit_id = NULL WHERE id = $id".update.run)
-        _ <- byDate.zip(slots).traverse_ { case ((id, _, _, _), (sh, st, lv)) =>
-               sql"""UPDATE storage_boxes SET storage_unit_id = $unitId, shelf_index = $sh, stack_index = $st,
+        _ <- sets.traverse_(b => sql"UPDATE storage_boxes SET storage_unit_id = NULL WHERE id = ${b._1}".update.run)
+        _ <- byDate.zip(slots).traverse_ { case ((id, _, _, _, _), (u, sh, st, lv)) =>
+               sql"""UPDATE storage_boxes SET storage_unit_id = $u, shelf_index = $sh, stack_index = $st,
                        stack_level = $lv, updated_at = NOW() WHERE id = $id""".update.run
              }
       yield sets.size).transact(xa)
