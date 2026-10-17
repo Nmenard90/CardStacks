@@ -10,6 +10,7 @@
  * USED BY: SpacesLivePage (BoxInventory), AnalyzerPage, BinderViewPage
  */
 
+import type { ReactNode } from 'react'
 import { CardThumb } from './CardThumb'
 import type { PreviewOpts } from './CardPreview'
 import type { Card } from '../types'
@@ -30,7 +31,7 @@ interface Props {
   variant?: string
   preview?: PreviewControls
   /** e.g. "NM · standard · 4 available", "LP · 1st Ed · ×2 owned" */
-  subtitle: string
+  subtitle: ReactNode
   /** Copies in this stack, shown as a corner badge. Omit to hide it. */
   qty?: number
   /** 0 actions = purely informational tile. 1 = full-width button

@@ -39,13 +39,16 @@ export interface BrowseFields {
   artist?: string | null
 }
 
-export function CardBrowser<T>({ items, fields, renderTile, itemKey, empty, defaultSort = 'value' }: {
+export function CardBrowser<T>({ items, fields, renderTile, itemKey, empty, defaultSort = 'value', actions }: {
   items: T[]
   fields: (item: T) => BrowseFields
   renderTile: (item: T) => ReactNode
   itemKey: (item: T) => string
   empty: ReactNode
   defaultSort?: SortKey
+  /** Buttons beside the count, given the cards currently shown (all
+   *  filtered rows, not just the loaded page) — e.g. "Select all". */
+  actions?: (shown: T[]) => ReactNode
 }) {
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets })
   const setInfo = useMemo(() => new Map(sets.map(s => [s.id, s])), [sets])
@@ -110,10 +113,13 @@ export function CardBrowser<T>({ items, fields, renderTile, itemKey, empty, defa
         </select>
         <SortControl keys={sortKeys} sort={sort} dir={sortDir} onChange={(k, d) => { setSort(k); setSortDir(d) }} />
       </div>
-      <p className="browser-summary">
-        {filtered.length} card{filtered.length === 1 ? '' : 's'}
-        {copies !== filtered.length ? ` · ${copies} copies` : ''} · ≈ {money(total)}
-      </p>
+      <div className="browser-summary">
+        <span>
+          {filtered.length} card{filtered.length === 1 ? '' : 's'}
+          {copies !== filtered.length ? ` · ${copies} copies` : ''} · ≈ {money(total)}
+        </span>
+        {actions && filtered.length > 0 && <span className="browser-actions">{actions(filtered.map(r => r.item))}</span>}
+      </div>
 
       {filtered.length === 0 ? <p className="muted">No cards match.</p> : (
         <div className="trade-grid">
@@ -127,11 +133,4 @@ export function CardBrowser<T>({ items, fields, renderTile, itemKey, empty, defa
       )}
     </div>
   )
-}
-
-/** Set name + number line for a tile, e.g. "Hidden Fates · #57". */
-export function SetLine({ setId, number }: { setId: string; number: string }) {
-  const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets })
-  const name = sets.find(s => s.id === setId)?.name ?? setId
-  return <small className="tile-set">{name} · #{number}</small>
 }

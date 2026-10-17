@@ -25,9 +25,12 @@ import { getOwnedCards } from '../api/collection'
 import { getSharedProfile, makeOffer, tradingError } from '../api/trading'
 import { getGames } from '../api/cards'
 import { currentGame } from '../lib/game'
-import { money, RETURN_KEY } from '../lib/trading'
+import { money, RETURN_KEY, viewCard } from '../lib/trading'
+import { getSets } from '../api/cards'
+import { usePreview } from '../components/CardPreview'
+import { OwnedCardTile } from '../components/OwnedCardTile'
 import { condLabel } from '../lib/conditions'
-import { CardBrowser, SetLine, type BrowseFields } from '../components/CardBrowser'
+import { CardBrowser, type BrowseFields } from '../components/CardBrowser'
 import type { OwnedCard, TradeCardView } from '../types'
 
 interface Line { card: TradeCardView; quantity: number; max: number; askingPrice?: number }
@@ -64,6 +67,9 @@ export function SharePage() {
     retry: false,
   })
 
+  const preview = usePreview()
+  const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets })
+  const setName = useMemo(() => new Map(sets.map(s => [s.id, s.name])), [sets])
   const [tab, setTab] = useState<'trade' | 'all'>('trade')
   const [wants, setWants] = useState<Record<string, Line>>({})
   const [composing, setComposing] = useState(false)
@@ -80,7 +86,7 @@ export function SharePage() {
     [profile, tab])
   /** Sort/total by the asking price where the owner set one, else market. */
   const cardFields = useCallback((c: TradeCardView): BrowseFields => ({
-    name: c.name, setId: c.setId, number: c.number, quantity: c.quantity, rarity: c.rarity,
+    name: c.name, setId: c.setId, number: c.number, quantity: c.quantity, rarity: c.rarity, artist: c.artist,
     value: asking.get(key(c.cardId, c.condition)) ?? c.marketPrice ?? null,
   }), [asking])
 
@@ -156,6 +162,7 @@ export function SharePage() {
       </header>
 
       <main className="trade-main">
+        {preview.overlay}
         <div className="share-controls">
           <nav className="trade-tabs">
             <button className={tab === 'trade' ? 'active' : ''} onClick={() => setTab('trade')}>For trade ({profile.tradeList.length})</button>
@@ -176,16 +183,16 @@ export function SharePage() {
             const ask = asking.get(k)
             const picked = !!wants[k]
             return (
-              <div className={`trade-tile ${picked ? 'picked' : ''}`}>
-                <img src={c.imageSmall} alt={c.name} loading="lazy" />
-                <b>{c.name}</b>
-                <SetLine setId={c.setId} number={c.number} />
-                <small>{condLabel(c.condition)}{c.quantity > 1 ? ` · ${c.quantity} available` : ''} · market {money(c.marketPrice)}</small>
-                {asking.has(k) && <span className="trade-ask">{ask != null ? `Asking ${money(ask)}` : 'Make an offer'}</span>}
-                {!isOwner && (
-                  <button className={picked ? 'primary' : ''} onClick={() => toggleWant(c)}>{picked ? '✓ In offer' : '+ Want'}</button>
-                )}
-              </div>
+              <OwnedCardTile
+                card={viewCard(c)} preview={preview} qty={c.quantity} selected={picked}
+                subtitle={<>
+                  <span className="tile-line">{setName.get(c.setId) ?? c.setId} · #{c.number}</span>
+                  <span className="tile-line">{condLabel(c.condition)} · market {money(c.marketPrice)}</span>
+                  {c.artist && <span className="tile-line">✏ {c.artist}</span>}
+                  {asking.has(k) && <b className="tile-line trade-ask">{ask != null ? `Asking ${money(ask)}` : 'Make an offer'}</b>}
+                </>}
+                actions={isOwner ? [] : [{ label: picked ? '✓ In offer' : '+ Want', onClick: () => toggleWant(c) }]}
+              />
             )
           }}
         />

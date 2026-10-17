@@ -30,6 +30,9 @@ import zio.*
 /** A failure with a specific HTTP status — routes map it to a response. */
 final case class TradingError(status: Int, message: String) extends RuntimeException(message)
 
+/** One card in a bulk "list for trade": no asking price = make an offer. */
+final case class TradeLine(cardId: String, condition: String, quantity: Int, askingPrice: Option[Double])
+
 /** One requested line in an offer: just ids, everything else is looked up. */
 final case class OfferLine(cardId: String, condition: String, quantity: Int)
 
@@ -43,6 +46,10 @@ trait TradingService:
   def saveTradeItem(userId: String, cardId: String, condition: String, quantity: Int,
     askingPrice: Option[Double], note: Option[String]): Task[List[TradeListItem]]
   def removeTradeItem(userId: String, itemId: String): Task[Unit]
+  /** Lists many cards at once. Quantities above what's owned are cut down
+   *  to what's owned; cards not owned at all are skipped. */
+  def saveTradeItems(userId: String, lines: List[TradeLine]): Task[List[TradeListItem]]
+  def removeTradeItems(userId: String, itemIds: List[String]): Task[Int]
 
   def makeOffer(buyerId: String, slug: String, wants: List[OfferLine], gives: List[OfferLine],
     cashAmount: Option[Double], message: Option[String]): Task[CardOffer]
@@ -57,6 +64,7 @@ object TradingService:
   private val MaxLines   = 50
   private val MaxCash    = 1_000_000.0
   private val MaxMessage = 2000
+  private val MaxBulk    = 2000
 
   private val slugChars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
   private val rng = new java.security.SecureRandom()
@@ -128,6 +136,29 @@ object TradingService:
       yield list
 
     def removeTradeItem(userId: String, itemId: String): Task[Unit] = repo.deleteTradeItem(userId, itemId)
+
+    def saveTradeItems(userId: String, lines: List[TradeLine]): Task[List[TradeListItem]] =
+      for
+        _     <- realUser(userId, "list cards for trade")
+        _     <- ZIO.when(lines.isEmpty)(fail(400, "Pick at least one card."))
+        _     <- ZIO.when(lines.size > MaxBulk)(fail(400, s"List at most $MaxBulk cards per request."))
+        _     <- ZIO.when(lines.exists(_.quantity < 1))(fail(400, "Quantity must be at least 1."))
+        _     <- ZIO.when(lines.exists(_.askingPrice.exists(p => p < 0 || p > MaxCash)))(fail(400, "Asking price is out of range."))
+        owned <- repo.ownedQuantities(userId, lines.map(_.cardId))
+        // A repeated (card, condition) keeps its last line; never list more than owned.
+        rows   = lines.groupMapReduce(l => (l.cardId, l.condition))(identity)((_, b) => b).values.toList.flatMap { l =>
+                   val n = math.min(l.quantity, owned.getOrElse((l.cardId, l.condition), 0))
+                   Option.when(n > 0)((l.cardId, l.condition, n, l.askingPrice))
+                 }
+        _     <- ZIO.when(rows.isEmpty)(fail(400, "None of those cards are in your collection."))
+        _     <- repo.upsertTradeItems(userId, rows)
+        game  <- repo.gamesOfCards(rows.take(1).map(_._1)).map(_.headOption.getOrElse(Game.DefaultId))
+        list  <- repo.listTradeItems(userId, game)
+      yield list
+
+    def removeTradeItems(userId: String, itemIds: List[String]): Task[Int] =
+      ZIO.when(itemIds.size > MaxBulk)(fail(400, s"Remove at most $MaxBulk cards per request.")) *>
+        repo.deleteTradeItems(userId, itemIds.distinct)
 
     private def snapshot(line: OfferLine): Task[OfferCard] =
       repo.cardView(line.cardId, line.condition, line.quantity)

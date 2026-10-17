@@ -31,6 +31,7 @@ final case class TradeCardView(
   setId:       String,
   number:      String,
   rarity:      Option[String],
+  artist:      Option[String],
   imageSmall:  String,
   imageLarge:  String,
   condition:   String,

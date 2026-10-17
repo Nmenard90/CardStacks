@@ -34,11 +34,17 @@ trait TradingRepository:
   def upsertTradeItem(userId: String, cardId: String, condition: String, quantity: Int,
     askingPrice: Option[Double], note: Option[String]): Task[Unit]
   def deleteTradeItem(userId: String, itemId: String): Task[Unit]
+  /** Lists many (cardId, condition, quantity, askingPrice) at once in one
+   *  transaction; an existing listing keeps its note. */
+  def upsertTradeItems(userId: String, items: List[(String, String, Int, Option[Double])]): Task[Unit]
+  def deleteTradeItems(userId: String, itemIds: List[String]): Task[Int]
   /** How many trade-list copies of (card, condition) this user listed. */
   def listedQuantity(userId: String, cardId: String, condition: String): Task[Int]
 
   /** Copies of (card, condition key) in the user's collection. */
   def ownedQuantity(userId: String, cardId: String, condition: String): Task[Int]
+  /** Copies owned per (cardId, condition key), for the given cards. */
+  def ownedQuantities(userId: String, cardIds: List[String]): Task[Map[(String, String), Int]]
   /** Every owned (card, condition) with quantity > 0, for a public collection. */
   def publicCollection(userId: String, game: String): Task[List[TradeCardView]]
   /** Games the user has trade-list items in (plus owned cards when `withCollection`). */
@@ -82,14 +88,14 @@ object TradingRepository:
         case "DMG" => dmg.orElse(nm)
         case _     => nm
 
-    private type CardRow = (String, String, String, String, Option[String], String, String,
+    private type CardRow = (String, String, String, String, Option[String], Option[String], String, String,
                             Option[Double], Option[Double], Option[Double], Option[Double], Option[Double])
 
     private def view(r: CardRow, condition: String, quantity: Int): TradeCardView =
-      val (id, name, setId, number, rarity, small, large, nm, lp, mp, hp, dmg) = r
-      TradeCardView(id, name, setId, number, rarity, small, large, condition, quantity, priceFor(condition, nm, lp, mp, hp, dmg))
+      val (id, name, setId, number, rarity, artist, small, large, nm, lp, mp, hp, dmg) = r
+      TradeCardView(id, name, setId, number, rarity, artist, small, large, condition, quantity, priceFor(condition, nm, lp, mp, hp, dmg))
 
-    private val cardCols = fr"""c.id, c.name, c.set_id, c.number, c.rarity, c.image_small, c.image_large,
+    private val cardCols = fr"""c.id, c.name, c.set_id, c.number, c.rarity, c.artist, c.image_small, c.image_large,
       p.price_nm, p.price_lp, p.price_mp, p.price_hp, p.price_dmg"""
 
     /** One price row for card `c` and the condition key `cond` (a SQL
@@ -159,6 +165,19 @@ object TradingRepository:
     def deleteTradeItem(userId: String, itemId: String): Task[Unit] =
       sql"DELETE FROM trade_list_items WHERE id = $itemId AND user_id = $userId".update.run.void.transact(xa)
 
+    def upsertTradeItems(userId: String, items: List[(String, String, Int, Option[Double])]): Task[Unit] =
+      Update[(String, String, String, Int, Option[Double])](
+        """INSERT INTO trade_list_items (user_id, card_id, condition, quantity, asking_price)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT (user_id, card_id, condition) DO UPDATE SET
+             quantity = EXCLUDED.quantity, asking_price = EXCLUDED.asking_price, updated_at = NOW()"""
+      ).updateMany(items.map { case (c, k, q, p) => (userId, c, k, q, p) }).void.transact(xa)
+
+    def deleteTradeItems(userId: String, itemIds: List[String]): Task[Int] =
+      if itemIds.isEmpty then ZIO.succeed(0)
+      else sql"DELETE FROM trade_list_items WHERE user_id = $userId AND id = ANY(${itemIds.toArray})"
+        .update.run.transact(xa)
+
     def listedQuantity(userId: String, cardId: String, condition: String): Task[Int] =
       sql"""SELECT COALESCE(SUM(quantity), 0)::int FROM trade_list_items
             WHERE user_id = $userId AND card_id = $cardId AND condition = $condition"""
@@ -172,6 +191,20 @@ object TradingRepository:
             CROSS JOIN LATERAL jsonb_array_elements(ce.conditions::jsonb) item
             WHERE ce.user_id = $userId AND ce.card_id = $cardId AND item->>'condition' = $condition"""
         .query[Int].unique.transact(xa)
+
+    def ownedQuantities(userId: String, cardIds: List[String]): Task[Map[(String, String), Int]] =
+      cardIds.distinct match
+        case Nil => ZIO.succeed(Map.empty)
+        case ids =>
+          sql"""SELECT ce.card_id, item->>'condition',
+                       SUM(GREATEST(0, COALESCE((item->>'quantity')::int, 0)))::int
+                FROM collection_entries ce
+                CROSS JOIN LATERAL jsonb_array_elements(ce.conditions::jsonb) item
+                WHERE ce.user_id = $userId AND ce.card_id = ANY(${ids.toArray})
+                GROUP BY ce.card_id, item->>'condition'"""
+            .query[(String, String, Int)].to[List]
+            .map(_.map { case (c, k, n) => (c, k) -> n }.toMap)
+            .transact(xa)
 
     def publicCollection(userId: String, game: String): Task[List[TradeCardView]] =
       (fr"SELECT item->>'condition', (item->>'quantity')::int," ++ cardCols ++

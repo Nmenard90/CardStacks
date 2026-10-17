@@ -7,6 +7,9 @@
 import { api } from './client'
 import type { CardOffer, OfferLine, CardOfferStatus, ShareSettings, SharedProfile, TradeListItem } from '../types'
 
+/** One card in a bulk listing; no asking price = "make me an offer". */
+export interface TradeLine { cardId: string; condition: string; quantity: number; askingPrice?: number }
+
 /** The backend sends `{ error }` with a readable message on 4xx. */
 export const tradingError = (e: unknown, fallback: string): string => {
   const data = (e as { response?: { data?: { error?: string } } })?.response?.data
@@ -31,6 +34,11 @@ export const saveTradeItem = (userId: string, value: { cardId: string; condition
   api.put<TradeListItem[]>(`/api/trading/${userId}/list`, value).then(r => r.data)
 export const removeTradeItem = (userId: string, itemId: string) =>
   api.delete(`/api/trading/${userId}/list/${itemId}`).then(r => r.data)
+/** Lists many cards at once (quantities above what's owned are cut down); returns the whole list. */
+export const saveTradeItems = (userId: string, items: TradeLine[]) =>
+  api.put<TradeListItem[]>(`/api/trading/${userId}/list/bulk`, { items }).then(r => r.data)
+export const removeTradeItems = (userId: string, ids: string[]) =>
+  api.post<{ removed: number }>(`/api/trading/${userId}/list/remove`, { ids }).then(r => r.data.removed)
 
 export const getOffers = (userId: string) =>
   api.get<CardOffer[]>(`/api/trading/${userId}/offers`).then(r => r.data)

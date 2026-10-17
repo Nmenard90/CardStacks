@@ -7,8 +7,12 @@
  *     one shows both sides of the deal, the actions this side may take
  *     (accept/decline, withdraw, mark complete/cancel) and its message
  *     thread, which polls every 10s while open.
- *   - Trade list: cards hand-picked from the collection as available, each
- *     with an optional asking price (blank = "make me an offer").
+ *   - Trade list: cards from the collection marked available, each with an
+ *     optional asking price (blank = "make me an offer"). One at a time
+ *     (tap "+ List for trade"), or in bulk: tick cards or "Select all" (what
+ *     the set/name filters show), then pick how many copies (every copy,
+ *     extras only, 1 of each) and a price (make an offer, or % of market).
+ *     Listed cards can be removed in bulk the same way.
  *     The list and the whole collection below it are both browsable
  *     (CardBrowser: sort by value/name/set/recent, filter by set or name).
  *   - Share link: the one link to hand out, whether it's on, whether it
@@ -21,7 +25,7 @@
  * DEPENDS ON: api/trading, api/collection
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { useUser } from '../context/UserContext'
@@ -31,12 +35,16 @@ import { LoginScreen } from '../components/LoginScreen'
 import { getOwnedCards } from '../api/collection'
 import {
   getOffer, getOffers, getShareSettings, getTradeList, postOfferMessage, regenerateShareLink,
-  removeTradeItem, saveTradeItem, setOfferStatus, tradingError, updateShareSettings,
+  removeTradeItem, removeTradeItems, saveTradeItem, saveTradeItems, setOfferStatus, tradingError,
+  updateShareSettings, type TradeLine,
 } from '../api/trading'
-import { money, shareOrigin } from '../lib/trading'
+import { getSets } from '../api/cards'
+import { usePreview } from '../components/CardPreview'
+import { OwnedCardTile } from '../components/OwnedCardTile'
+import { money, shareOrigin, viewCard } from '../lib/trading'
 import { currentGame } from '../lib/game'
-import { condLabel, condPrice } from '../lib/conditions'
-import { CardBrowser, SetLine, type BrowseFields } from '../components/CardBrowser'
+import { baseCond, CONDS, condLabel, condPrice } from '../lib/conditions'
+import { CardBrowser, type BrowseFields } from '../components/CardBrowser'
 import type { CardOffer, OfferCard, CardOfferStatus, OwnedCard, TradeListItem } from '../types'
 
 type Tab = 'offers' | 'list' | 'share'
@@ -287,17 +295,72 @@ const ownedFields = (o: OwnedCard): BrowseFields => ({
 })
 const listedFields = (i: TradeListItem): BrowseFields => ({
   name: i.card.name, setId: i.card.setId, number: i.card.number, value: i.askingPrice ?? i.card.marketPrice ?? null,
-  rarity: i.card.rarity,
+  rarity: i.card.rarity, artist: i.card.artist,
   quantity: i.card.quantity, addedAt: i.updatedAt,
 })
+
+/** Owned conditions, best first (NM before LP…), so "keep one" keeps the best copy. */
+const bestFirst = (o: OwnedCard): [string, number][] =>
+  Object.entries(condMap(o)).sort((a, b) => CONDS.indexOf(baseCond(a[0])) - CONDS.indexOf(baseCond(b[0])))
+
+type CopiesMode = 'all' | 'extras' | 'one'
+type PriceMode = 'offer' | 'percent'
+
+/** The trade-list lines for listing these cards in bulk. */
+function bulkLines(cards: OwnedCard[], copies: CopiesMode, price: PriceMode, percent: number): TradeLine[] {
+  const lines: TradeLine[] = []
+  for (const o of cards) {
+    let keep = copies === 'extras' ? 1 : 0
+    for (const [condition, owned] of bestFirst(o)) {
+      let quantity = copies === 'one' ? 1 : owned
+      const kept = Math.min(keep, quantity)
+      quantity -= kept
+      keep -= kept
+      if (quantity > 0) {
+        const market = condPrice(o.card, condition)
+        // Rounded to the cent; no market price = make an offer.
+        const askingPrice = price === 'percent' && market > 0 ? Math.round(market * percent) / 100 : undefined
+        lines.push({ cardId: o.cardId, condition, quantity, askingPrice })
+      }
+      if (copies === 'one') break
+    }
+  }
+  return lines
+}
+
+/** Cards per bulk request — keeps each request body small. */
+const CHUNK = 500
+
+const toggled = (prev: Set<string>, id: string): Set<string> => {
+  const next = new Set(prev)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  return next
+}
+
+/** A tile's info lines (inside OwnedCardTile's subtitle), skipping empty ones. */
+function TileLines({ lines }: { lines: ReactNode[] }) {
+  return <>{lines.filter(Boolean).map((l, i) => <span key={i} className="tile-line">{l}</span>)}</>
+}
 
 function TradeListTab({ userId }: { userId: string }) {
   const qc = useQueryClient()
   const toast = useToast()
+  const preview = usePreview()
   const { data: items = [], isLoading } = useQuery({ queryKey: ['trade-list', userId], queryFn: () => getTradeList(userId) })
   const { data: owned = [], isLoading: ownedLoading } = useQuery({ queryKey: ['owned', userId], queryFn: () => getOwnedCards(userId) })
+  const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets })
+  const setName = useMemo(() => new Map(sets.map(s => [s.id, s.name])), [sets])
   const [editing, setEditing] = useState<Editing | null>(null)
   const [saving, setSaving] = useState(false)
+
+  // Bulk selection: owned card ids to list, trade-list item ids to remove.
+  const [picked, setPicked] = useState<Set<string>>(() => new Set())
+  const [pickedListed, setPickedListed] = useState<Set<string>>(() => new Set())
+  const [copies, setCopies] = useState<CopiesMode>('all')
+  const [priceMode, setPriceMode] = useState<PriceMode>('offer')
+  const [percent, setPercent] = useState('90')
+  const [bulkBusy, setBulkBusy] = useState(false)
 
   const ownedById = useMemo(() => new Map(owned.map(o => [o.cardId, o])), [owned])
   const listedByCard = useMemo(() => {
@@ -356,8 +419,50 @@ function TradeListTab({ userId }: { userId: string }) {
     }
   }
 
+  const listPicked = async () => {
+    const pct = Number(percent)
+    if (priceMode === 'percent' && !(pct > 0 && pct <= 1000)) { toast('Enter a percent of market, e.g. 90.'); return }
+    const lines = bulkLines(ownedNonZero.filter(o => picked.has(o.cardId)), copies, priceMode, pct)
+    if (lines.length === 0) { toast(copies === 'extras' ? 'None of those cards have extra copies.' : 'Nothing to list.'); return }
+    setBulkBusy(true)
+    try {
+      let list: TradeListItem[] | undefined
+      for (let i = 0; i < lines.length; i += CHUNK) list = await saveTradeItems(userId, lines.slice(i, i + CHUNK))
+      qc.setQueryData(['trade-list', userId], list)
+      const n = new Set(lines.map(l => l.cardId)).size
+      toast(`Listed ${n} card${n === 1 ? '' : 's'} for trade.`)
+      setPicked(new Set())
+    } catch (e) {
+      toast(tradingError(e, 'Could not list those cards.'))
+      // Earlier chunks may have gone through.
+      void qc.invalidateQueries({ queryKey: ['trade-list', userId] })
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  const removePicked = async () => {
+    const ids = [...pickedListed]
+    if (!confirm(`Take ${ids.length} card${ids.length === 1 ? '' : 's'} off your trade list?`)) return
+    setBulkBusy(true)
+    try {
+      for (let i = 0; i < ids.length; i += CHUNK) await removeTradeItems(userId, ids.slice(i, i + CHUNK))
+      qc.setQueryData<TradeListItem[]>(['trade-list', userId], prev => (prev || []).filter(x => !pickedListed.has(x.id)))
+      toast(`Removed ${ids.length} card${ids.length === 1 ? '' : 's'} from your trade list.`)
+      setPickedListed(new Set())
+    } catch (e) {
+      toast(tradingError(e, 'Could not remove those cards.'))
+      void qc.invalidateQueries({ queryKey: ['trade-list', userId] })
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  const setLine = (setId: string, number: string) => `${setName.get(setId) ?? setId} · #${number}`
+
   return (
-    <div className="trade-list-tab">
+    <div className={`trade-list-tab ${picked.size || pickedListed.size ? 'has-tray' : ''}`}>
+      {preview.overlay}
       <section>
         <h3>On your trade list</h3>
         {isLoading ? <p className="muted">Loading…</p> : (
@@ -366,51 +471,100 @@ function TradeListTab({ userId }: { userId: string }) {
             fields={listedFields}
             itemKey={i => i.id}
             empty={<p className="muted">Nothing listed yet — pick cards from your collection below.</p>}
+            actions={shown => <>
+              <button onClick={() => setPickedListed(p => new Set([...p, ...shown.map(i => i.id)]))}>Select all {shown.length}</button>
+              {pickedListed.size > 0 && <button onClick={() => setPickedListed(new Set())}>Clear</button>}
+            </>}
             renderTile={i => (
-              <div className="trade-tile">
-                <img src={i.card.imageSmall} alt={i.card.name} loading="lazy" />
-                <b>{i.card.name}</b>
-                <SetLine setId={i.card.setId} number={i.card.number} />
-                <small>{condLabel(i.card.condition)}{i.card.quantity > 1 ? ` · ×${i.card.quantity}` : ''} · market {money(i.card.marketPrice)}</small>
-                <span className="trade-ask">{i.askingPrice != null ? `Asking ${money(i.askingPrice)}` : 'Make an offer'}</span>
-                {i.note && <small className="trade-note">{i.note}</small>}
-                <div className="trade-tile-actions">
-                  <button onClick={() => startFromItem(i)}>Edit</button>
-                  <button onClick={() => void remove(i)}>Remove</button>
-                </div>
-              </div>
+              <OwnedCardTile
+                card={viewCard(i.card)} preview={preview} qty={i.card.quantity}
+                selected={pickedListed.has(i.id)}
+                onToggleSelect={() => setPickedListed(p => toggled(p, i.id))}
+                subtitle={<TileLines lines={[
+                  setLine(i.card.setId, i.card.number),
+                  `${condLabel(i.card.condition)} · market ${money(i.card.marketPrice)}`,
+                  i.card.artist && `✏ ${i.card.artist}`,
+                  <b className="trade-ask">{i.askingPrice != null ? `Asking ${money(i.askingPrice)}` : 'Make an offer'}</b>,
+                  i.note && <i>{i.note}</i>,
+                ]} />}
+                actions={[{ label: 'Edit', onClick: () => startFromItem(i) }, { label: 'Remove', onClick: () => void remove(i) }]}
+              />
             )}
           />
         )}
       </section>
 
       <section>
-        <h3>Your collection <small>tap a card to list it</small></h3>
+        <h3>Your collection <small>tick cards to list many at once</small></h3>
         {ownedLoading ? <p className="muted">Loading…</p> : (
           <CardBrowser
             items={ownedNonZero}
             fields={ownedFields}
             itemKey={o => o.cardId}
             empty={<p className="muted">Your collection is empty — add cards first.</p>}
+            actions={shown => <>
+              <button onClick={() => setPicked(p => new Set([...p, ...shown.map(o => o.cardId)]))}>Select all {shown.length}</button>
+              {picked.size > 0 && <button onClick={() => setPicked(new Set())}>Clear</button>}
+            </>}
             renderTile={o => {
               const listed = listedByCard.get(o.cardId) ?? []
-              const conds = condMap(o)
-              const value = ownedValue(o)
               return (
-                <button className={`trade-tile owned-tile ${listed.length ? 'listed' : ''}`} onClick={() => startFromOwned(o)}>
-                  {listed.length > 0 && <span className="listed-chip">Listed</span>}
-                  <img src={o.card.images.small} alt={o.card.name} loading="lazy" />
-                  <b>{o.card.name}</b>
-                  <SetLine setId={o.card.setId} number={o.card.number} />
-                  <small>{Object.entries(conds).map(([c, q]) => `${q}× ${condLabel(c)}`).join(', ')}</small>
-                  <span className="trade-ask">{value != null ? money(value) : 'No price'}</span>
-                  <span className="owned-cta">{listed.length ? 'Edit listing' : '+ List for trade'}</span>
-                </button>
+                <OwnedCardTile
+                  card={o.card} preview={preview}
+                  qty={o.conditions.reduce((n, c) => n + Math.max(0, c.quantity), 0)}
+                  className={listed.length ? 'listed' : ''}
+                  selected={picked.has(o.cardId)}
+                  onToggleSelect={() => setPicked(p => toggled(p, o.cardId))}
+                  subtitle={<TileLines lines={[
+                    setLine(o.card.setId, o.card.number),
+                    Object.entries(condMap(o)).map(([c, q]) => `${q}× ${condLabel(c)}`).join(', '),
+                    o.card.artist && `✏ ${o.card.artist}`,
+                    listed.length > 0 && <b className="listed-note">✓ On trade list</b>,
+                  ]} />}
+                  actions={[{ label: listed.length ? 'Edit listing' : '+ List for trade', onClick: () => startFromOwned(o) }]}
+                />
               )
             }}
           />
         )}
       </section>
+
+      {picked.size > 0 && (
+        <div className="bulk-tray" role="region" aria-label="List selected cards">
+          <b>{picked.size} card{picked.size === 1 ? '' : 's'} selected</b>
+          <label>Copies
+            <select value={copies} onChange={e => setCopies(e.target.value as CopiesMode)}>
+              <option value="all">Every copy</option>
+              <option value="extras">Extras only (keep 1)</option>
+              <option value="one">1 of each</option>
+            </select>
+          </label>
+          <label>Price
+            <select value={priceMode} onChange={e => setPriceMode(e.target.value as PriceMode)}>
+              <option value="offer">Make an offer</option>
+              <option value="percent">% of market</option>
+            </select>
+          </label>
+          {priceMode === 'percent' && (
+            <label className="bulk-percent">
+              <input inputMode="decimal" value={percent} onChange={e => setPercent(e.target.value)} aria-label="Percent of market" />%
+            </label>
+          )}
+          <div className="bulk-tray-actions">
+            <button className="primary" disabled={bulkBusy} onClick={() => void listPicked()}>{bulkBusy ? 'Listing…' : 'List for trade'}</button>
+            <button disabled={bulkBusy} onClick={() => setPicked(new Set())}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {pickedListed.size > 0 && picked.size === 0 && (
+        <div className="bulk-tray" role="region" aria-label="Remove selected cards">
+          <b>{pickedListed.size} listed card{pickedListed.size === 1 ? '' : 's'} selected</b>
+          <div className="bulk-tray-actions">
+            <button className="primary" disabled={bulkBusy} onClick={() => void removePicked()}>{bulkBusy ? 'Removing…' : 'Take off trade list'}</button>
+            <button disabled={bulkBusy} onClick={() => setPickedListed(new Set())}>Cancel</button>
+          </div>
+        </div>
+      )}
 
       {editing && (
         <div className="offer-sheet" role="dialog" aria-label="List for trade" onClick={e => { if (e.target === e.currentTarget) setEditing(null) }}>

@@ -306,6 +306,7 @@ export interface TradeCardView {
   setId: string
   number: string
   rarity?: string
+  artist?: string
   imageSmall: string
   imageLarge: string
   condition: string

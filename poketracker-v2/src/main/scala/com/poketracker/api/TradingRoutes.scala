@@ -16,6 +16,8 @@
  *   GET    /api/trading/:userId/list                         — own trade list
  *   PUT    /api/trading/:userId/list                         — add/update a trade list item
  *   DELETE /api/trading/:userId/list/:itemId                 — remove one
+ *   PUT    /api/trading/:userId/list/bulk                    — list many cards at once
+ *   POST   /api/trading/:userId/list/remove                  — remove many at once
  *   GET    /api/trading/:userId/offers                       — offers made and received
  *   POST   /api/trading/:userId/offers                       — make an offer on a share link
  *   GET    /api/trading/:userId/offers/:offerId              — one offer + thread (marks read)
@@ -29,7 +31,7 @@
 
 package com.poketracker.api
 
-import com.poketracker.service.{OfferLine, TradingError, TradingService}
+import com.poketracker.service.{OfferLine, TradeLine, TradingError, TradingService}
 import zio.*
 import zio.http.*
 import zio.json.*
@@ -39,6 +41,8 @@ object TradingRoutes:
   private case class ShareUpdate(enabled: Boolean, collectionPublic: Boolean, bio: Option[String])
   private case class ItemRequest(cardId: String, condition: String, quantity: Int, askingPrice: Option[Double], note: Option[String])
   private case class OfferRequest(slug: String, wants: List[OfferLine], gives: List[OfferLine], cashAmount: Option[Double], message: Option[String])
+  private case class BulkRequest(items: List[TradeLine])
+  private case class RemoveRequest(ids: List[String])
   private case class StatusRequest(status: String)
   private case class MessageRequest(body: String)
 
@@ -46,6 +50,9 @@ object TradingRoutes:
   private given JsonDecoder[ShareUpdate]    = DeriveJsonDecoder.gen
   private given JsonDecoder[ItemRequest]    = DeriveJsonDecoder.gen
   private given JsonDecoder[OfferRequest]   = DeriveJsonDecoder.gen
+  private given JsonDecoder[TradeLine]      = DeriveJsonDecoder.gen
+  private given JsonDecoder[BulkRequest]    = DeriveJsonDecoder.gen
+  private given JsonDecoder[RemoveRequest]  = DeriveJsonDecoder.gen
   private given JsonDecoder[StatusRequest]  = DeriveJsonDecoder.gen
   private given JsonDecoder[MessageRequest] = DeriveJsonDecoder.gen
 
@@ -95,6 +102,14 @@ object TradingRoutes:
     Method.PUT / "api" / "trading" / string("userId") / "list" -> handler { (userId: String, req: Request) =>
       respond(body[ItemRequest](req).flatMap(b =>
         svc.flatMap(_.saveTradeItem(userId, b.cardId, b.condition, b.quantity, b.askingPrice, b.note))))
+    },
+
+    Method.PUT / "api" / "trading" / string("userId") / "list" / "bulk" -> handler { (userId: String, req: Request) =>
+      respond(body[BulkRequest](req).flatMap(b => svc.flatMap(_.saveTradeItems(userId, b.items))))
+    },
+
+    Method.POST / "api" / "trading" / string("userId") / "list" / "remove" -> handler { (userId: String, req: Request) =>
+      respond(body[RemoveRequest](req).flatMap(b => svc.flatMap(_.removeTradeItems(userId, b.ids))).map(n => Map("removed" -> n)))
     },
 
     Method.DELETE / "api" / "trading" / string("userId") / "list" / string("itemId") -> handler {
