@@ -48,6 +48,7 @@ _Last updated: 2026-10-16._
 | 031 | S3 | FIXED | Phone layout | Sideways scroll / clipping at 390px: Analyzer and Convention headers, Explore stats row, Trade browser toolbar, Binder header, Add Cards copies box (0d6edfa, 93a58b5, 747750d, dfc7538). |
 | 032 | S2 | FIXED | Catalog | English sets TCGplayer sells but pokemontcg.io lacks were missing (e.g. XY Trainer Kit — Tierno 20/30). Added from TCGTracking as `tt` sets in the Pokémon game (3c470a5). |
 | 033 | S3 | FIXED | Catalog | "Code Card" products (online redemption codes) were imported as cards in TCGTracking sets. Import skips them; 34 unowned rows deleted in production (0d6edfa). |
+| 034 | S2 | FIXED | Trade list | Cards could only be listed one at a time (unusable with thousands of cards), trade tiles looked unlike the rest of the site, and the Artist sort didn't show the artist. Bulk list/remove (Select all, every copy / extras only / 1 of each, make-an-offer or % of market), OwnedCardTile everywhere on trade + share pages, artist on trade card views (53a4f98). |
 
 ---
 

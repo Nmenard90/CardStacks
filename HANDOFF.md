@@ -223,6 +223,8 @@ re-prices instead of keeping stored wrong values until its next refresh.
   `TradingRoutes/Service/Repository`, `models/Trading.scala`. Live on main
   (migration 015 run). `TradingDbSuite` is an opt-in DB test (set `TRADING_IT_DB_URL`).
   The older `trade_listings`/`trade_offers` tables are unrelated and unused.
+  Bulk listing: `PUT …/list/bulk` / `POST …/list/remove` (≤2000 per request;
+  the web sends 500 at a time). Quantities are capped to what's owned.
 - **Excel export by set:** uncommitted in the `tcg-excel` worktree
   (`web/src/lib/xlsxExport.ts`, `CollectionPage.tsx`, `package.json`).
 - **TCGTracking PriceService rewrite:** uncommitted in
