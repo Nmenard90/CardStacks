@@ -19,12 +19,10 @@
  *   generically from the path and rejects the request with 403 unless the
  *   path's userId matches the authenticated caller's.
  *
- *   KNOWN LIMITATION: a handful of endpoints are keyed only by an internal
- *   object id with no userId in the path at all (`/api/storage/boxes/:id`,
- *   `/api/storage/drawers/:id`, `/api/storage/drawers/:id/cards`) — those
- *   are authenticated but not yet ownership-checked here, since that needs
- *   a DB lookup per object rather than a path pattern. Pre-existing gap,
- *   not introduced by this change; tracked in BUGS.md.
+ *   Endpoints keyed only by an internal object id, with no userId in the
+ *   path (`/api/storage/boxes/:id`, `/api/storage/drawers/:id`,
+ *   `/api/storage/drawers/:id/cards`), can't be checked here from the path;
+ *   their repositories check ownership in SQL instead (BUG-021).
  *
  * USED BY: Main.scala
  * DEPENDS ON: security.SupabaseJwtVerifier, service.UserService

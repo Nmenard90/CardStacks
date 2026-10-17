@@ -1,9 +1,11 @@
 # CardStacks
 
-A full-stack Pokémon TCG collection tracker. Log the physical cards you own — by
-condition, variant, and quantity — organize them into virtual binders and
-physical storage boxes that mirror your real shelves, value the collection
-from live market prices, and weigh trades before you make them.
+A full-stack trading card collection tracker — Pokémon (English and
+Japanese) first, other TCGs ready to switch on. Log the physical cards you
+own — by condition, print, and quantity — organize them into virtual binders
+and physical storage boxes that mirror your real shelves, value the
+collection from live market prices, and trade with other collectors through
+a share link.
 
 > **Stack:** React 19 + TypeScript (Vite) frontend · Scala 3 + ZIO 2 + Doobie +
 > PostgreSQL backend · Supabase Auth · deployed on Railway.
@@ -17,30 +19,37 @@ from live market prices, and weigh trades before you make them.
 ## Overview
 
 CardStacks is built for collectors who own real cards and want a single place
-to track them. Card and set data is sourced from the
-[pokemontcg.io](https://pokemontcg.io) catalog (backfilled locally across 170+
-sets) and enriched with per-condition pricing from
-[TCGTracking](https://tcgtracking.com). The app is organized around a few
-focused workflows:
+to track them. English Pokémon card and set data comes from the
+[pokemontcg.io](https://pokemontcg.io) catalog, plus the English products it
+lacks (Trainer Kits, Battle Academy, newest sets…) and every other game from
+[TCGTracking](https://tcgtracking.com) (TCGplayer's catalog). Prices are
+per condition and per print from TCGTracking, falling back to Cardmarket's
+public price guide when TCGplayer has no sales — never estimates.
 
 - **Spaces** — a personal collection room with three areas: physical Storage
-  (boxes and shelf units modeled on real-world formats), a Binder Library, and
-  a Display Gallery for showcase pieces.
-- **Browse & search** the full card catalog by set, or search every set at
-  once by name or collector number.
-- **Bulk add** cards quickly when sorting through a physical pile.
-- **Track ownership** by condition (NM / LP / MP / HP / DMG) and quantity,
-  with automatic per-condition valuation.
+  (boxes and shelf units modeled on real-world formats, auto-filed set boxes
+  that can be arranged by release date), a Binder Library, and a Display
+  Gallery for showcase pieces.
+- **Explore** the full card catalog by set, or search every set at once by
+  name or collector number ("20/30").
+- **Add Cards** quickly when sorting through a physical pile.
+- **Track ownership** by condition (NM / LP / MP / HP / DMG), print (Normal,
+  Reverse Holo, Poké Ball…) and quantity, with automatic valuation.
+- **Trade & Sell** — mark cards for trade (one at a time or thousands in
+  bulk), share one link, and receive offers of cash and/or cards with a
+  message thread per offer.
 - **Trade Analyzer** — compare the value of cards given vs. received.
 - **Convention Mode** — quick on-the-floor price reporting.
 - **CSV import / export** of your collection.
+- **Multiple games** — each game is its own world (collection, Spaces,
+  binders, trades). Switch games from the header.
 
 Accounts are handled by **Supabase Auth** (email + password) — the backend
 never sees or stores a password, and there is no way to browse or discover
 other users' accounts from the app. A "Try the demo" button on the login
 screen starts a Supabase anonymous session instead, so anyone can look
 around without creating an account; demo accounts (and their data) are
-purged 24 hours after creation.
+purged 24 hours after creation. Demo accounts can't trade.
 
 ---
 
@@ -48,12 +57,17 @@ purged 24 hours after creation.
 
 | Area | What it does |
 |------|--------------|
-| Spaces | Physical Storage, Binder Library, and Display Gallery for one collector's room, backed by real box/shelf presets |
-| Collection | Browse by set, global name/number search, per-condition quantities and valuation |
-| Bulk Add | High-volume entry with live search-as-you-type and quick-add by number |
+| Spaces | Physical Storage, Binder Library, and Display Gallery for one collector's room, backed by real box/shelf presets; set boxes auto-filed and arranged by release date |
+| Explore | Browse by set, global name/number search, per-condition and per-print prices |
+| Add Cards | High-volume entry with live search-as-you-type and quick-add by number |
+| Trade & Sell | Trade list (bulk select, % of market pricing), share link (optionally the whole collection), offers + message threads |
 | Trade Analyzer | Side-by-side give/get value comparison with a fairness verdict |
 | Convention Mode | Fast price lookups for use at events |
 | Import / Export | CSV round-trip of your collection |
+
+Every page's view state (area, box, set, tab) lives in the URL, so the
+browser's back button returns to the previous view, and every page is laid
+out for phone screens too.
 
 ---
 
@@ -63,12 +77,17 @@ purged 24 hours after creation.
 React SPA  ──HTTP + Supabase JWT──▶  ZIO HTTP API  ──Doobie──▶  PostgreSQL
  (web/)                               (poketracker-v2/)             │
         │                                    │                     └─ cached catalog: sets, cards, prices
-        └──▶ Supabase Auth (sign-up/login)   └──▶ pokemontcg.io (catalog source, on cache miss)
-                                              └──▶ TCGTracking (per-condition price source)
+        └──▶ Supabase Auth (sign-up/login)   ├──▶ pokemontcg.io (English Pokémon catalog, on cache miss)
+                                              ├──▶ TCGTracking (prices; catalog for other games + TCGplayer-only sets)
+                                              └──▶ Cardmarket price guide (fallback prices)
 ```
 
 - The frontend never talks to the database directly, and never calls
   pokemontcg.io/TCGTracking directly — it only talks to the backend API.
+- Every request carries `?game=` (the game the header switcher is on); the
+  backend scopes catalog, collection, Spaces and trading data to it.
+- Background jobs in the backend re-price owned sets every 6h, import the
+  catalogs of enabled TCGTracking games daily, and purge demo accounts.
 - The frontend authenticates against **Supabase Auth**, then sends the
   resulting access token as a bearer token on every backend request.
 - The backend verifies that token itself, against Supabase's own public
@@ -111,7 +130,8 @@ if you want to see the pattern explained in full.
 **Infrastructure**
 - Railway (frontend and backend services + managed PostgreSQL)
 - Supabase (Auth only — collection data stays in the app's own PostgreSQL)
-- Upstream card data from pokemontcg.io; upstream pricing from TCGTracking
+- Upstream card data from pokemontcg.io and TCGTracking; pricing from
+  TCGTracking with a Cardmarket price-guide fallback
 
 ---
 
@@ -131,10 +151,10 @@ The same guard also closes an authorization gap: almost every endpoint is
 scoped by a `userId` path segment (`/api/spaces/:userId/...`,
 `/api/binders/:userId/...`, etc.), and `AuthGuard` rejects any request whose
 path `userId` doesn't match the authenticated caller — a collector can only
-ever read or write their own data. A few endpoints keyed only by an internal
-object id (`/api/storage/boxes/:id`) are authenticated but not yet
-ownership-checked at that layer; see `AuthGuard.scala`'s header comment for
-the exact scope.
+ever read or write their own data. Endpoints keyed only by an internal
+object id (`/api/storage/boxes/:id`, `/api/storage/drawers/:id`) can't be
+checked from the path, so their repositories check ownership in SQL
+instead.
 
 **Setting it up on your own Supabase project:**
 
@@ -158,34 +178,38 @@ the exact scope.
 
 ```
 tcg/
-├── web/              # React + TypeScript + Vite frontend — the ACTIVE frontend
-├── poketracker-v2/   # Scala 3 + ZIO backend (Dockerized) — the ACTIVE backend
+├── web/              # React + TypeScript + Vite frontend
+│   └── src/
+│       ├── pages/        # SpacesLivePage (home), CollectionPage (Explore), BulkAddPage,
+│       │                 # BinderViewPage, TradePage, SharePage, AnalyzerPage, ConventionModePage
+│       ├── components/   # CardTile, OwnedCardTile, CardThumb, CardBrowser, HeaderNav, ...
+│       ├── api/          # One file per backend area (cards, collection, trading, ...)
+│       ├── lib/          # conditions (price math), game, cardSort, trading, csv, ...
+│       └── styles/       # Per-page CSS
+├── poketracker-v2/   # Scala 3 + ZIO backend (Dockerized)
 │   ├── src/main/scala/com/poketracker/
 │   │   ├── models/       # Plain data shapes (what a "Card" or "User" IS)
 │   │   ├── repository/   # All database SQL lives here, and ONLY here
-│   │   ├── service/      # Business rules — the "why," not the "how to store it"
+│   │   ├── service/      # Business rules — catalog, pricing, trading, storage, ...
 │   │   ├── api/          # HTTP routes — translates web requests into service calls
 │   │   ├── security/     # Supabase JWT verification + per-request authorization
-│   │   ├── config/       # Database connection + auth secret setup
+│   │   ├── config/       # Database connection + auth setup
 │   │   └── Main.scala    # Entry point — wires everything together and starts the server
-│   └── sql/schema.sql    # The full database structure, run once to set it up
-├── V3/               # An abandoned rewrite attempt — historical only, do not build on this
-├── files/            # An even older legacy Node.js prototype — historical only
+│   ├── src/test/scala/   # munit suites (pure logic; DB suites are opt-in)
+│   └── sql/              # schema.sql + numbered migrations, applied by hand
+├── HANDOFF.md        # Developer handoff: current state, gotchas, migrations run
 ├── BUGS.md           # Tracked known issues
 └── README.md         # This file
 ```
-
-`V3/` and `files/` are **not** part of the running app — they're kept around
-for historical reference only. All new work happens in `web/` and
-`poketracker-v2/`.
 
 ---
 
 ## API
 
 Base path: `/api`. User scoping is by `userId` in the path. Every endpoint
-below except the catalog routes requires a `Authorization: Bearer <supabase
-access token>` header — see **Authentication**.
+below except the catalog, share-page and rip-verdict routes requires an
+`Authorization: Bearer <supabase access token>` header — see
+**Authentication**. Most routes also take `?game=<id>` (default `pokemon`).
 
 **Auth**
 | Method | Path | Description |
@@ -195,8 +219,10 @@ access token>` header — see **Authentication**.
 **Catalog** (public, no auth required)
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/sets` | All sets |
+| GET | `/api/games` | Enabled games |
+| GET | `/api/sets` | All sets of the game |
 | GET | `/api/cards/:setId` | Cards in a set, with prices |
+| GET | `/api/cards/browse` | Cards across sets, paged and sorted |
 | GET | `/api/cards/id/:cardId` | Single card by id |
 | GET | `/api/cards/id/:cardId/price-history` | Every price snapshot recorded for a card |
 | GET | `/api/search?q=…` | Search across all sets by name or number |
@@ -213,32 +239,37 @@ access token>` header — see **Authentication**.
 **Spaces** (Storage / Binder Library / Display Gallery)
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/spaces/:userId` | List spaces |
-| POST | `/api/spaces/:userId` | Create a space |
+| GET / POST | `/api/spaces/:userId` | List / create spaces |
 | POST | `/api/spaces/:userId/storage-units` | Add a shelf/rack/cabinet unit |
+| POST | `/api/spaces/:userId/storage-units/:unitId/arrange-by-date` | Order set boxes by release date across the room's units |
 | PUT | `/api/spaces/:userId/boxes/:boxId/placement` | Place a box on a unit |
 | PUT | `/api/spaces/:userId/binders/:binderId/placement` | Place a binder on a unit |
 | POST | `/api/spaces/:userId/display-cases` | Add a display case |
 | PUT | `/api/spaces/:userId/display-cases/:caseId/lights` | Toggle case lighting |
 | GET | `/api/spaces/:userId/inventory` | Full inventory across the space |
-| GET/POST/DELETE | `/api/spaces/:userId/allocations...` | Assign/move/remove copies into drawers, cases, binder slots |
+| GET | `/api/spaces/:userId/{drawers,binders,display-cases}/:id/allocations` | Copies placed in a drawer, binder or case |
+| POST | `/api/spaces/:userId/binders/:binderId/slots/:slotIndex/place` | Put a copy in a binder slot |
+| POST / DELETE | `/api/spaces/:userId/allocations[/:id]` | Assign / remove copies |
+
+**Shelf**
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/shelf/:userId` | Merged, ordered list of boxes + binders |
+| PUT | `/api/shelf/:userId/reorder` | Write a whole new order |
 
 **Binders**
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/binders/:userId` | List binders |
-| POST | `/api/binders/:userId` | Create a binder |
-| GET | `/api/binders/:userId/:binderId` | Get one binder |
-| PUT | `/api/binders/:userId/:binderId` | Update a binder |
-| DELETE | `/api/binders/:userId/:binderId` | Delete a binder |
+| GET / POST | `/api/binders/:userId` | List / create binders |
+| GET / PUT / DELETE | `/api/binders/:userId/:binderId` | Get / update / delete a binder |
 | PUT | `/api/binders/:userId/:binderId/slot/:slotIndex` | Set/clear a slot |
 
 **Physical Storage**
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/storage/:userId/boxes` | List boxes with their drawers |
-| POST | `/api/storage/:userId/boxes` | Create a box |
+| GET / POST | `/api/storage/:userId/boxes` | List boxes with their drawers / create a box |
 | PUT / DELETE | `/api/storage/boxes/:boxId` | Rename/reorder or delete a box |
+| POST | `/api/storage/boxes/:boxId/merge` | Merge another box into this one |
 | POST | `/api/storage/boxes/:boxId/drawers` | Create a drawer |
 | PUT / DELETE | `/api/storage/drawers/:drawerId` | Rename/reorder or delete a drawer |
 | GET | `/api/storage/drawers/:drawerId/cards` | Cards in a drawer |
@@ -246,15 +277,34 @@ access token>` header — see **Authentication**.
 | POST | `/api/storage/:userId/assign` | Bulk-assign cards to a drawer |
 | DELETE | `/api/storage/:userId/assign/:cardId` | Unassign a card |
 
+**Trading**
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/share/:slug` | Public share page data (no auth) |
+| GET / PUT | `/api/trading/:userId/share` | Own share settings (creates the link) / update them |
+| POST | `/api/trading/:userId/share/regenerate` | New link; the old one stops working |
+| GET / PUT | `/api/trading/:userId/list` | Own trade list / add or update one card |
+| PUT | `/api/trading/:userId/list/bulk` | List many cards at once (capped to what's owned) |
+| POST | `/api/trading/:userId/list/remove` | Remove many at once |
+| DELETE | `/api/trading/:userId/list/:itemId` | Remove one |
+| GET / POST | `/api/trading/:userId/offers` | Offers made and received / make an offer |
+| GET | `/api/trading/:userId/offers/:offerId` | One offer + thread (marks it read) |
+| PUT | `/api/trading/:userId/offers/:offerId/status` | Accept / decline / withdraw / complete / cancel |
+| POST | `/api/trading/:userId/offers/:offerId/messages` | Post to the thread |
+| GET | `/api/trading/:userId/unread` | Unread offer count |
+
+**Rip Tracker** (backend only — no page in the app yet)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/rip-sessions` | Start a pack-opening session for a product |
+| POST | `/api/rip-sessions/:id/pulls` | Record a pulled card |
+| GET | `/api/rip-sessions/:id` | Session recap |
+| GET | `/api/rip-tracker/verdict/:productId` | Rip-or-hold verdict (public) |
+
 **Profile**
 | Method | Path | Description |
 |--------|------|-------------|
 | PUT | `/api/users/:userId/location` | Update location |
-
-**Rip Tracker** (schema exists, backend service/routes exist, **not yet wired
-into the live server** — see `poketracker-v2/.../api/RipRoutes.scala` header
-for exactly what's blocking it) — box-opening EV/verdict math, not reachable
-over HTTP yet.
 
 ---
 
@@ -300,9 +350,10 @@ npm install
 npm run dev
 ```
 
-The dev server proxies `/api/*` to your local backend (see
-`web/vite.config.ts`) — no CORS setup needed. Open the printed URL, create an
-account, and you're in.
+The dev server proxies `/api/*` to the deployed backend by default; set
+`VITE_PROXY_TARGET=http://localhost:8080` in `.env.local` to use a local one
+(see `web/vite.config.ts`) — no CORS setup needed. Open the printed URL,
+create an account, and you're in.
 
 ### Building for production
 
@@ -320,8 +371,14 @@ sbt assembly
 
 ```bash
 cd poketracker-v2
-sbt test
+sbt test            # pure-logic suites
+cd ../web
+npx tsc -b          # typecheck (the production build runs this too)
+npx eslint .
 ```
+
+`TradingDbSuite` runs against a real database only when
+`TRADING_IT_DB_URL` is set.
 
 ---
 
@@ -347,20 +404,17 @@ live out of order and break every query touching the changed table.
 
 Tracked in [`BUGS.md`](./BUGS.md); summary:
 
-**Known issues**
-- A handful of storage endpoints keyed by an internal box/drawer id (not by
-  `userId`) are authenticated but not yet ownership-checked — see
-  `security/AuthGuard.scala`.
-- Binder image cropping: card images in binder slots are cropped at the edges.
-- Trade Analyzer "Quick Add from Collection" panel is stubbed.
-
 **Roadmap**
-- Ownership-check the remaining internal-id-keyed storage endpoints.
-- Wire the Rip Tracker (box-opening EV/verdict) into the live server.
-- Per-card detail view with purchase-price tracking and price-history charts.
-- TCGplayer "last sold" pricing, broken out by condition.
+- Bulk Add print picker (record Reverse Holo etc. while adding — BUG-023).
+- Card detail view with purchase price and price-history chart (BUG-017).
+- TCGplayer "last sold" pricing, broken out by condition (BUG-018).
+- Export scope picker (BUG-014) and a shared design system (BUG-013).
+- A Rip Tracker page (the backend endpoints exist).
+- TCGplayer's catch-all promo groups (Blister Exclusives…) and Japanese
+  One Piece aren't imported yet.
 
-See [`BUGS.md`](./BUGS.md) for full detail.
+See [`BUGS.md`](./BUGS.md) for full detail and [`HANDOFF.md`](./HANDOFF.md)
+for the developer's view of the current state.
 
 ---
 

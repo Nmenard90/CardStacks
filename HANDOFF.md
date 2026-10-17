@@ -12,10 +12,12 @@ _Last updated: 2026-10-16._
 
 ## What it is
 
-A full-stack Pokémon TCG collection tracker: log owned cards by condition and
-quantity, organize them into virtual binders, value the collection from market
-prices, and analyze trades. Card/set data comes from pokemontcg.io (cached
-locally); prices are scraped per condition.
+A full-stack trading card collection tracker (Pokémon English + Japanese live;
+other TCGs seeded): log owned cards by condition, print and quantity, organize
+them into Spaces (shelves, boxes, binders, display cases), value the collection
+from market prices, and trade through share links. Card/set data comes from
+pokemontcg.io and TCGTracking (cached locally); prices from TCGTracking per
+condition and print, with a Cardmarket price-guide fallback.
 
 ## Architecture & stack
 
@@ -39,14 +41,15 @@ React SPA  ──HTTP──▶  ZIO HTTP API  ──Doobie──▶  PostgreSQL
 tcg/
 ├── web/              # React + TypeScript + Vite frontend
 │   └── src/
-│       ├── pages/        # CollectionPage, BulkAddPage, OwnedPage, Binder*, AnalyzerPage, ConventionModePage
-│       ├── components/    # CardTile, SetSelector, ImportModal, ExportModal, CardPreview, HeaderNav, Toast, ...
-│       ├── api/           # client, cards, collection, binders, users
-│       └── lib/           # conditions, csv, cardSearch
+│       ├── pages/        # SpacesLivePage (home), CollectionPage (Explore), BulkAddPage, BinderViewPage,
+│       │                 # TradePage, SharePage, AnalyzerPage, ConventionModePage
+│       ├── components/    # CardTile, OwnedCardTile, CardThumb, CardBrowser, HeaderNav, Toast, ...
+│       ├── api/           # client, cards, collection, binders, storage, trading, users, ...
+│       └── lib/           # conditions, game, cardSort, trading, csv, cardSearch
 ├── poketracker-v2/   # Scala 3 + ZIO backend
 │   └── src/main/scala/com/poketracker/
-│       ├── api/           # CardRoutes, CollectionRoutes, BinderRoutes, UserRoutes
-│       ├── service/       # CardService, CollectionService, PriceService, ...
+│       ├── api/           # CardRoutes, CollectionRoutes, BinderRoutes, RoomRoutes, StorageRoutes, TradingRoutes, ...
+│       ├── service/       # CardService, TcgTrackingCatalog, PriceService, CardmarketGuide, TradingService, ...
 │       ├── repository/    # CardRepository, CollectionRepository, ...
 │       ├── models/        # Card, CardSet, Binder, ...
 │       └── Main.scala
@@ -75,17 +78,13 @@ tcg/
 ## Useful endpoints
 
 - `GET /health`
-- `GET /api/sets`, `GET /api/cards/:setId`, `GET /api/cards/id/:cardId`,
-  `GET /api/search?q=…`
-- `GET /api/collection/:userId` (+ `/owned`, `/stats`),
-  `POST /api/collection/:userId/:cardId`, `POST /api/collection/:userId/bulk`
-- Binders: `GET/POST /api/binders/:userId`, `GET/PUT/DELETE /api/binders/:userId/:binderId`,
-  `PUT …/:binderId/slot/:slotIndex`
-- Users: `GET /api/users`, `GET /api/users/:username`, `POST /api/users`,
-  `PUT /api/users/:userId/location`
+- Full list in `README.md` → API. Most routes take `?game=` (default `pokemon`).
 - **Admin/maintenance:** none. The old `/api/admin/refresh*` routes were
   removed in 1f95bbf (no admin-role mechanism exists yet). Prices refresh on
-  their own: opening a set re-fetches its prices if they're older than 6h.
+  their own: opening a set re-fetches its prices if they're older than 6h,
+  and a background job re-prices every owned set every 6h. One-off data
+  fixes are run as SQL in Railway's editor (it appends LIMIT, so wrap a
+  DELETE/UPDATE in a CTE that ends in a SELECT, with no trailing semicolon).
 
 ## Code standards (please keep)
 
@@ -161,7 +160,7 @@ tcg/
 
 Live: Supabase auth + demo mode, collection/bulk add, binders, Spaces (shelves,
 boxes with compartments, display cases, auto-filing into per-set boxes), Trade
-Analyzer, Rip Tracker, price history, "Missing only" per-set view, per-print
+Analyzer, Rip Tracker API (no page yet), price history, "Missing only" per-set view, per-print
 prices with a picker on card tiles, multiple card games, share-link trading.
 
 Recent (2026-10-16): "Arrange by date" orders set boxes by release date

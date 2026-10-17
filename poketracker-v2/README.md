@@ -1,8 +1,30 @@
-## sbt project compiled with Scala 3
+# CardStacks — backend (poketracker-v2)
 
-### Usage
+Scala 3 + ZIO 2 + ZIO HTTP + Doobie over PostgreSQL. Deployed on Railway,
+which builds and restarts it on every push to `main`. See the
+[root README](../README.md) for the API and environment variables.
 
-This is a normal sbt project. You can compile code with `sbt compile`, run it with `sbt run`, and `sbt console` will start a Scala 3 REPL.
+## Run it
 
-For more information on the sbt-dotty plugin, see the
-[scala3-example-project](https://github.com/scala/scala3-example-project/blob/main/README.md).
+```bash
+sbt run        # needs DATABASE_* and SUPABASE_URL (see the root README)
+sbt test
+sbt assembly   # fat JAR, as the Dockerfile builds it
+```
+
+## Layout
+
+- `api/` routes → `service/` rules → `repository/` SQL → `models/`.
+- `service/CardService` — catalog: pokemontcg.io for English Pokémon,
+  `TcgTrackingCatalog` for other games and the English sets pokemontcg.io
+  lacks (`PokemonExtraSets`, set ids starting `tt`).
+- `service/PriceService` + `CardmarketGuide` — per-condition, per-print
+  prices; Cardmarket only when TCGplayer has no sales.
+- `Main.scala` — wiring, plus background jobs: owned-set re-pricing (6h),
+  catalog import for enabled games (daily), demo-account cleanup.
+
+## Database changes
+
+`sql/schema.sql` and `sql/migration_*.sql` are run **by hand** in Railway's
+SQL editor. Never push code that needs a new column or table before its
+migration has been run in production — Railway deploys on push.
