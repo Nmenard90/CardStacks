@@ -2,39 +2,40 @@
  * ShopPage — the public "cards for sale" page that the Facebook post links to.
  *
  * HOW IT WORKS
- *   No login. Built from the same pieces as the share page (SharePage): a
- *   CardBrowser (search by Pokémon / artist / set / number, set filter, sort)
- *   full of OwnedCardTile tiles with hover-zoom, one tile per card + condition.
- *   Buyers tap "+ Add" on what they want, then either send a request (the
- *   picked cards plus their name/contact) or just ask a question with nothing
- *   picked. Requests land in the seller's inbox (ShopRequestsPage). A Messenger
- *   button shows only when the seller saved a Messenger link.
+ *   No login. Laid out like the collection page (top bar with search, stats
+ *   row, sort toolbar, grid of wide card tiles) so it looks like the rest of
+ *   CardStacks. Each tile is a ShopCardTile: the same tile as the collection's
+ *   but for buyers, with condition badges to pick a copy and −/+ to add it to
+ *   the request. Buyers then send a request (picked cards plus name/contact) or
+ *   just ask a question with nothing picked. Requests land in the seller's inbox
+ *   (ShopRequestsPage). A Messenger button shows only when the seller saved one.
  *   Whose shop it is comes from the URL: /shop/:slug.
  *   Prices are the card's LIVE market price every time the page loads —
  *   nothing is snapshotted — and the policy banner says so, along with
  *   "no percentage offers, no trades".
  *
  * USED BY: App.tsx (route "/shop/:slug")
- * DEPENDS ON: api/shop, api/cards, components/CardBrowser, OwnedCardTile, CardPreview, lib/conditions
+ * DEPENDS ON: api/shop, api/cards, components/ShopCardTile, SortControl, CardPreview, lib/cardSort, lib/conditions
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useUser } from '../context/UserContext'
 import { getSets } from '../api/cards'
 import { getShop, getShopSettings, sendShopRequest } from '../api/shop'
-import { condLabel, condPrice } from '../lib/conditions'
-import { CardBrowser, type BrowseFields } from '../components/CardBrowser'
-import { OwnedCardTile } from '../components/OwnedCardTile'
+import { condPrice } from '../lib/conditions'
+import { compareBy, DEFAULT_DIR, type SortDir, type SortKey } from '../lib/cardSort'
+import { usePagedList } from '../lib/usePagedList'
+import { ShopCardTile } from '../components/ShopCardTile'
+import { SortControl } from '../components/SortControl'
 import { usePreview } from '../components/CardPreview'
-import type { Card } from '../types'
+import type { Card, OwnedCard } from '../types'
 
-/** One picked card + condition. `card.prices.nm` is already this condition's price (see ShopItem). */
+/** One picked card + condition. */
 interface CartLine { card: Card; cond: string; qty: number; max: number }
-/** One tile: a card in one condition, priced for that condition. */
-interface ShopItem { card: Card; cond: string; qty: number; price: number }
 
+const SHOP_SORTS: SortKey[] = ['value', 'name', 'set', 'number', 'rarity', 'artist', 'qty', 'recent']
 const money = (n: number) => '$' + n.toFixed(2)
 const lineKey = (cardId: string, cond: string) => `${cardId}|${cond}`
 
@@ -45,8 +46,9 @@ export function ShopPage() {
     queryKey: ['shop', slug], queryFn: () => getShop(slug), staleTime: 60_000, retry: false,
   })
   const messengerUrl = shop?.messengerUrl ?? ''
+  const owned = useMemo(() => shop?.cards ?? [], [shop])
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets })
-  const setName = useMemo(() => new Map(sets.map(s => [s.id, s.name])), [sets])
+  const setInfo = useMemo(() => new Map(sets.map(s => [s.id, s])), [sets])
   const preview = usePreview()
 
   // Is the viewer the shop's owner? Only a signed-in user's own settings can say so
@@ -57,25 +59,39 @@ export function ShopPage() {
   })
   const isOwner = !!mine && mine.slug === slug.toLowerCase()
 
-  // One tile per card + condition. The tile's card carries just that
-  // condition's price (as `nm`) so the thumbnail's price ribbon and the
-  // zoomed preview show the right number for the copy being sold.
-  const items: ShopItem[] = useMemo(() => (shop?.cards ?? []).flatMap(o =>
-    o.conditions.filter(c => c.quantity > 0).map(c => {
-      const price = condPrice(o.card, c.condition)
-      return {
-        card: { ...o.card, variants: undefined, prices: price > 0 ? { nm: price } : undefined },
-        cond: c.condition, qty: c.quantity, price,
-      }
-    })), [shop])
-
-  const fields = useCallback((i: ShopItem): BrowseFields => ({
-    name: i.card.name, setId: i.card.setId, number: i.card.number, quantity: i.qty,
-    rarity: i.card.rarity, artist: i.card.artist, value: i.price > 0 ? i.price : null,
-  }), [])
-
+  const [search, setSearch] = useState('')
+  const [setFilter, setSetFilter] = useState('')
+  const [sort, setSort] = useState<SortKey>('value')
+  const [sortDir, setSortDir] = useState<SortDir>(DEFAULT_DIR.value)
   const [cart, setCart] = useState<Record<string, CartLine>>({})
   const [formOpen, setFormOpen] = useState(false)
+
+  const rows = useMemo(() => {
+    const needle = search.trim().toLowerCase()
+    const list = owned.filter(o =>
+      o.conditions.some(c => c.quantity > 0) &&
+      (!setFilter || o.card.setId === setFilter) &&
+      (!needle || [o.card.name, o.card.artist, o.card.number, setInfo.get(o.card.setId)?.name].some(t => t?.toLowerCase().includes(needle))))
+    return list.sort(compareBy((o: OwnedCard) => ({
+      name: o.card.name, setId: o.card.setId, number: o.card.number, rarity: o.card.rarity, artist: o.card.artist,
+      // Best-condition price, so "value" sorts by what the card sells for.
+      value: Math.max(0, ...o.conditions.filter(c => c.quantity > 0).map(c => condPrice(o.card, c.condition))) || null,
+      qty: o.conditions.reduce((n, c) => n + c.quantity, 0), addedAt: o.updatedAt,
+    }), sort, sortDir, id => setInfo.get(id)?.releaseDate))
+  }, [owned, search, setFilter, sort, sortDir, setInfo])
+
+  /** Sets the seller has cards from, newest first, with counts — for the filter. */
+  const setOptions = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const o of owned) counts.set(o.card.setId, (counts.get(o.card.setId) ?? 0) + 1)
+    return [...counts.entries()]
+      .map(([id, n]) => ({ id, n, name: setInfo.get(id)?.name ?? id, date: setInfo.get(id)?.releaseDate ?? '' }))
+      .sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name))
+  }, [owned, setInfo])
+
+  const totalCopies = owned.reduce((n, o) => n + o.conditions.reduce((m, c) => m + c.quantity, 0), 0)
+  const totalValue = owned.reduce((n, o) => n + o.conditions.reduce((m, c) => m + c.quantity * condPrice(o.card, c.condition), 0), 0)
+  const page = usePagedList(rows, `${search}|${setFilter}|${sort}|${sortDir}|${owned.length}`, 48)
 
   const adjust = (card: Card, cond: string, max: number, delta: number) =>
     setCart(prev => {
@@ -88,66 +104,80 @@ export function ShopPage() {
 
   const lines = Object.values(cart)
   const cartCount = lines.reduce((n, l) => n + l.qty, 0)
-  const cartTotal = lines.reduce((n, l) => n + l.qty * (l.card.prices?.nm ?? 0), 0)
+  const cartTotal = lines.reduce((n, l) => n + l.qty * condPrice(l.card, l.cond), 0)
 
   return (
-    <div className="page-tracker share-page page-shop">
-      <header className="share-hero">
-        <Link to="/" className="share-brand">CardStacks</Link>
-        <h1>Pokémon cards for sale</h1>
-        <p className="share-meta">Browse, pick what you want, and send me a request. Or message me on Facebook.</p>
-        {messengerUrl && <a className="shop-btn" href={messengerUrl} target="_blank" rel="noreferrer">💬 Message me on Facebook</a>}
-        {isOwner && <p className="share-owner-note">This is how buyers see your shop. <Link to="/shop/requests">Edit shop &amp; see requests</Link></p>}
-      </header>
+    <div className="page-tracker shop-wrap">
+      <div id="app" style={{ display: 'block' }}>
+        <header>
+          <div className="logo">{slug.toUpperCase()}'S <span>SHOP</span></div>
+          <Link to="/" className="user-badge" title="Powered by CardStacks">🃏 <b>CardStacks</b></Link>
+          <input type="text" className="header-search" placeholder="Search name, artist, set…"
+            value={search} onChange={e => setSearch(e.target.value)} />
+          {messengerUrl && <a className="user-badge" href={messengerUrl} target="_blank" rel="noreferrer">💬 <b>Message me on Facebook</b></a>}
+        </header>
 
-      <section className="shop-policy" aria-label="Pricing and deal rules">
-        <b>Please read before you ask:</b>
-        <ul>
-          <li><b>Prices follow the market.</b> Every price here is today's market price and changes as the market changes. The price when I confirm your order is the price you pay.</li>
-          <li><b>No percentage offers.</b> No "X% of TCGplayer" or "% off" offers. The price shown is the price.</li>
-          <li><b>No trades.</b> Sales only.</li>
-        </ul>
-      </section>
+        {isOwner && <p className="share-owner-note" style={{ padding: '8px 16px' }}>This is how buyers see your shop. <Link to="/shop/requests">Edit shop &amp; see requests</Link></p>}
 
-      <main className="trade-main">
-        {preview.overlay}
-        {isLoading && <p className="shop-msg">Loading cards…</p>}
-        {isError && <p className="shop-msg">This shop isn't open right now. Check the link, or try again later.</p>}
+        <section className="shop-policy" aria-label="Pricing and deal rules">
+          <b>Please read before you ask:</b>
+          <ul>
+            <li><b>Prices follow the market.</b> Every price here is today's market price and changes as the market changes. The price when I confirm your order is the price you pay.</li>
+            <li><b>No percentage offers.</b> No "X% of TCGplayer" or "% off" offers. The price shown is the price.</li>
+            <li><b>No trades.</b> Sales only.</li>
+          </ul>
+        </section>
 
-        {!isLoading && !isError && (
-          <CardBrowser
-            items={items}
-            fields={fields}
-            itemKey={i => lineKey(i.card.id, i.cond)}
-            empty={<p className="muted">No cards for sale right now.</p>}
-            renderTile={i => {
-              const inCart = cart[lineKey(i.card.id, i.cond)]?.qty ?? 0
-              return (
-                <OwnedCardTile
-                  card={i.card} preview={preview} qty={i.qty} selected={inCart > 0}
-                  subtitle={<>
-                    <span className="tile-line">{setName.get(i.card.setId) ?? i.card.setId} · #{i.card.number}{i.card.rarity ? ` · ${i.card.rarity}` : ''}</span>
-                    <span className="tile-line">{condLabel(i.cond)} · {i.price > 0 ? money(i.price) : 'Ask for price'}</span>
-                    {i.card.artist && <span className="tile-line">✏ {i.card.artist}</span>}
-                    {inCart > 0 && <b className="tile-line trade-ask">{inCart} in your request</b>}
-                  </>}
-                  actions={[
-                    { label: '−', disabled: inCart === 0, onClick: () => adjust(i.card, i.cond, i.qty, -1) },
-                    { label: '+ Add', disabled: inCart >= i.qty, onClick: () => adjust(i.card, i.cond, i.qty, 1) },
-                  ]}
-                />
-              )
-            }}
-          />
-        )}
-      </main>
+        <div className="stats-bar">
+          <div className="stat"><div className="stat-label">Cards for sale</div><div className="stat-value">{owned.length}</div></div>
+          <div className="stat"><div className="stat-label">Total copies</div><div className="stat-value">{totalCopies}</div></div>
+          <div className="stat"><div className="stat-label">Total value</div><div className="stat-value gold">{money(totalValue)}</div></div>
+          {(search || setFilter) && (
+            <div className="stat"><div className="stat-label">Showing</div><div className="stat-value">{rows.length} of {owned.length}</div></div>
+          )}
+        </div>
 
-      <footer className="shop-footer">
-        This shop runs on <Link to="/">CardStacks</Link> — a free tracker for your Pokémon collection. <Link to="/">Start your own</Link>
-      </footer>
+        <div className="toolbar">
+          <select value={setFilter} onChange={e => setSetFilter(e.target.value)} aria-label="Filter by set">
+            <option value="">All sets ({owned.length})</option>
+            {setOptions.map(s => <option key={s.id} value={s.id}>{s.name} ({s.n})</option>)}
+          </select>
+          <SortControl keys={SHOP_SORTS} sort={sort} dir={sortDir} onChange={(k, d) => { setSort(k); setSortDir(d) }} />
+        </div>
+
+        <div id="app-wrap">
+          <div id="main">
+            {isLoading && <div className="loading">Loading cards…</div>}
+            {isError && <div className="empty">This shop isn't open right now. Check the link, or try again later.</div>}
+            {!isLoading && !isError && owned.length === 0 && <div className="empty">No cards for sale right now.</div>}
+            {!isLoading && !isError && owned.length > 0 && rows.length === 0 && <div className="empty">No cards match.</div>}
+            {rows.length > 0 && (
+              <div className="card-grid">
+                {page.visible.map(o => (
+                  <ShopCardTile
+                    key={o.cardId} card={o.card} preview={preview}
+                    setName={setInfo.get(o.card.setId)?.name ?? o.card.setId}
+                    conds={o.conditions.filter(c => c.quantity > 0).map(c => ({ cond: c.condition, qty: c.quantity }))}
+                    inCart={cond => cart[lineKey(o.card.id, cond)]?.qty ?? 0}
+                    onAdj={(cond, d) => adjust(o.card, cond, o.conditions.find(c => c.condition === cond)?.quantity ?? 0, d)}
+                  />
+                ))}
+              </div>
+            )}
+            {page.hasMore && (
+              <div className="browser-more"><button onClick={page.loadMore}>Show more ({page.remaining} left)</button></div>
+            )}
+          </div>
+        </div>
+
+        <footer className="shop-footer">
+          This shop runs on <Link to="/">CardStacks</Link> — a free tracker for your Pokémon collection. <Link to="/">Start your own</Link>
+        </footer>
+      </div>
+      {preview.overlay}
 
       <div className="shop-bar">
-        <span>{cartCount > 0 ? `${cartCount} card${cartCount === 1 ? '' : 's'} · about ${money(cartTotal)} at today's prices` : 'Pick cards with + Add, or just ask a question'}</span>
+        <span>{cartCount > 0 ? `${cartCount} card${cartCount === 1 ? '' : 's'} · about ${money(cartTotal)} at today's prices` : 'Pick cards with +, or just ask a question'}</span>
         <button type="button" className="shop-btn" onClick={() => setFormOpen(true)}>
           {cartCount > 0 ? 'Send request' : 'Ask a question'}
         </button>
