@@ -81,3 +81,32 @@
 .trade-balance.short{border-color:#ff6b6b}
 .trade-balance.short p{color:#ff9d9d}
 .trade-balance input[type=number]{width:100%;background:var(--surface);color:var(--text);border:var(--ink-w) solid var(--border);border-radius:10px;padding:10px 12px;font:inherit;font-size:16px}
+
+/* Seller photos: small framed prints on the tile; zoom on tap. */
+.shop-photos{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;margin-top:10px;padding:2px 4px}
+.photo-frame{display:inline-flex;flex-direction:column;align-items:center;gap:4px;padding:5px 5px 4px;background:#f4f1e8;border:0;border-radius:4px;box-shadow:0 2px 6px rgba(0,0,0,.45);cursor:zoom-in;transform:rotate(-2deg);color:#222;font:inherit}
+.photo-frame+.photo-frame{transform:rotate(2deg)}
+.photo-frame img{width:58px;aspect-ratio:630/880;object-fit:cover;display:block;background:#222}
+.photo-frame span{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em}
+.photo-add{align-self:center}
+.photo-slots{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.photo-slot{display:grid;gap:8px;justify-items:center;text-align:center}
+.photo-frame-lg{cursor:default;transform:none!important;padding:8px;width:100%;max-width:170px}
+.photo-frame-lg img{width:100%}
+.photo-empty{display:flex;align-items:center;justify-content:center;aspect-ratio:630/880;width:100%;font-size:12px;color:#666;text-align:center;padding:6px}
+
+/* In-app camera with the card alignment guide. */
+.cam-modal{position:fixed;inset:0;z-index:90;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;padding:8px}
+.cam-sheet{width:100%;max-width:480px;max-height:100%;overflow:auto;background:var(--surface);border-radius:16px;padding:12px;display:grid;gap:10px}
+.cam-head{display:flex;justify-content:space-between;align-items:center}
+.cam-x{background:none;border:0;color:var(--text);font-size:22px;cursor:pointer;min-width:44px;min-height:44px}
+.cam-view{position:relative;aspect-ratio:630/880;width:min(100%,calc(58vh*630/880));margin:0 auto;background:#000;border-radius:12px;overflow:hidden}
+.cam-view video,.cam-view img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.cam-guide{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.cam-msg{position:absolute;inset:0;margin:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;color:#fff;background:rgba(0,0,0,.6)}
+.cam-tips{margin:0;padding-left:20px;font-size:14px;line-height:1.45;color:var(--muted)}
+.cam-btns{display:flex;gap:10px;flex-wrap:wrap}
+.cam-btns .shop-btn{flex:1 1 140px}
+/* The app's global button styling would turn the frames purple; these win by being more specific. */
+.page-tracker .shop-photos .photo-frame{background:#f4f1e8;color:#222;border:0;border-radius:4px;padding:5px 5px 4px;box-shadow:0 2px 6px rgba(0,0,0,.45)}
+.page-tracker .shop-photos .photo-frame:hover{background:#fffdf3}

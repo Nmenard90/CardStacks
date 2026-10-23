@@ -13,10 +13,22 @@ final case class ShopSettings(
 object ShopSettings:
   given JsonCodec[ShopSettings] = DeriveJsonCodec.gen[ShopSettings]
 
-/** What the public page gets back: the link button plus the cards. */
+/** Which photo exists (never the picture itself). `version` changes whenever it is replaced, so the page can cache images forever. */
+final case class ShopPhotoRef(
+  cardId:    String,
+  condition: String,
+  side:      String,
+  version:   Long
+)
+
+object ShopPhotoRef:
+  given JsonEncoder[ShopPhotoRef] = DeriveJsonEncoder.gen[ShopPhotoRef]
+
+/** What the public page gets back: the link button, the cards, and which photos exist. */
 final case class ShopView(
   messengerUrl: String,
-  cards:        List[OwnedCard]
+  cards:        List[OwnedCard],
+  photos:       List[ShopPhotoRef]
 )
 
 object ShopView:

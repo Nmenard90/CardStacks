@@ -23,11 +23,12 @@ import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useUser } from '../context/UserContext'
 import { getSets } from '../api/cards'
-import { getShop, getShopSettings, sendShopRequest } from '../api/shop'
+import { getShop, getShopSettings, sendShopRequest, shopPhotoUrl, type PhotoSide } from '../api/shop'
 import { condPrice } from '../lib/conditions'
 import { compareBy, DEFAULT_DIR, type SortDir, type SortKey } from '../lib/cardSort'
 import { usePagedList } from '../lib/usePagedList'
 import { ShopCardTile } from '../components/ShopCardTile'
+import { ShopPhotoManager } from '../components/ShopPhotoManager'
 import { TradeCardPicker, type TradeLine } from '../components/TradeCardPicker'
 import { SortControl } from '../components/SortControl'
 import { usePreview } from '../components/CardPreview'
@@ -66,6 +67,14 @@ export function ShopPage() {
   const [sortDir, setSortDir] = useState<SortDir>(DEFAULT_DIR.value)
   const [cart, setCart] = useState<Record<string, CartLine>>({})
   const [formOpen, setFormOpen] = useState(false)
+
+  // The seller's photos: address of each picture by card + condition + side.
+  const photoMap = useMemo(
+    () => new Map((shop?.photos ?? []).map(p => [`${p.cardId}|${p.condition}|${p.side}`, shopPhotoUrl(slug, p)])),
+    [shop, slug])
+  const photoAt = (cardId: string, cond: string, side: PhotoSide) => photoMap.get(`${cardId}|${cond}|${side}`)
+  // Which card + condition the seller is adding photos to (seller view only).
+  const [managing, setManaging] = useState<{ card: Card; cond: string } | null>(null)
 
   const rows = useMemo(() => {
     const needle = search.trim().toLowerCase()
@@ -171,6 +180,8 @@ export function ShopPage() {
                     conds={o.conditions.filter(c => c.quantity > 0).map(c => ({ cond: c.condition, qty: c.quantity }))}
                     inCart={cond => cart[lineKey(o.card.id, cond)]?.qty ?? 0}
                     onAdj={(cond, d) => adjust(o.card, cond, o.conditions.find(c => c.condition === cond)?.quantity ?? 0, d)}
+                    photos={cond => ({ front: photoAt(o.card.id, cond, 'front'), back: photoAt(o.card.id, cond, 'back') })}
+                    onManagePhotos={isOwner && user ? cond => setManaging({ card: o.card, cond }) : undefined}
                   />
                 ))}
               </div>
@@ -186,6 +197,11 @@ export function ShopPage() {
         </footer>
       </div>
       {preview.overlay}
+
+      {managing && user && (
+        <ShopPhotoManager slug={slug} userId={user.id} card={managing.card} cond={managing.cond}
+          photoUrl={side => photoAt(managing.card.id, managing.cond, side)} onClose={() => setManaging(null)} />
+      )}
 
       <div className="shop-bar">
         <span>{cartCount > 0 ? `${cartCount} card${cartCount === 1 ? '' : 's'} · about ${money(cartTotal)} at today's prices` : 'Pick cards with +, or just ask a question'}</span>
