@@ -11,6 +11,7 @@
  */
 
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getShopRequests, getShopSettings, saveShopSettings, setShopRequestStatus,
@@ -71,6 +72,9 @@ function ShopSettingsPanel({ userId, suggestedSlug }: { userId: string; suggeste
       {saved.enabled && saved.slug && <p>Your link: <b>{`${window.location.origin}/shop/${saved.slug}`}</b></p>}
       <div className="shop-sheet-btns">
         <button type="button" className="shop-btn" disabled={busy} onClick={() => save(form)}>{busy ? 'Saving…' : 'Save'}</button>
+        {saved.enabled && saved.slug && (
+          <Link className="shop-btn shop-btn-ghost" to={`/shop/${saved.slug}`}>👁 View my shop</Link>
+        )}
         {saved.enabled && saved.slug && (
           <button type="button" className="shop-btn shop-btn-ghost"
             onClick={() => navigator.clipboard.writeText(`${window.location.origin}/shop/${saved.slug}`).then(() => setMsg('Link copied.'), () => setMsg(`Copy this: ${link}`))}>

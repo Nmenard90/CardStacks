@@ -19,10 +19,11 @@
  */
 
 import { useCallback, useMemo, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useUser } from '../context/UserContext'
 import { getSets } from '../api/cards'
-import { getShop, sendShopRequest } from '../api/shop'
+import { getShop, getShopSettings, sendShopRequest } from '../api/shop'
 import { condLabel, condPrice } from '../lib/conditions'
 import { CardBrowser, type BrowseFields } from '../components/CardBrowser'
 import { OwnedCardTile } from '../components/OwnedCardTile'
@@ -47,6 +48,14 @@ export function ShopPage() {
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets })
   const setName = useMemo(() => new Map(sets.map(s => [s.id, s.name])), [sets])
   const preview = usePreview()
+
+  // Is the viewer the shop's owner? Only a signed-in user's own settings can say so
+  // (the public response deliberately carries no owner identity).
+  const { user } = useUser()
+  const { data: mine } = useQuery({
+    queryKey: ['shop-settings', user?.id], queryFn: () => getShopSettings(user!.id), enabled: !!user && !user.isAnonymous,
+  })
+  const isOwner = !!mine && mine.slug === slug.toLowerCase()
 
   // One tile per card + condition. The tile's card carries just that
   // condition's price (as `nm`) so the thumbnail's price ribbon and the
@@ -84,9 +93,11 @@ export function ShopPage() {
   return (
     <div className="page-tracker share-page page-shop">
       <header className="share-hero">
+        <Link to="/" className="share-brand">CardStacks</Link>
         <h1>Pokémon cards for sale</h1>
         <p className="share-meta">Browse, pick what you want, and send me a request. Or message me on Facebook.</p>
         {messengerUrl && <a className="shop-btn" href={messengerUrl} target="_blank" rel="noreferrer">💬 Message me on Facebook</a>}
+        {isOwner && <p className="share-owner-note">This is how buyers see your shop. <Link to="/shop/requests">Edit shop &amp; see requests</Link></p>}
       </header>
 
       <section className="shop-policy" aria-label="Pricing and deal rules">
@@ -130,6 +141,10 @@ export function ShopPage() {
           />
         )}
       </main>
+
+      <footer className="shop-footer">
+        This shop runs on <Link to="/">CardStacks</Link> — a free tracker for your Pokémon collection. <Link to="/">Start your own</Link>
+      </footer>
 
       <div className="shop-bar">
         <span>{cartCount > 0 ? `${cartCount} card${cartCount === 1 ? '' : 's'} · about ${money(cartTotal)} at today's prices` : 'Pick cards with + Add, or just ask a question'}</span>
