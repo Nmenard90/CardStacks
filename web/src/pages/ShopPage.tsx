@@ -135,7 +135,7 @@ export function ShopPage() {
           <ul>
             <li><b>Prices follow the market.</b> Every price here is today's market price and changes as the market changes. The price when I confirm your order is the price you pay.</li>
             <li><b>No percentage offers, buying or trading.</b> No "X% of TCGplayer" or "% off" deals. Cards are valued at today's market price, both ways.</li>
-            <li><b>Trades welcome.</b> Tap "Send request", tick "I'd like to trade", and search for the cards you'd offer. I'll value both sides at today's market price.</li>
+            <li><b>Trades welcome.</b> Tap "Send request", tick "I'd like to trade", and search for the cards you'd offer. I'll value both sides at today's market price. Trades are never exactly even, so add a little extra (cards or cash) if you need to — but not less than the cards you pick.</li>
           </ul>
         </section>
 
@@ -212,10 +212,19 @@ function RequestForm({ slug, lines, total, onClose, onSent }: {
   // top of the message (the seller's inbox keeps the line breaks).
   const [trading, setTrading] = useState(false)
   const [tradeLines, setTradeLines] = useState<TradeLine[]>([])
+  // A trade is never exactly even, so the buyer may add cash to cover the gap. The offer
+  // (trade cards + cash) must be at least what they picked — a little over is fine, under is not.
+  const [cash, setCash] = useState('')
+  const cashAmount = Math.max(0, Number.parseFloat(cash) || 0)
   const tradeValue = tradeLines.reduce((n, l) => n + l.qty * condPrice(l.card, l.cond), 0)
+  const offered = tradeValue + cashAmount
+  // A card with no market price can't be compared; the seller values those when replying.
+  const unpriced = lines.some(l => condPrice(l.card, l.cond) === 0) || tradeLines.some(l => condPrice(l.card, l.cond) === 0)
+  const shortBy = trading && !unpriced ? Math.round((total - offered) * 100) / 100 : 0
   const tradeMessage = () =>
-    `TRADE OFFER (about ${money(tradeValue)} at today's prices):\n` +
+    `TRADE OFFER (cards about ${money(tradeValue)}${cashAmount > 0 ? ` + ${money(cashAmount)} cash` : ''} for cards about ${money(total)}, at today's prices):\n` +
     tradeLines.map(l => `- ${l.qty}× ${l.card.name} #${l.card.number} (${l.cond})`).join('\n') +
+    (cashAmount > 0 ? `\n- plus ${money(cashAmount)} cash` : '') +
     (message.trim() ? `\n\n${message.trim()}` : '')
   const [agreed, setAgreed] = useState(false)
   const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle')
@@ -224,7 +233,9 @@ function RequestForm({ slug, lines, total, onClose, onSent }: {
   const submit = async () => {
     setError('')
     if (!name.trim() || !contact.trim()) { setError('Please enter your name and how to reach you.'); return }
+    if (trading && lines.length === 0) { setError('Pick the cards you want from the shop first, then offer your trade.'); return }
     if (trading && tradeLines.length === 0) { setError('Search for the cards you would like to trade and tap Add, or untick the trade box.'); return }
+    if (shortBy > 0.005) { setError(`Your offer is ${money(shortBy)} short of the cards you picked. Add more cards or some cash to cover it.`); return }
     if (lines.length === 0 && !trading && !message.trim()) { setError('Type your question first.'); return }
     if (trading && tradeMessage().length > 1000) { setError('That trade list plus your notes is too long to send. Remove a card or shorten your notes.'); return }
     if (!agreed) { setError('Please tick the box to confirm you read the rules.'); return }
@@ -274,6 +285,24 @@ function RequestForm({ slug, lines, total, onClose, onSent }: {
               I'd like to trade (instead of, or as well as, paying)
             </label>
             {trading && <TradeCardPicker lines={tradeLines} onChange={setTradeLines} />}
+            {trading && (
+              <div className={'trade-balance' + (shortBy > 0.005 ? ' short' : '')} role="status">
+                <label>Add cash to even it out (optional)
+                  <input type="number" inputMode="decimal" min={0} step="0.01" value={cash} placeholder="0.00" onChange={e => setCash(e.target.value)} />
+                </label>
+                {lines.length === 0 ? <p>Pick the cards you want from the shop first, then offer your trade.</p>
+                  : unpriced ? <p>Some of these cards have no market price yet, so I'll value them when I reply.</p>
+                  : (
+                    <p>
+                      You want <b>{money(total)}</b> · you offer <b>{money(offered)}</b>
+                      {cashAmount > 0 ? ` (cards ${money(tradeValue)} + cash ${money(cashAmount)})` : ''}.{' '}
+                      {shortBy > 0.005
+                        ? <b>Add {money(shortBy)} more in cards or cash. A little over is welcome, but not under.</b>
+                        : offered - total > 0.005 ? `That's ${money(offered - total)} extra — thank you!` : 'That covers it.'}
+                    </p>
+                  )}
+              </div>
+            )}
             <label>{lines.length > 0 || trading ? 'Notes (optional)' : 'Your question'}
               <textarea rows={trading ? 2 : 4} value={message} maxLength={trading ? 250 : 1000} onChange={e => setMessage(e.target.value)} />
             </label>
