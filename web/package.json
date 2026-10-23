@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "start": "npx serve dist --single -l $PORT"
+    "start": "node server.mjs",
+    "test:og": "node --test ogTags.test.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.2",
