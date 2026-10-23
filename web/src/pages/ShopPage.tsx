@@ -28,6 +28,7 @@ import { condPrice } from '../lib/conditions'
 import { compareBy, DEFAULT_DIR, type SortDir, type SortKey } from '../lib/cardSort'
 import { usePagedList } from '../lib/usePagedList'
 import { ShopCardTile } from '../components/ShopCardTile'
+import { TradeCardPicker, type TradeLine } from '../components/TradeCardPicker'
 import { SortControl } from '../components/SortControl'
 import { usePreview } from '../components/CardPreview'
 import type { Card, OwnedCard } from '../types'
@@ -134,7 +135,7 @@ export function ShopPage() {
           <ul>
             <li><b>Prices follow the market.</b> Every price here is today's market price and changes as the market changes. The price when I confirm your order is the price you pay.</li>
             <li><b>No percentage offers, buying or trading.</b> No "X% of TCGplayer" or "% off" deals. Cards are valued at today's market price, both ways.</li>
-            <li><b>Trades welcome.</b> Tap "Send request", tick "I'd like to trade", and tell me what you'd offer. I'll value both sides at today's market price.</li>
+            <li><b>Trades welcome.</b> Tap "Send request", tick "I'd like to trade", and search for the cards you'd offer. I'll value both sides at today's market price.</li>
           </ul>
         </section>
 
@@ -206,10 +207,16 @@ function RequestForm({ slug, lines, total, onClose, onSent }: {
   const [name, setName] = useState('')
   const [contact, setContact] = useState('')
   const [message, setMessage] = useState('')
-  // Optional trade offer. The backend has one 1000-character message field, so the
-  // offer is sent as a "TRADE OFFER:" first paragraph (600 + 350 + label stays under it).
+  // Optional trade offer: cards the buyer searched for and added. The backend has one
+  // 1000-character message field, so the offer is sent as a "TRADE OFFER" list at the
+  // top of the message (the seller's inbox keeps the line breaks).
   const [trading, setTrading] = useState(false)
-  const [tradeText, setTradeText] = useState('')
+  const [tradeLines, setTradeLines] = useState<TradeLine[]>([])
+  const tradeValue = tradeLines.reduce((n, l) => n + l.qty * condPrice(l.card, l.cond), 0)
+  const tradeMessage = () =>
+    `TRADE OFFER (about ${money(tradeValue)} at today's prices):\n` +
+    tradeLines.map(l => `- ${l.qty}× ${l.card.name} #${l.card.number} (${l.cond})`).join('\n') +
+    (message.trim() ? `\n\n${message.trim()}` : '')
   const [agreed, setAgreed] = useState(false)
   const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle')
   const [error, setError] = useState('')
@@ -217,14 +224,15 @@ function RequestForm({ slug, lines, total, onClose, onSent }: {
   const submit = async () => {
     setError('')
     if (!name.trim() || !contact.trim()) { setError('Please enter your name and how to reach you.'); return }
-    if (trading && !tradeText.trim()) { setError('Tell me what you would like to trade, or untick the trade box.'); return }
+    if (trading && tradeLines.length === 0) { setError('Search for the cards you would like to trade and tap Add, or untick the trade box.'); return }
     if (lines.length === 0 && !trading && !message.trim()) { setError('Type your question first.'); return }
+    if (trading && tradeMessage().length > 1000) { setError('That trade list plus your notes is too long to send. Remove a card or shorten your notes.'); return }
     if (!agreed) { setError('Please tick the box to confirm you read the rules.'); return }
     setState('sending')
     try {
       await sendShopRequest(slug, {
         buyerName: name, buyerContact: contact,
-        message: trading ? `TRADE OFFER: ${tradeText.trim()}${message.trim() ? `\n\n${message.trim()}` : ''}` : message,
+        message: trading ? tradeMessage() : message,
         items: lines.map(l => ({ cardId: l.card.id, name: l.card.name, number: l.card.number, condition: l.cond, qty: l.qty })),
       })
       setState('sent')
@@ -265,13 +273,9 @@ function RequestForm({ slug, lines, total, onClose, onSent }: {
               <input type="checkbox" checked={trading} onChange={e => setTrading(e.target.checked)} />
               I'd like to trade (instead of, or as well as, paying)
             </label>
-            {trading && (
-              <label>What would you trade? (card names, sets, conditions)
-                <textarea rows={3} value={tradeText} maxLength={600} onChange={e => setTradeText(e.target.value)} />
-              </label>
-            )}
+            {trading && <TradeCardPicker lines={tradeLines} onChange={setTradeLines} />}
             <label>{lines.length > 0 || trading ? 'Notes (optional)' : 'Your question'}
-              <textarea rows={trading ? 2 : 4} value={message} maxLength={trading ? 350 : 1000} onChange={e => setMessage(e.target.value)} />
+              <textarea rows={trading ? 2 : 4} value={message} maxLength={trading ? 250 : 1000} onChange={e => setMessage(e.target.value)} />
             </label>
             <label className="shop-agree">
               <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)} />
