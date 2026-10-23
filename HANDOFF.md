@@ -181,6 +181,9 @@ needs them is pushed.
 - `migration_015_trading.sql` (share-link trading) — run 2026-10-14.
 - `migration_016_multi_game.sql` (games table + game_id columns) — run 2026-10-15.
 - `migration_017_price_fallbacks.sql` (cardmarket_id, price_source, games.cardmarket_game) — run (the price-fallback code is live on main and serving prices).
+- `migration_018_shop.sql` (`shop_settings` + `shop_requests`, the public shop) — run by hand in
+  production on 2026-10-23, under the working name "017" before it was renumbered. All statements
+  are `IF NOT EXISTS`, so re-running is a no-op. The shop code (`ShopRoutes`) needs these tables.
 - Migration 003 (per-variant `card_prices`) is DISABLED — never run it.
 
 ### Pricing audit (2026-10-14)

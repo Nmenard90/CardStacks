@@ -69,7 +69,11 @@ object Main extends ZIOAppDefault:
         // StorageService/BinderService rather than their raw repositories.
         shelfLayer  = (repoLayer ++ coreServices) >>> ShelfService.layer
 
-        appLayer    = coreServices ++ ripLayer ++ shelfLayer ++ SupabaseJwtVerifier.layer
+        // Routes read buyer requests directly; nothing else depends on this, so it
+        // sits outside repoLayer/coreServices.
+        shopRepoLayer = ZLayer.succeed(transactor) >>> ShopRepository.layer
+
+        appLayer    = coreServices ++ ripLayer ++ shelfLayer ++ shopRepoLayer ++ SupabaseJwtVerifier.layer
 
         // Public: no Supabase session required (catalog browsing, health check,
         // and the read-only rip-or-hold calculation). Catalog refresh/admin
@@ -78,7 +82,8 @@ object Main extends ZIOAppDefault:
         publicRoutes    = Routes(Method.GET / "health" -> Handler.ok) ++
                           CardRoutes.publicRoutes ++
                           RipRoutes.verdictRoutes ++
-                          TradingRoutes.publicRoutes
+                          TradingRoutes.publicRoutes ++
+                          ShopRoutes.publicRoutes
 
         // Protected: AuthGuard verifies the caller's Supabase token, provisions/
         // loads their profile, and 403s any request whose path userId doesn't
@@ -91,6 +96,7 @@ object Main extends ZIOAppDefault:
                            RoomRoutes.routes ++
                            RipRoutes.sessionRoutes ++
                            TradingRoutes.routes ++
+                           ShopRoutes.protectedRoutes ++
                            AuthRoutes.routes) @@ AuthGuard.aspect
 
         allRoutes       = publicRoutes ++ protectedRoutes

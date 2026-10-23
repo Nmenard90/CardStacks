@@ -45,7 +45,10 @@ object AuthGuard:
   private[poketracker] def isPublicPath(method: Method, path: String): Boolean =
     method == Method.OPTIONS || path == "/health" || path == "/api/sets" ||
       path == "/api/search" || path == "/api/games" || path.startsWith("/api/cards") ||
-      (method == Method.GET && path.startsWith("/api/share/"))
+      (method == Method.GET && path.startsWith("/api/share/")) ||
+      // Public seller shop + buyer requests (ShopRoutes.publicRoutes). The
+      // trailing slash keeps unrelated paths like /api/shopping protected.
+      path.startsWith("/api/shop/")
 
   private def isPublic(req: Request): Boolean =
     isPublicPath(req.method, req.url.path.toString)

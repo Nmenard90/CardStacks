@@ -47,6 +47,7 @@ function useUnreadOffers(): number {
 const TOOLS_ITEMS: NavItem[] = [
   { to: '/analyzer',           label: '🧪 Trade Analyzer' },
   { to: '/convention',         label: '🎪 Convention Mode' },
+  { to: '/shop/requests',      label: '🛍 My Shop' },
 ]
 
 /** Shared by both the desktop row and the mobile bottom bar — only the

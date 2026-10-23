@@ -25,6 +25,8 @@ import { AnalyzerPage } from './pages/AnalyzerPage'
 import { ConventionModePage } from './pages/ConventionModePage'
 import { BulkAddPage } from './pages/BulkAddPage'
 import { SpacesLivePage } from './pages/SpacesLivePage'
+import { ShopPage } from './pages/ShopPage'
+import { ShopRequestsPage } from './pages/ShopRequestsPage'
 import { LegalPage } from './pages/LegalPage'
 import { TradePage } from './pages/TradePage'
 import { SharePage } from './pages/SharePage'
@@ -75,6 +77,8 @@ export default function App() {
               <Route path="/convention"        element={<ConventionModePage />} />
               <Route path="/trade"             element={<TradePage />} />
               <Route path="/s/:slug"           element={<SharePage />} />
+              <Route path="/shop/requests"     element={<ShopRequestsPage />} />
+              <Route path="/shop/:slug"        element={<ShopPage />} />
               <Route path="/privacy"           element={<LegalPage page="privacy" />} />
               <Route path="/terms"             element={<LegalPage page="terms" />} />
               <Route path="/shelf"             element={<Navigate to="/" replace />} />
