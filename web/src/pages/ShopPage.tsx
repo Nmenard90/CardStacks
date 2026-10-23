@@ -12,7 +12,7 @@
  *   Whose shop it is comes from the URL: /shop/:slug.
  *   Prices are the card's LIVE market price every time the page loads —
  *   nothing is snapshotted — and the policy banner says so, along with
- *   "no percentage offers, no trades".
+ *   "no percentage offers on buys or trades" (trades themselves are welcome).
  *
  * USED BY: App.tsx (route "/shop/:slug")
  * DEPENDS ON: api/shop, api/cards, components/ShopCardTile, SortControl, CardPreview, lib/cardSort, lib/conditions
@@ -119,12 +119,22 @@ export function ShopPage() {
 
         {isOwner && <p className="share-owner-note" style={{ padding: '8px 16px' }}>This is how buyers see your shop. <Link to="/shop/requests">Edit shop &amp; see requests</Link></p>}
 
+        <section className="shop-hero">
+          <h1>{slug}'s Pokémon cards</h1>
+          <p>{owned.length > 0 ? `${owned.length} cards available` : 'Cards available'} — buy, trade, or both.</p>
+          <ol className="shop-steps">
+            <li><b>1</b> Pick the cards you want</li>
+            <li><b>2</b> Send a request — buy, trade, or both</li>
+            <li><b>3</b> I confirm today's price and we sort out payment and shipping</li>
+          </ol>
+        </section>
+
         <section className="shop-policy" aria-label="Pricing and deal rules">
           <b>Please read before you ask:</b>
           <ul>
             <li><b>Prices follow the market.</b> Every price here is today's market price and changes as the market changes. The price when I confirm your order is the price you pay.</li>
-            <li><b>No percentage offers.</b> No "X% of TCGplayer" or "% off" offers. The price shown is the price.</li>
-            <li><b>No trades.</b> Sales only.</li>
+            <li><b>No percentage offers, buying or trading.</b> No "X% of TCGplayer" or "% off" deals. Cards are valued at today's market price, both ways.</li>
+            <li><b>Trades welcome.</b> Tap "Send request", tick "I'd like to trade", and tell me what you'd offer. I'll value both sides at today's market price.</li>
           </ul>
         </section>
 
@@ -196,6 +206,10 @@ function RequestForm({ slug, lines, total, onClose, onSent }: {
   const [name, setName] = useState('')
   const [contact, setContact] = useState('')
   const [message, setMessage] = useState('')
+  // Optional trade offer. The backend has one 1000-character message field, so the
+  // offer is sent as a "TRADE OFFER:" first paragraph (600 + 350 + label stays under it).
+  const [trading, setTrading] = useState(false)
+  const [tradeText, setTradeText] = useState('')
   const [agreed, setAgreed] = useState(false)
   const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle')
   const [error, setError] = useState('')
@@ -203,12 +217,14 @@ function RequestForm({ slug, lines, total, onClose, onSent }: {
   const submit = async () => {
     setError('')
     if (!name.trim() || !contact.trim()) { setError('Please enter your name and how to reach you.'); return }
-    if (lines.length === 0 && !message.trim()) { setError('Type your question first.'); return }
+    if (trading && !tradeText.trim()) { setError('Tell me what you would like to trade, or untick the trade box.'); return }
+    if (lines.length === 0 && !trading && !message.trim()) { setError('Type your question first.'); return }
     if (!agreed) { setError('Please tick the box to confirm you read the rules.'); return }
     setState('sending')
     try {
       await sendShopRequest(slug, {
-        buyerName: name, buyerContact: contact, message,
+        buyerName: name, buyerContact: contact,
+        message: trading ? `TRADE OFFER: ${tradeText.trim()}${message.trim() ? `\n\n${message.trim()}` : ''}` : message,
         items: lines.map(l => ({ cardId: l.card.id, name: l.card.name, number: l.card.number, condition: l.cond, qty: l.qty })),
       })
       setState('sent')
@@ -245,12 +261,21 @@ function RequestForm({ slug, lines, total, onClose, onSent }: {
             <label>How can I reach you? (Facebook name, phone, or email)
               <input type="text" value={contact} maxLength={200} onChange={e => setContact(e.target.value)} />
             </label>
-            <label>{lines.length > 0 ? 'Notes (optional)' : 'Your question'}
-              <textarea rows={4} value={message} maxLength={1000} onChange={e => setMessage(e.target.value)} />
+            <label className="shop-agree">
+              <input type="checkbox" checked={trading} onChange={e => setTrading(e.target.checked)} />
+              I'd like to trade (instead of, or as well as, paying)
+            </label>
+            {trading && (
+              <label>What would you trade? (card names, sets, conditions)
+                <textarea rows={3} value={tradeText} maxLength={600} onChange={e => setTradeText(e.target.value)} />
+              </label>
+            )}
+            <label>{lines.length > 0 || trading ? 'Notes (optional)' : 'Your question'}
+              <textarea rows={trading ? 2 : 4} value={message} maxLength={trading ? 350 : 1000} onChange={e => setMessage(e.target.value)} />
             </label>
             <label className="shop-agree">
               <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)} />
-              I understand prices follow the market and can change, and there are no percentage offers and no trades.
+              I understand prices follow the market and can change, and there are no percentage offers on buys or trades.
             </label>
             {error && <p className="shop-error" role="alert">{error}</p>}
             <div className="shop-sheet-btns">

@@ -34,7 +34,7 @@ export function shopOg(slug, origin) {
   const title = `${slug}'s Pokémon cards for sale`
   const description =
     "Browse the collection, see today's market prices, and send a request. " +
-    'Prices follow the market. No percentage offers, no trades.'
+    'Prices follow the market. No percentage offers on buys or trades. Trades welcome.'
   return {
     title,
     tags: [

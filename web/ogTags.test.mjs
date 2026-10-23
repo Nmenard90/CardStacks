@@ -32,10 +32,12 @@ test('tags cover title, description, preview image and url, all absolute', () =>
   assert.ok(html.indexOf('og:title') < html.indexOf('</head>'), 'tags must be inside <head>')
 })
 
-test('the description states the no-percentage / no-trade rules', () => {
+test('the description states the no-percentage rule and that trades are welcome', () => {
   const { tags } = shopOg('testowner', 'https://cards.example')
   assert.match(tags, /Prices follow the market/)
-  assert.match(tags, /No percentage offers, no trades/)
+  assert.match(tags, /No percentage offers on buys or trades/)
+  assert.match(tags, /Trades welcome/)
+  assert.doesNotMatch(tags, /no trades/i)
 })
 
 test('origin comes from proxy headers; junk hosts fall back safely', () => {

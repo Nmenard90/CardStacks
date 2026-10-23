@@ -58,3 +58,9 @@
 .shop-footer a{color:var(--accent);font-weight:700}
 .page-shop .share-brand{display:block;font-size:1.1rem}
 .shop-wrap{padding-bottom:96px}
+.shop-hero{max-width:900px;margin:22px auto 4px;padding:0 16px;text-align:center}
+.shop-hero h1{margin:0 0 4px;font-size:30px;text-transform:capitalize}
+.shop-hero p{margin:0 0 14px;color:var(--muted);font-size:17px}
+.shop-steps{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;justify-content:center;gap:10px}
+.shop-steps li{display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--surface);border:var(--ink-w) solid var(--border);border-radius:999px;font-size:14px}
+.shop-steps b{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--accent);color:#111}
