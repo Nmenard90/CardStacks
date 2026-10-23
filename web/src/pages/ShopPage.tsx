@@ -2,33 +2,37 @@
  * ShopPage — the public "cards for sale" page that the Facebook post links to.
  *
  * HOW IT WORKS
- *   No login. Buyers browse and search the seller's cards, tap + on the
- *   conditions they want, then either send a request (the picked cards plus
- *   their name/contact) or just ask a question with nothing picked. Requests
- *   land in the seller's inbox (ShopRequestsPage). A Messenger button shows
- *   only when the seller saved a Messenger link in their shop settings.
+ *   No login. Built from the same pieces as the share page (SharePage): a
+ *   CardBrowser (search by Pokémon / artist / set / number, set filter, sort)
+ *   full of OwnedCardTile tiles with hover-zoom, one tile per card + condition.
+ *   Buyers tap "+ Add" on what they want, then either send a request (the
+ *   picked cards plus their name/contact) or just ask a question with nothing
+ *   picked. Requests land in the seller's inbox (ShopRequestsPage). A Messenger
+ *   button shows only when the seller saved a Messenger link.
  *   Whose shop it is comes from the URL: /shop/:slug.
  *   Prices are the card's LIVE market price every time the page loads —
  *   nothing is snapshotted — and the policy banner says so, along with
  *   "no percentage offers, no trades".
  *
  * USED BY: App.tsx (route "/shop/:slug")
- * DEPENDS ON: api/shop, api/cards, lib/conditions
+ * DEPENDS ON: api/shop, api/cards, components/CardBrowser, OwnedCardTile, CardPreview, lib/conditions
  */
 
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getSets } from '../api/cards'
 import { getShop, sendShopRequest } from '../api/shop'
-import { condPrice } from '../lib/conditions'
+import { condLabel, condPrice } from '../lib/conditions'
+import { CardBrowser, type BrowseFields } from '../components/CardBrowser'
+import { OwnedCardTile } from '../components/OwnedCardTile'
+import { usePreview } from '../components/CardPreview'
 import type { Card } from '../types'
 
-const PAGE_SIZE = 40
-
-/** One picked card + condition. */
+/** One picked card + condition. `card.prices.nm` is already this condition's price (see ShopItem). */
 interface CartLine { card: Card; cond: string; qty: number; max: number }
-type SortMode = 'set' | 'name' | 'priceHigh' | 'priceLow'
+/** One tile: a card in one condition, priced for that condition. */
+interface ShopItem { card: Card; cond: string; qty: number; price: number }
 
 const money = (n: number) => '$' + n.toFixed(2)
 const lineKey = (cardId: string, cond: string) => `${cardId}|${cond}`
@@ -39,43 +43,30 @@ export function ShopPage() {
   const { data: shop, isLoading, isError } = useQuery({
     queryKey: ['shop', slug], queryFn: () => getShop(slug), staleTime: 60_000, retry: false,
   })
-  const owned = useMemo(() => shop?.cards ?? [], [shop])
   const messengerUrl = shop?.messengerUrl ?? ''
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets })
+  const setName = useMemo(() => new Map(sets.map(s => [s.id, s.name])), [sets])
+  const preview = usePreview()
 
-  const [search, setSearch] = useState('')
-  const [setId, setSetId] = useState('')
-  const [sort, setSort] = useState<SortMode>('set')
-  const [shown, setShown] = useState(PAGE_SIZE)
+  // One tile per card + condition. The tile's card carries just that
+  // condition's price (as `nm`) so the thumbnail's price ribbon and the
+  // zoomed preview show the right number for the copy being sold.
+  const items: ShopItem[] = useMemo(() => (shop?.cards ?? []).flatMap(o =>
+    o.conditions.filter(c => c.quantity > 0).map(c => {
+      const price = condPrice(o.card, c.condition)
+      return {
+        card: { ...o.card, variants: undefined, prices: price > 0 ? { nm: price } : undefined },
+        cond: c.condition, qty: c.quantity, price,
+      }
+    })), [shop])
+
+  const fields = useCallback((i: ShopItem): BrowseFields => ({
+    name: i.card.name, setId: i.card.setId, number: i.card.number, quantity: i.qty,
+    rarity: i.card.rarity, artist: i.card.artist, value: i.price > 0 ? i.price : null,
+  }), [])
+
   const [cart, setCart] = useState<Record<string, CartLine>>({})
   const [formOpen, setFormOpen] = useState(false)
-
-  const setName = useMemo(() => new Map(sets.map(s => [s.id, s.name])), [sets])
-
-  // Only sets the seller actually has cards from, for the filter dropdown.
-  const ownedSets = useMemo(() => {
-    const ids = [...new Set(owned.map(o => o.card.setId))]
-    return ids.sort((a, b) => (setName.get(a) ?? a).localeCompare(setName.get(b) ?? b))
-  }, [owned, setName])
-
-  const rows = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    const list = owned.filter(o => {
-      if (setId && o.card.setId !== setId) return false
-      if (!q) return true
-      return o.card.name.toLowerCase().includes(q) || o.card.number.toLowerCase().includes(q) ||
-        (setName.get(o.card.setId) ?? '').toLowerCase().includes(q)
-    })
-    const best = (o: typeof owned[number]) => Math.max(0, ...o.conditions.map(c => condPrice(o.card, c.condition)))
-    list.sort((a, b) => {
-      if (sort === 'name') return a.card.name.localeCompare(b.card.name)
-      if (sort === 'priceHigh') return best(b) - best(a)
-      if (sort === 'priceLow') return best(a) - best(b)
-      return (setName.get(a.card.setId) ?? a.card.setId).localeCompare(setName.get(b.card.setId) ?? b.card.setId) ||
-        a.card.number.localeCompare(b.card.number, undefined, { numeric: true })
-    })
-    return list
-  }, [owned, search, setId, sort, setName])
 
   const adjust = (card: Card, cond: string, max: number, delta: number) =>
     setCart(prev => {
@@ -88,13 +79,13 @@ export function ShopPage() {
 
   const lines = Object.values(cart)
   const cartCount = lines.reduce((n, l) => n + l.qty, 0)
-  const cartTotal = lines.reduce((n, l) => n + l.qty * condPrice(l.card, l.cond), 0)
+  const cartTotal = lines.reduce((n, l) => n + l.qty * (l.card.prices?.nm ?? 0), 0)
 
   return (
-    <div className="page-shop">
-      <header className="shop-top">
+    <div className="page-tracker share-page page-shop">
+      <header className="share-hero">
         <h1>Pokémon cards for sale</h1>
-        <p>Browse, pick what you want, and send me a request. Or message me on Facebook.</p>
+        <p className="share-meta">Browse, pick what you want, and send me a request. Or message me on Facebook.</p>
         {messengerUrl && <a className="shop-btn" href={messengerUrl} target="_blank" rel="noreferrer">💬 Message me on Facebook</a>}
       </header>
 
@@ -107,65 +98,41 @@ export function ShopPage() {
         </ul>
       </section>
 
-      <div className="shop-tools">
-        <input type="search" placeholder="Search name, number, or set…" value={search}
-          onChange={e => { setSearch(e.target.value); setShown(PAGE_SIZE) }} />
-        <select value={setId} onChange={e => { setSetId(e.target.value); setShown(PAGE_SIZE) }} aria-label="Filter by set">
-          <option value="">All sets</option>
-          {ownedSets.map(id => <option key={id} value={id}>{setName.get(id) ?? id}</option>)}
-        </select>
-        <select value={sort} onChange={e => setSort(e.target.value as SortMode)} aria-label="Sort">
-          <option value="set">Sort: set & number</option>
-          <option value="name">Sort: name</option>
-          <option value="priceHigh">Sort: price high → low</option>
-          <option value="priceLow">Sort: price low → high</option>
-        </select>
-      </div>
+      <main className="trade-main">
+        {preview.overlay}
+        {isLoading && <p className="shop-msg">Loading cards…</p>}
+        {isError && <p className="shop-msg">This shop isn't open right now. Check the link, or try again later.</p>}
 
-      {isLoading && <p className="shop-msg">Loading cards…</p>}
-      {isError && <p className="shop-msg">This shop isn't open right now. Check the link, or try again later.</p>}
-      {!isLoading && !isError && rows.length === 0 && <p className="shop-msg">No cards match that search.</p>}
-
-      <ul className="shop-list">
-        {rows.slice(0, shown).map(o => (
-          <li key={o.cardId} className="shop-card">
-            {o.card.images?.small
-              ? <img src={o.card.images.small} alt={o.card.name} loading="lazy" />
-              : <div className="shop-noimg">🃏</div>}
-            <div className="shop-card-body">
-              <b>{o.card.name}</b>
-              <span className="shop-sub">{setName.get(o.card.setId) ?? o.card.setId} · #{o.card.number}{o.card.rarity ? ` · ${o.card.rarity}` : ''}</span>
-              {o.conditions.filter(c => c.quantity > 0).map(c => {
-                const price = condPrice(o.card, c.condition)
-                const inCart = cart[lineKey(o.card.id, c.condition)]?.qty ?? 0
-                return (
-                  <div key={c.condition} className="shop-cond">
-                    <span className="shop-cond-name">{c.condition}</span>
-                    <span className="shop-cond-price">{price > 0 ? money(price) : 'Ask'}</span>
-                    <span className="shop-cond-avail">{c.quantity} avail.</span>
-                    <span className="shop-stepper">
-                      <button type="button" aria-label="Remove one" disabled={inCart === 0}
-                        onClick={() => adjust(o.card, c.condition, c.quantity, -1)}>−</button>
-                      <b>{inCart}</b>
-                      <button type="button" aria-label="Add one" disabled={inCart >= c.quantity}
-                        onClick={() => adjust(o.card, c.condition, c.quantity, 1)}>+</button>
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-          </li>
-        ))}
-      </ul>
-
-      {rows.length > shown && (
-        <button type="button" className="shop-btn shop-more" onClick={() => setShown(s => s + PAGE_SIZE)}>
-          Show more ({rows.length - shown} left)
-        </button>
-      )}
+        {!isLoading && !isError && (
+          <CardBrowser
+            items={items}
+            fields={fields}
+            itemKey={i => lineKey(i.card.id, i.cond)}
+            empty={<p className="muted">No cards for sale right now.</p>}
+            renderTile={i => {
+              const inCart = cart[lineKey(i.card.id, i.cond)]?.qty ?? 0
+              return (
+                <OwnedCardTile
+                  card={i.card} preview={preview} qty={i.qty} selected={inCart > 0}
+                  subtitle={<>
+                    <span className="tile-line">{setName.get(i.card.setId) ?? i.card.setId} · #{i.card.number}{i.card.rarity ? ` · ${i.card.rarity}` : ''}</span>
+                    <span className="tile-line">{condLabel(i.cond)} · {i.price > 0 ? money(i.price) : 'Ask for price'}</span>
+                    {i.card.artist && <span className="tile-line">✏ {i.card.artist}</span>}
+                    {inCart > 0 && <b className="tile-line trade-ask">{inCart} in your request</b>}
+                  </>}
+                  actions={[
+                    { label: '−', disabled: inCart === 0, onClick: () => adjust(i.card, i.cond, i.qty, -1) },
+                    { label: '+ Add', disabled: inCart >= i.qty, onClick: () => adjust(i.card, i.cond, i.qty, 1) },
+                  ]}
+                />
+              )
+            }}
+          />
+        )}
+      </main>
 
       <div className="shop-bar">
-        <span>{cartCount > 0 ? `${cartCount} card${cartCount === 1 ? '' : 's'} · about ${money(cartTotal)} at today's prices` : 'Pick cards with +, or just ask a question'}</span>
+        <span>{cartCount > 0 ? `${cartCount} card${cartCount === 1 ? '' : 's'} · about ${money(cartTotal)} at today's prices` : 'Pick cards with + Add, or just ask a question'}</span>
         <button type="button" className="shop-btn" onClick={() => setFormOpen(true)}>
           {cartCount > 0 ? 'Send request' : 'Ask a question'}
         </button>

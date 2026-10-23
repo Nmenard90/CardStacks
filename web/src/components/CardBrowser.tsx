@@ -81,7 +81,8 @@ export function CardBrowser<T>({ items, fields, renderTile, itemKey, empty, defa
     const needle = q.trim().toLowerCase()
     const list = rows.filter(r =>
       (!setFilter || r.f.setId === setFilter) &&
-      (!needle || r.f.name.toLowerCase().includes(needle)))
+      (!needle || [r.f.name, r.f.artist, r.f.number, setInfo.get(r.f.setId)?.name]
+        .some(t => t?.toLowerCase().includes(needle))))
     return list.sort(compareBy(r => ({ ...r.f, qty: r.f.quantity }), sort, sortDir, id => setInfo.get(id)?.releaseDate))
   }, [rows, q, setFilter, sort, sortDir, setInfo])
 
@@ -106,7 +107,7 @@ export function CardBrowser<T>({ items, fields, renderTile, itemKey, empty, defa
   return (
     <div className="card-browser">
       <div className="browser-toolbar">
-        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Filter by name…" aria-label="Filter by name" />
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search name, artist, set…" aria-label="Search cards" />
         <select value={setFilter} onChange={e => setSetFilter(e.target.value)} aria-label="Filter by set">
           <option value="">All sets ({rows.length})</option>
           {setOptions.map(s => <option key={s.id} value={s.id}>{s.name} ({s.n})</option>)}
