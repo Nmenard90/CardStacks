@@ -217,5 +217,25 @@ TCGTracking moved from `https://tcgtracking.com/tcgapi/v1` to
 `https://openapi.tcgtracking.com/v1`. The old URL returns HTTP 308 with an
 empty body; the Java clients did not follow it, so scheduled pricing ran but
 skipped updates. Both client base URLs are corrected. New-host sets/cards/SKU
-responses were checked successfully. Deployment and fresh production snapshots
-remain to be verified. No schema changes.
+responses were checked successfully. Deployed as `7a57aec`; Railway build succeeded, 46 tests passed and 5 skipped.
+All 182 owned sets were processed after resetting only their refresh timers;
+180 sets have new snapshots dated 2026-10-25. Over 32,000 cards received fresh
+snapshots across the catalog and public API spot-checks passed. No schema changes.
+
+Remaining coverage/matching gaps: Pok?mon Futsal Collection (`fut20`) and Wizards
+Black Star Promos (`basep`) were skipped because no candidate set matched. Their
+prices remain older. The background job summary still counts skipped attempts
+as "re-priced", so verify snapshots rather than trusting that summary.
+
+
+## Quantity-zero removals (2026-10-25)
+
+Repair prepared, not deployed: Explore hid cards optimistically even when the
+backend rejected deleting allocated copies. Delete now clears allocations and
+binder mirrors atomically; removing a condition/print clears only its own
+placements. Bulk updates no longer silently discard zero quantities. Explore
+queues saves per card, rolls back failures, and invalidates shop/owned/share
+caches. Five local Postgres regression tests cover auto boxes, binders, displays,
+print-specific removal and bulk zero saves; frontend build and changed-file
+lint passed. Full backend suite: 51 passed, 5 skipped, 0 failures. No migration.
+Deployment awaits approval. Previously failed removals need to be retried.

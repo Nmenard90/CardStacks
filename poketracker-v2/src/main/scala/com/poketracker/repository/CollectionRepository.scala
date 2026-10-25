@@ -125,6 +125,14 @@ object CollectionRepository:
             }
         }
 
+    /** Removing owned copies also removes their physical placements. Binder
+      * slots mirror their card separately, so clear that mirror before the
+      * allocation disappears; drawer/display views read allocations directly. */
+    private def clearLotPlacements(lotId: String): ConnectionIO[Unit] =
+      sql"""UPDATE binder_slots bs SET card_id=NULL,card_name=NULL,image_url=NULL
+        FROM card_allocations a WHERE a.lot_id=$lotId AND a.binder_slot_id=bs.id""".update.run.void *>
+        sql"DELETE FROM card_allocations WHERE lot_id=$lotId".update.run.void
+
     /** Keeps the normalized allocation inventory aligned with the legacy
       * condition JSON: one lot per (print, edition, condition). A key with no
       * print suffix is the card's default print ("standard"); "NM · reverse"
@@ -144,11 +152,12 @@ object CollectionRepository:
         }
         keepKeys = active.map(cc => ConditionKey.parse(cc.condition)).toSet
         existing <- sql"""SELECT id,variant_key,edition,condition FROM inventory_lots
-          WHERE user_id=${entry.userId} AND card_id=${entry.cardId} AND language='en' AND quantity > 0"""
+          WHERE user_id=${entry.userId} AND card_id=${entry.cardId} AND language='en' AND quantity > 0
+          FOR UPDATE"""
           .query[(String,String,String,String)].to[List]
         _ <- existing.filterNot { case (_,variant,edition,condition) => keepKeys(ConditionKey(condition, edition, variant)) }.traverse_ {
-          case (id,variant,edition,condition) =>
-            reconcileAutoAllocation(entry.userId, entry.cardId, ConditionKey(condition, edition, variant), 0, shrinkOnly = true) *>
+          case (id,_,_,_) =>
+            clearLotPlacements(id) *>
             sql"UPDATE inventory_lots SET quantity=0,updated_at=NOW() WHERE id=$id".update.run.void
         }
       yield ()
@@ -201,21 +210,28 @@ object CollectionRepository:
           updated_at    = NOW()
       """.update.run.void *> syncInventoryLots(entry)).transact(xa)
 
-    def deleteEntry(userId: String, cardId: String): Task[Unit] =
-      (for
-        allocated <- sql"""SELECT COALESCE(SUM(a.quantity),0) FROM card_allocations a
-          JOIN inventory_lots l ON l.id=a.lot_id WHERE l.user_id=$userId AND l.card_id=$cardId"""
-          .query[Int].unique
-        _ <- if allocated == 0 then ().pure[ConnectionIO]
-             else FC.raiseError(RuntimeException(s"Move or remove $allocated allocated copies before deleting this card"))
+    /** Shared by individual and bulk zero-quantity saves, in one transaction. */
+    private def deleteEntryIO(userId: String, cardId: String): ConnectionIO[Unit] =
+      for
+        lots <- sql"SELECT id FROM inventory_lots WHERE user_id=$userId AND card_id=$cardId FOR UPDATE"
+          .query[String].to[List]
+        _ <- lots.traverse_(clearLotPlacements)
+        // Older binders can contain a card without a linked allocation.
+        _ <- sql"""UPDATE binder_slots bs SET card_id=NULL,card_name=NULL,image_url=NULL
+          FROM binders b WHERE bs.binder_id=b.id AND b.user_id=$userId AND bs.card_id=$cardId""".update.run
         _ <- sql"DELETE FROM inventory_lots WHERE user_id=$userId AND card_id=$cardId".update.run
         _ <- sql"DELETE FROM collection_entries WHERE user_id=$userId AND card_id=$cardId".update.run
-      yield ()).transact(xa)
+      yield ()
+
+    def deleteEntry(userId: String, cardId: String): Task[Unit] =
+      deleteEntryIO(userId, cardId).transact(xa)
 
     def bulkUpsert(entries: List[CollectionEntry]): Task[Unit] =
       entries.traverse_ { entry =>
-        val condJson = entry.conditions.toJson
-        (sql"""
+        if !entry.conditions.exists(_.quantity > 0) then deleteEntryIO(entry.userId, entry.cardId)
+        else
+          val condJson = entry.conditions.toJson
+          (sql"""
           INSERT INTO collection_entries
             (id, user_id, card_id, conditions, selected_cond, updated_at)
           VALUES
@@ -225,7 +241,7 @@ object CollectionRepository:
             conditions    = EXCLUDED.conditions,
             selected_cond = EXCLUDED.selected_cond,
             updated_at    = NOW()
-        """.update.run.void *> syncInventoryLots(entry))
+          """.update.run.void *> syncInventoryLots(entry))
       }.transact(xa)
 
     def findByUserWithCards(userId: String, game: String): Task[List[OwnedCard]] =

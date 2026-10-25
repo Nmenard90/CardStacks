@@ -44,6 +44,8 @@ import type { Card } from '../types'
 /** Local state for one card: counts per condition + the active condition. */
 interface Entry { conds: CondMap; selCond: string }
 
+interface PendingEdit { entry: Entry; confirmed: Entry; queue: Promise<void> }
+
 /** Sorts for a set's cards and for search results (the All Sets browse is
  *  sorted by the server instead). */
 const CARD_SORTS: SortKey[] = ['number', 'name', 'value', 'qty', 'rarity', 'artist', 'set']
@@ -126,6 +128,9 @@ export function CollectionPage() {
   // The user's whole collection, kept locally so edits show up instantly
   // while the real save happens quietly in the background.
   const [coll, setColl] = useState<Record<string, Entry>>({})
+  // Save each card's edits in order so a slower earlier request cannot undo
+  // a later removal. Keep the last confirmed value for failed-save rollback.
+  const pendingEdits = useRef(new Map<string, PendingEdit>())
 
   // Remembers the active set for next time.
   useEffect(() => {
@@ -215,25 +220,34 @@ export function CollectionPage() {
   // single-set grid already names its set once in the banner above it.
   const setNameById = useMemo(() => new Map(sets.map(s => [s.id, s.name])), [sets])
 
-  /** Saves one card's current local entry to the backend for real. */
-  const persist = (card: Card, entry: Entry) => {
-    saveEntry(userId, card.id, toCondList(entry.conds, card), entry.selCond)
-      // The stats (total value, etc.) are now out of date — tells the
-      // cache to fetch a fresh copy.
-      .then(() => qc.invalidateQueries({ queryKey: ['stats', userId] }))
-      // The on-screen change already happened and isn't rolled back here
-      // — a simple "assume it usually works" approach.
-      .catch(() => toast('Save failed - change not stored.'))
-  }
-
-  /** Changes one card's local entry, then saves it. */
+  /** Shows the edit immediately, saves in order, and restores the last saved
+   * value on failure. Network effects stay outside React's state updater. */
   const mutate = (card: Card, fn: (e: Entry) => Entry) => {
-    setColl(prev => {
-      const cur = prev[card.id] ?? { conds: {}, selCond: 'NM' }
-      // Hands `fn` a fresh copy so it can't accidentally change the original.
-      const next = fn({ conds: { ...cur.conds }, selCond: cur.selCond })
-      persist(card, next)
-      return { ...prev, [card.id]: next }
+    const current = coll[card.id] ?? { conds: {}, selCond: 'NM' }
+    const pending = pendingEdits.current.get(card.id) ?? {
+      entry: current, confirmed: current, queue: Promise.resolve(),
+    }
+    const next = fn({ conds: { ...pending.entry.conds }, selCond: current.selCond })
+    pending.entry = next
+    pendingEdits.current.set(card.id, pending)
+    setColl(prev => ({ ...prev, [card.id]: next }))
+
+    pending.queue = pending.queue.then(async () => {
+      try {
+        await saveEntry(userId, card.id, toCondList(next.conds, card), next.selCond)
+        pending.confirmed = next
+        void qc.invalidateQueries({ queryKey: ['stats', userId] })
+        void qc.invalidateQueries({ queryKey: ['owned', userId] })
+        void qc.invalidateQueries({ queryKey: ['shop'] })
+        void qc.invalidateQueries({ queryKey: ['shared'] })
+      } catch {
+        if (pending.entry === next) {
+          setColl(prev => ({ ...prev, [card.id]: pending.confirmed }))
+        }
+        toast('Save failed — your quantity change was not saved. Please try again.')
+      } finally {
+        if (pending.entry === next) pendingEdits.current.delete(card.id)
+      }
     })
   }
 

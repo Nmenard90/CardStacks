@@ -111,7 +111,7 @@ object CollectionService:
           selectedCond = selCond,
           updatedAt    = Instant.now()
         )
-      }.filter(_.conditions.nonEmpty)
+      }
       collectionRepo.bulkUpsert(entries)
 
     def getOwnedCards(userId: String, game: String): Task[List[OwnedCard]] =

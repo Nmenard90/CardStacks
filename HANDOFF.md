@@ -162,13 +162,35 @@ tcg/
 
 ## Current state (2026-10-25)
 
-Pricing repair prepared (2026-10-25): Railway frontend and backend were both
+Quantity-zero removal repair is prepared in
+`.worktrees/collection-zero-20261025` (`fix/collection-zero-20261025`), not yet
+deployed. Setting the last copy to zero now clears its storage allocations
+and binder mirrors and deletes ownership in one transaction, so it disappears
+from the shop inventory feed. Zeroing one condition/print preserves other
+copies. Bulk zero saves now reach the same deletion logic (the service used
+to silently discard them). Explore serializes per-card saves, restores the
+last confirmed quantity on failure, and invalidates owned/shop/share caches.
+Five local Postgres regression cases passed; frontend build and changed-file
+lint passed. Full backend suite passed: 51 tests passed, 5 skipped, 0 failures. Deployment
+awaits approval.
+No migration is required. Previously rejected removals must be retried after
+deployment; the failed requests did not record the intended quantities.
+
+Photo feature status: pushed to GitHub `feature/shop-photos` (`3ee2f98`), not
+merged into main or deployed. Requires migration `019_shop_photos` before
+backend deployment; migration status has not been verified.
+
+Pricing repair deployed and verified (2026-10-25, commit `7a57aec`): Railway frontend and backend were both
 confirmed on GitHub main commit `2fdbdbc`. TCGTracking moved its API to
 `https://openapi.tcgtracking.com/v1`; the previous host returns an empty HTTP
 308 redirect that the Java clients do not follow. Updated both PriceService
-and TcgTrackingCatalog. Deployment and fresh production snapshots still need
-verification; no migration is required. The background job ran today but its
-"re-priced" summary counts attempts, including skipped/failed updates.
+and TcgTrackingCatalog. Both Railway services deployed successfully. Backend compile and tests passed
+(46 passed, 5 skipped). Reset only the 182 owned-set refresh timers; the job
+completed, with fresh snapshots for 180 sets and over 32,000 cards across
+the catalog. Public API prices/history were verified. Pok?mon Futsal Collection
+(`fut20`) and Wizards Black Star Promos (`basep`) remain on older prices because
+no provider set passed matching; do not claim those were refreshed. No migration
+was required. The job's "re-priced" summary counts attempts, including skips.
 
 Live: Supabase auth + demo mode, collection/bulk add, binders, Spaces (shelves,
 boxes with compartments, display cases, auto-filing into per-set boxes), Trade
