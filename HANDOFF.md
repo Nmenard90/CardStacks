@@ -3,7 +3,7 @@
 Working context for continuing development. For the public-facing overview see
 `README.md`; for the live defect list see `BUGS.md`.
 
-_Last updated: 2026-10-16._
+_Last updated: 2026-10-25._
 
 **Every session: read this file and `BUGS.md` before starting, and update
 "Current state" (and `BUGS.md`) before finishing.**
@@ -60,6 +60,10 @@ tcg/
 ```
 
 ## Dev environment & workflow
+
+- **Foreman is retired.** The owner confirmed on 2026-10-25 that it has not
+  been used for months. Follow direct user instructions and use a worktree
+  from current GitHub `main`; do not require or start Foreman.
 
 - **OS/tools:** Windows + Git Bash; Java 21 (Eclipse Temurin); Scala/sbt via
   Coursier; VS Code + Metals.
@@ -156,7 +160,15 @@ tcg/
   shrink below content); page headers wrap or scroll rather than clip. Check
   with a 390px-wide view for any element past the right edge.
 
-## Current state (2026-10-16)
+## Current state (2026-10-25)
+
+Pricing repair prepared (2026-10-25): Railway frontend and backend were both
+confirmed on GitHub main commit `2fdbdbc`. TCGTracking moved its API to
+`https://openapi.tcgtracking.com/v1`; the previous host returns an empty HTTP
+308 redirect that the Java clients do not follow. Updated both PriceService
+and TcgTrackingCatalog. Deployment and fresh production snapshots still need
+verification; no migration is required. The background job ran today but its
+"re-priced" summary counts attempts, including skipped/failed updates.
 
 Live: Supabase auth + demo mode, collection/bulk add, binders, Spaces (shelves,
 boxes with compartments, display cases, auto-filing into per-set boxes), Trade

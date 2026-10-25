@@ -43,7 +43,7 @@ trait TcgTrackingCatalog:
 
 object TcgTrackingCatalog:
 
-  private val Base = "https://tcgtracking.com/tcgapi/v1"
+  private val Base = "https://openapi.tcgtracking.com/v1"
 
   private case class TtSet(
     id: Int, name: String, abbreviation: Option[String],

@@ -209,3 +209,13 @@ investigation (data availability / terms). Pairs with BUG-017.
 ## Triage — reported, not yet investigated
 
 - (none)
+
+
+## Pricing outage (2026-10-25)
+
+TCGTracking moved from `https://tcgtracking.com/tcgapi/v1` to
+`https://openapi.tcgtracking.com/v1`. The old URL returns HTTP 308 with an
+empty body; the Java clients did not follow it, so scheduled pricing ran but
+skipped updates. Both client base URLs are corrected. New-host sets/cards/SKU
+responses were checked successfully. Deployment and fresh production snapshots
+remain to be verified. No schema changes.

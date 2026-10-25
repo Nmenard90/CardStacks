@@ -12,17 +12,16 @@ The active product is `web/` (React frontend) backed by `poketracker-v2/` (Scala
   anything that changed: shipped work, new bugs, migrations run, work left
   half-done and where it lives.
 
-## Foreman-Controlled Development
+## Development Workflow
 
-This repository is developed through the local TCG Foreman.
+TCG Foreman is retired and has not been used for months (confirmed by the owner on 2026-10-25). Do not require or start Foreman.
 
-- Every implementation task runs in its own Git worktree and branch.
-- Multiple agents may work concurrently only in separate worktrees and non-overlapping task areas.
-- Only one agent may write inside a particular worktree.
-- The Foreman owns commits, reviews, merges, worktree creation, and provider failover.
-- Agents must not commit, merge, rebase, reset, clean, push, switch branches, or create worktrees.
-- Agents must not edit the main checkout.
-- The task prompt supplied by Foreman is the authority for current scope.
+- The user's instructions define the current task scope.
+- Start implementation from current GitHub main in an isolated worktree; this checkout may be on older history.
+- Preserve unrelated changes and stage only task-specific files.
+- Multiple agents may work concurrently only in separate worktrees and non-overlapping task areas; only one agent may write in a worktree.
+- Agents may create branches/worktrees and perform normal Git operations as needed for authorized work. Do not reset, clean, force-push, or rewrite history without explicit approval.
+- Verify changes and show the concrete diff before deploying.
 
 ## Repository Safety
 

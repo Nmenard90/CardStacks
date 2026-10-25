@@ -119,7 +119,7 @@ object PriceService:
 
   // Pokemon's category number in TCGTracking's own system.
   private val POKEMON_CAT = 3
-  private val BASE        = "https://tcgtracking.com/tcgapi/v1"
+  private val BASE        = "https://openapi.tcgtracking.com/v1"
 
   /**
    * The real, working PriceService.
