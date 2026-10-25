@@ -19,8 +19,8 @@ trait ShopRepository:
   def getSettings(userId: String): Task[Option[ShopSettings]]
   /** Fails with a unique-violation if another user already owns the slug. */
   def saveSettings(userId: String, s: ShopSettings): Task[Unit]
-  /** (sellerUserId, messengerUrl) — only when that shop is switched on. */
-  def findPublicSeller(slug: String): Task[Option[(String, String)]]
+  /** (sellerUserId, messengerUrl, displayName, bio), only for enabled shops. */
+  def findPublicSeller(slug: String): Task[Option[(String, String, String, String)]]
   def create(sellerUserId: String, input: ShopRequestInput): Task[ShopRequest]
   def list(sellerUserId: String): Task[List[ShopRequest]]
   def setStatus(sellerUserId: String, id: String, status: String): Task[Unit]
@@ -34,21 +34,22 @@ object ShopRepository:
       ShopRequest(id, name, contact, msg, kind, itemsJson.fromJson[List[ShopRequestItem]].getOrElse(Nil), status, at)
 
     def getSettings(userId: String): Task[Option[ShopSettings]] =
-      sql"SELECT slug,enabled,messenger_url FROM shop_settings WHERE user_id=$userId"
-        .query[(String, Boolean, String)].option.map(_.map(ShopSettings.apply.tupled)).transact(xa)
+      sql"SELECT slug,enabled,messenger_url,display_name,bio FROM shop_settings WHERE user_id=$userId"
+        .query[(String, Boolean, String, String, String)].option.map(_.map(ShopSettings.apply.tupled)).transact(xa)
 
     def saveSettings(userId: String, s: ShopSettings): Task[Unit] =
       val now = Instant.now()
-      sql"""INSERT INTO shop_settings(user_id,slug,enabled,messenger_url,updated_at)
-        VALUES($userId,${s.slug},${s.enabled},${s.messengerUrl},$now)
+      sql"""INSERT INTO shop_settings(user_id,slug,enabled,messenger_url,display_name,bio,updated_at)
+        VALUES($userId,${s.slug},${s.enabled},${s.messengerUrl},${s.displayName},${s.bio},$now)
         ON CONFLICT (user_id) DO UPDATE
           SET slug=EXCLUDED.slug, enabled=EXCLUDED.enabled,
-              messenger_url=EXCLUDED.messenger_url, updated_at=EXCLUDED.updated_at"""
+              messenger_url=EXCLUDED.messenger_url, display_name=EXCLUDED.display_name,
+              bio=EXCLUDED.bio, updated_at=EXCLUDED.updated_at"""
         .update.run.transact(xa).unit
 
-    def findPublicSeller(slug: String): Task[Option[(String, String)]] =
-      sql"SELECT user_id,messenger_url FROM shop_settings WHERE slug=$slug AND enabled=TRUE"
-        .query[(String, String)].option.transact(xa)
+    def findPublicSeller(slug: String): Task[Option[(String, String, String, String)]] =
+      sql"SELECT user_id,messenger_url,display_name,bio FROM shop_settings WHERE slug=$slug AND enabled=TRUE"
+        .query[(String, String, String, String)].option.transact(xa)
 
     def create(sellerUserId: String, input: ShopRequestInput): Task[ShopRequest] =
       val id    = java.util.UUID.randomUUID().toString

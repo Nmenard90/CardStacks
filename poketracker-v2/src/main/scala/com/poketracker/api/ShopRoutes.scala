@@ -54,13 +54,17 @@ object ShopRoutes:
     )
 
   /** Normalizes and checks the owner's shop settings; Left = message to show them. */
-  private def validateSettings(in: ShopSettings): Either[String, ShopSettings] =
+  private[poketracker] def validateSettings(in: ShopSettings): Either[String, ShopSettings] =
     val slug = in.slug.trim.toLowerCase
     val url  = in.messengerUrl.trim
+    val name = in.displayName.trim
+    val bio  = in.bio.trim
     if slugPattern.findFirstIn(slug).isEmpty then Left("Link name must be 3-30 letters, numbers or dashes.")
     else if reservedSlugs(slug)              then Left("That link name is reserved. Please pick another.")
     else if url.nonEmpty && (!url.startsWith("https://") || url.length > 200) then Left("Messenger link must start with https:// (like https://m.me/yourname).")
-    else Right(ShopSettings(slug, in.enabled, url))
+    else if name.length > 80 then Left("Shop name must be 80 characters or fewer.")
+    else if bio.length > 1000 then Left("Bio must be 1000 characters or fewer.")
+    else Right(ShopSettings(slug, in.enabled, url, name, bio))
 
   /** Trims and length-caps the untrusted buyer request; Left = message for the buyer. */
   private def validateRequest(in: ShopRequestInput): Either[String, ShopRequestInput] =
@@ -81,10 +85,10 @@ object ShopRoutes:
     Method.GET / "api" / "shop" / string("slug") -> handler { (slug: String, req: Request) =>
       ZIO.serviceWithZIO[ShopRepository](_.findPublicSeller(slug.toLowerCase)).flatMap {
         case None                        => ZIO.succeed(notOpen)
-        case Some((userId, messengerUrl)) =>
+        case Some((userId, messengerUrl, displayName, bio)) =>
           // Multi-game: ?game=<id> picks the game's world, default English Pokémon.
           ZIO.serviceWithZIO[CollectionService](_.getOwnedCards(userId, GameParam.of(req)))
-            .map(cards => Response.json(ShopView(messengerUrl, cards.map(sanitize)).toJson))
+            .map(cards => Response.json(ShopView(messengerUrl, cards.map(sanitize), displayName, bio).toJson))
       }.catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
     },
 

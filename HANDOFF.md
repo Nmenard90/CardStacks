@@ -162,23 +162,30 @@ tcg/
 
 ## Current state (2026-10-25)
 
-Quantity-zero removal repair is prepared in
-`.worktrees/collection-zero-20261025` (`fix/collection-zero-20261025`), not yet
-deployed. Setting the last copy to zero now clears its storage allocations
-and binder mirrors and deletes ownership in one transaction, so it disappears
-from the shop inventory feed. Zeroing one condition/print preserves other
-copies. Bulk zero saves now reach the same deletion logic (the service used
-to silently discard them). Explore serializes per-card saves, restores the
-last confirmed quantity on failure, and invalidates owned/shop/share caches.
-Five local Postgres regression cases passed; frontend build and changed-file
-lint passed. Full backend suite passed: 51 tests passed, 5 skipped, 0 failures. Deployment
-awaits approval.
-No migration is required. Previously rejected removals must be retried after
-deployment; the failed requests did not record the intended quantities.
+Shop profile / organization update is implemented in
+`.worktrees/shop-inviting-20261025` (`feat/shop-inviting-20261025`), validated locally. Adds owner-editable shop name/bio, set-grouped public inventory,
+a desktop set directory and phone set picker, URL-backed set navigation,
+friendlier request flow and previews. Also fixes Explore Owned only + Price
+descending: sort the complete owned inventory before pagination, rather than
+filtering the first 60 catalog cards. Backend: 56 passed, 5 skipped; frontend
+build/lint, 4 Open Graph tests and 6 browser scenarios passed. Rendered evidence:
+`docs/agent-reports/shop-inviting-20261025/` (sample bio, intercepted API writes).
+Migration `020_shop_profile` was manually applied to production on 2026-10-25
+and both columns were verified BEFORE publishing dependent code. Verify production rollout against the resulting main commit in Railway.
+Actual seller bio is blank until the owner writes it.
 
-Photo feature status: pushed to GitHub `feature/shop-photos` (`3ee2f98`), not
-merged into main or deployed. Requires migration `019_shop_photos` before
-backend deployment; migration status has not been verified.
+Quantity-zero removal repair is deployed as `07af84a` on both Railway services.
+A live API smoke test on an isolated anonymous demo account verified 1 -> 0
+removal from owned inventory; the seller's existing inventory was untouched.
+Clears storage placements/binder mirrors and ownership atomically, preserves
+other conditions/prints, fixes bulk zero saves, queues Explore writes and rolls
+back failed saves. Local Postgres regressions and full backend suite passed
+(51 passed, 5 skipped). Earlier failed removals must be retried because they
+never saved their intended quantity. No migration was needed.
+
+Photo feature status: GitHub `feature/shop-photos` (`3ee2f98`), not merged or
+live. Production `shop_photos` table exists (checked 2026-10-25), but its full
+schema has not been audited. This profile update does not merge that branch.
 
 Pricing repair deployed and verified (2026-10-25, commit `7a57aec`): Railway frontend and backend were both
 confirmed on GitHub main commit `2fdbdbc`. TCGTracking moved its API to
@@ -187,7 +194,7 @@ confirmed on GitHub main commit `2fdbdbc`. TCGTracking moved its API to
 and TcgTrackingCatalog. Both Railway services deployed successfully. Backend compile and tests passed
 (46 passed, 5 skipped). Reset only the 182 owned-set refresh timers; the job
 completed, with fresh snapshots for 180 sets and over 32,000 cards across
-the catalog. Public API prices/history were verified. Pok?mon Futsal Collection
+the catalog. Public API prices/history were verified. Pokémon Futsal Collection
 (`fut20`) and Wizards Black Star Promos (`basep`) remain on older prices because
 no provider set passed matching; do not claim those were refreshed. No migration
 was required. The job's "re-priced" summary counts attempts, including skips.

@@ -1,0 +1,18 @@
+{
+  "contract": "contract.md: owner-editable profile, set-grouped public card browsing, URL-backed set selection, preserved request workflow and full-owned-list price sorting.",
+  "targetViewports": ["390x844", "1440x900"],
+  "accessibility": {"status": "pass", "evidence": "Browser checks passed for dialog focus wrapping and Escape dismissal, native labeled filters, escaped multiline profile text, absence of public edit controls, visible button targets >=24px, and >=4.5:1 computed contrast for muted text, placeholders and primary buttons. CSS provides visible focus and reduced-motion handling."},
+  "responsive": {"status": "pass", "evidence": "Both 390x844 and 1440x900 browser runs found no horizontal document overflow. Rendered review confirmed phone set-picker controls, two-column card art and a fixed request tray; desktop uses a set directory and six-column previews."},
+  "contentStates": {
+    "loading": {"status": "pass", "evidence": "Held the mocked shop response and observed the Opening the collection status before releasing it."},
+    "empty": {"status": "pass", "evidence": "Empty card feed rendered The shelves are empty for now without a misleading card grid."},
+    "error": {"status": "pass", "evidence": "HTTP 503 rendered an unavailable message; Try again recovered to the next mocked response."},
+    "partial": {"status": "pass", "evidence": "A card with no prices remained browsable and displayed Ask for price; normal cards were still visible."},
+    "success": {"status": "pass", "evidence": "Mocked request submission showed Sent and closed with Escape. Owner profile save followed by View my shop showed the saved name and multiline bio as plain text."},
+    "permission": {"status": "pass", "evidence": "Logged-out public views had no Edit shop profile control. Authenticated owner could edit; backend tests retain owner-scoped settings routes and verify private shops do not expose their profile."}
+  },
+  "renderedEvidence": [
+    {"viewport": "390x844", "artifact": "mobile.png", "observation": "Sample profile, clear set picker and sort controls, named expansion heading and two card images visible above the request tray; no horizontal overflow."},
+    {"viewport": "1440x900", "artifact": "desktop.png", "observation": "Sample profile, set directory, full search/filter/sort toolbar, named expansion section and card-art preview row. Live seller bio is not prefilled by this fixture."}
+  ]
+}

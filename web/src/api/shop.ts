@@ -37,6 +37,8 @@ export interface ShopRequest extends ShopRequestInput {
 export interface ShopView {
   messengerUrl: string
   cards: OwnedCard[]
+  displayName: string
+  bio: string
 }
 
 /** The owner's switch for their shop. enabled=false means nobody can see it. */
@@ -44,6 +46,8 @@ export interface ShopSettings {
   slug: string
   enabled: boolean
   messengerUrl: string
+  displayName: string
+  bio: string
 }
 
 export const getShop = (slug: string) =>

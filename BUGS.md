@@ -222,7 +222,7 @@ All 182 owned sets were processed after resetting only their refresh timers;
 180 sets have new snapshots dated 2026-10-25. Over 32,000 cards received fresh
 snapshots across the catalog and public API spot-checks passed. No schema changes.
 
-Remaining coverage/matching gaps: Pok?mon Futsal Collection (`fut20`) and Wizards
+Remaining coverage/matching gaps: Pokémon Futsal Collection (`fut20`) and Wizards
 Black Star Promos (`basep`) were skipped because no candidate set matched. Their
 prices remain older. The background job summary still counts skipped attempts
 as "re-priced", so verify snapshots rather than trusting that summary.
@@ -230,7 +230,7 @@ as "re-priced", so verify snapshots rather than trusting that summary.
 
 ## Quantity-zero removals (2026-10-25)
 
-Repair prepared, not deployed: Explore hid cards optimistically even when the
+Deployed as `07af84a`: Explore hid cards optimistically even when the
 backend rejected deleting allocated copies. Delete now clears allocations and
 binder mirrors atomically; removing a condition/print clears only its own
 placements. Bulk updates no longer silently discard zero quantities. Explore
@@ -238,4 +238,20 @@ queues saves per card, rolls back failures, and invalidates shop/owned/share
 caches. Five local Postgres regression tests cover auto boxes, binders, displays,
 print-specific removal and bulk zero saves; frontend build and changed-file
 lint passed. Full backend suite: 51 passed, 5 skipped, 0 failures. No migration.
-Deployment awaits approval. Previously failed removals need to be retried.
+Live API demo smoke passed (1 -> 0); existing seller inventory was untouched.
+Previously failed removals need to be retried.
+
+
+## Explore price sort / shop profile (2026-10-25)
+
+Implementation: Owned only in All Sets filtered just the current
+60-card catalog page, so Price descending could incorrectly say no cards were
+owned. Now sorts the full owned feed before paging; a browser regression
+uses 60 expensive unowned cards plus three cheaper owned cards and checks
+both sort directions. Shop now supports a saved seller name/bio and card
+browsing grouped by expansion, with set navigation in the URL.
+
+Migration 020 (shop profile) manually applied and verified in production before
+code push. Backend 56 passed / 5 skipped; frontend build and changed-file lint,
+4 Open Graph tests and 6 browser scenarios passed. Evidence in
+docs/agent-reports/shop-inviting-20261025. Photos remain a separate branch.

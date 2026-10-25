@@ -38,6 +38,7 @@ import {
   basePrice, cardValue, condPrice, fromCondList, toCondList, totalQty, type CondMap,
 } from '../lib/conditions'
 import { buildSetTotals, narrowByCollectorNumber } from '../lib/cardSearch'
+import { usePagedList } from '../lib/usePagedList'
 import { downloadCSV, type ImportRow } from '../lib/csv'
 import type { Card } from '../types'
 
@@ -98,6 +99,10 @@ export function CollectionPage() {
   const BROWSE_PAGE_SIZE = 60
 
   const userId = user?.id ?? ''
+  const { data: ownedCatalogue = [], isLoading: ownedLoading, isError: ownedError, refetch: reloadOwned } = useQuery({
+    queryKey: ['owned', userId], queryFn: () => getOwnedCards(userId),
+    enabled: !!user && ownership === 'owned',
+  })
 
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets, enabled: !!user })
 
@@ -180,7 +185,7 @@ export function CollectionPage() {
 
   // Loads page 0 of the whole-catalog browse whenever "All Sets" is picked
   // with no search typed, or the sort changes while already there.
-  const browseRequestKey = userId && activeSetId === ALL_SETS && search.trim().length < 2
+  const browseRequestKey = userId && ownership !== 'owned' && activeSetId === ALL_SETS && search.trim().length < 2
     ? JSON.stringify([userId, search, browseSort, browseDir])
     : null
   const [previousBrowseRequestKey, setPreviousBrowseRequestKey] = useState<string | null>(null)
@@ -193,7 +198,7 @@ export function CollectionPage() {
   }
 
   useEffect(() => {
-    if (!userId || activeSetId !== ALL_SETS || search.trim().length >= 2) return
+    if (!userId || ownership === 'owned' || activeSetId !== ALL_SETS || search.trim().length >= 2) return
     let cancelled = false
     browseCards({ sort: browseSort, dir: browseDir, page: 0, pageSize: BROWSE_PAGE_SIZE })
       // Defensive fallback, not just the happy path: an old/mismatched
@@ -204,7 +209,7 @@ export function CollectionPage() {
       .catch(() => { if (!cancelled) toast('Could not load the catalog.') })
       .finally(() => { if (!cancelled) setBrowseLoading(false) })
     return () => { cancelled = true }
-  }, [userId, activeSetId, search, browseSort, browseDir, toast])
+  }, [userId, activeSetId, search, browseSort, browseDir, ownership, toast])
 
   const loadMoreBrowse = () => {
     const nextPage = browsePage + 1
@@ -406,10 +411,23 @@ export function CollectionPage() {
   }, [cards, search, isSearchMode, allSets])
 
   // The catalog-browse list ("All Sets", nothing typed), filtered by "owned only".
-  const browseDisplay = useMemo(
+  const catalogDisplay = useMemo(
     () => browseList.filter(c => keepCard(c)),
     [browseList, keepCard],
   )
+
+  // Filter before pagination: filtering the first 60 *catalog* cards made
+  // price-descending say "no cards" whenever those 60 were all unowned.
+  const ownedBrowse = useMemo(() => ownedCatalogue
+    .filter(o => coll[o.card.id] ? totalQty(coll[o.card.id].conds) > 0 : o.conditions.some(c => c.quantity > 0))
+    .map(o => o.card)
+    .sort(compareBy((c: Card): SortFields => ({ name: c.name, setId: c.setId, number: c.number,
+      artist: c.artist, value: basePrice(c) || null }), browseSort === 'price' ? 'value' : browseSort,
+      browseDir, id => setDates.get(id))), [ownedCatalogue, coll, browseSort, browseDir, setDates])
+  const ownedPage = usePagedList(ownedBrowse, `${browseSort}|${browseDir}|${ownedBrowse.length}`, BROWSE_PAGE_SIZE)
+  const browseDisplay = ownership === 'owned' ? ownedPage.visible : catalogDisplay
+  const browseBusy = ownership === 'owned' ? ownedLoading : browseLoading
+  const browseCount = ownership === 'owned' ? ownedBrowse.length : browseTotal
 
   // Which single list of cards to actually show, based on the current
   // combination of search-mode and set-scope.
@@ -425,7 +443,7 @@ export function CollectionPage() {
   const ownedInSet = set ? cards.filter(c => totalQty(coll[c.id]?.conds ?? {}) > 0).length : 0
   const setValue = set ? cards.reduce((sum, c) => sum + cardValue(coll[c.id]?.conds ?? {}, c), 0) : 0
   const completion = set && set.total > 0 ? Math.round((ownedInSet / set.total) * 100) : 0
-  const gridReady = isSearchMode ? (allSets ? !globalSearching : true) : allSets ? !browseLoading || browseList.length > 0 : !cardsLoading
+  const gridReady = isSearchMode ? (allSets ? !globalSearching : true) : allSets ? !browseBusy || browseDisplay.length > 0 : !cardsLoading
 
   if (!user) return <div className="page-tracker"><LoginScreen /></div>
 
@@ -542,15 +560,16 @@ export function CollectionPage() {
               </div>
             )}
 
-            {!isSearchMode && allSets && browseLoading && browseList.length === 0 && (
-              <div className="loading">Loading the catalog…</div>
+            {!isSearchMode && allSets && browseBusy && browseDisplay.length === 0 && (
+              <div className="loading">{ownership === 'owned' ? 'Loading your cards…' : 'Loading the catalog…'}</div>
             )}
-            {!isSearchMode && allSets && !browseLoading && browseDisplay.length === 0 && (
+            {!isSearchMode && allSets && ownership === 'owned' && ownedError && <div className="empty">Could not load your cards. <button type="button" onClick={() => void reloadOwned()}>Try again</button></div>}
+            {!isSearchMode && allSets && !browseBusy && !(ownership === 'owned' && ownedError) && browseDisplay.length === 0 && (
               <div className="empty">{ownership === 'owned' ? "You don't own any cards yet." : ownership === 'missing' ? 'No missing cards on this page.' : 'No cards in the catalog.'}</div>
             )}
             {!isSearchMode && allSets && browseDisplay.length > 0 && (
               <div style={{ padding: '8px 18px', color: 'var(--muted)', fontSize: 13 }}>
-                Showing {browseDisplay.length} of {browseTotal.toLocaleString()} cards
+                Showing {browseDisplay.length} of {browseCount.toLocaleString()} cards
               </div>
             )}
 
@@ -589,7 +608,12 @@ export function CollectionPage() {
               </div>
             )}
 
-            {!isSearchMode && allSets && browseList.length < browseTotal && (
+            {!isSearchMode && allSets && ownership === 'owned' && ownedPage.hasMore && (
+              <div style={{ textAlign: 'center', padding: 20 }}>
+                <button className="tb-btn primary" onClick={ownedPage.loadMore}>Load more ({ownedPage.remaining.toLocaleString()} left)</button>
+              </div>
+            )}
+            {!isSearchMode && allSets && ownership !== 'owned' && browseList.length < browseTotal && (
               <div style={{ display: 'flex', justifyContent: 'center', padding: '18px 0' }}>
                 <button className="tb-btn primary" onClick={loadMoreBrowse} disabled={browseLoading}>
                   {browseLoading ? 'Loading…' : `Load more (${(browseTotal - browseList.length).toLocaleString()} left)`}

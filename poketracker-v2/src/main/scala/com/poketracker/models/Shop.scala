@@ -7,7 +7,9 @@ import java.time.Instant
 final case class ShopSettings(
   slug:         String,
   enabled:      Boolean,
-  messengerUrl: String
+  messengerUrl: String,
+  displayName:  String = "",
+  bio:          String = ""
 )
 
 object ShopSettings:
@@ -16,7 +18,9 @@ object ShopSettings:
 /** What the public page gets back: the link button plus the cards. */
 final case class ShopView(
   messengerUrl: String,
-  cards:        List[OwnedCard]
+  cards:        List[OwnedCard],
+  displayName:  String = "",
+  bio:          String = ""
 )
 
 object ShopView:

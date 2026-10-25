@@ -31,10 +31,10 @@ const esc = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replac
  *               is not known at build time.
  */
 export function shopOg(slug, origin) {
-  const title = `${slug}'s Pokémon cards for sale`
+  const title = `${slug}'s Pokémon card shop`
   const description =
-    "Browse the collection, see today's market prices, and send a request. " +
-    'Prices follow the market. No percentage offers, no trades.'
+    'Explore Pokémon singles organized by set, check conditions and prices, ' +
+    'and send your picks. No account needed to make a request.'
   return {
     title,
     tags: [

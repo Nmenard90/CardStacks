@@ -39,13 +39,18 @@ export interface BrowseFields {
   artist?: string | null
 }
 
-export function CardBrowser<T>({ items, fields, renderTile, itemKey, empty, defaultSort = 'value', actions }: {
+export function CardBrowser<T>({ items, fields, renderTile, itemKey, empty, defaultSort = 'value', actions,
+  groupBySet = false, setFilterValue, onSetFilterChange }: {
   items: T[]
   fields: (item: T) => BrowseFields
   renderTile: (item: T) => ReactNode
   itemKey: (item: T) => string
   empty: ReactNode
   defaultSort?: SortKey
+  /** Shop mode: a set directory and numbered card previews, instead of one mixed grid. */
+  groupBySet?: boolean
+  setFilterValue?: string
+  onSetFilterChange?: (id: string) => void
   /** Buttons beside the count, given the cards currently shown (all
    *  filtered rows, not just the loaded page) — e.g. "Select all". */
   actions?: (shown: T[]) => ReactNode
@@ -54,7 +59,9 @@ export function CardBrowser<T>({ items, fields, renderTile, itemKey, empty, defa
   const setInfo = useMemo(() => new Map(sets.map(s => [s.id, s])), [sets])
 
   const [q, setQ] = useState('')
-  const [setFilter, setSetFilter] = useState('')
+  const [internalSetFilter, setInternalSetFilter] = useState('')
+  const setFilter = setFilterValue ?? internalSetFilter
+  const setSetFilter = onSetFilterChange ?? setInternalSetFilter
   const [sort, setSort] = useState<SortKey>(defaultSort)
   const [sortDir, setSortDir] = useState<SortDir>(DEFAULT_DIR[defaultSort])
 
@@ -89,11 +96,23 @@ export function CardBrowser<T>({ items, fields, renderTile, itemKey, empty, defa
   const total = filtered.reduce((s, r) => s + (r.f.value ?? 0) * (r.f.quantity ?? 1), 0)
   const copies = filtered.reduce((s, r) => s + (r.f.quantity ?? 1), 0)
 
-  const page = usePagedList(filtered, `${q}|${setFilter}|${sort}|${sortDir}|${items.length}`, 48)
+  const resetKey = `${q}|${setFilter}|${sort}|${sortDir}|${items.length}`
+  const page = usePagedList(filtered, resetKey, 48)
+  const groups = useMemo(() => {
+    const bySet = new Map<string, typeof filtered>()
+    for (const row of filtered) {
+      const group = bySet.get(row.f.setId) ?? []
+      group.push(row)
+      bySet.set(row.f.setId, group)
+    }
+    return setOptions.filter(s => bySet.has(s.id)).map(s => ({ ...s, rows: bySet.get(s.id)! }))
+  }, [filtered, setOptions])
+  const groupPage = usePagedList(groups, resetKey, 4)
+  const groupedOverview = groupBySet && !setFilter
 
   // Load the next page when the sentinel below the grid scrolls into view.
   const sentinel = useRef<HTMLDivElement>(null)
-  const { hasMore, loadMore } = page
+  const { hasMore, loadMore, remaining } = groupedOverview ? groupPage : page
   useEffect(() => {
     const el = sentinel.current
     if (!el || !hasMore || typeof IntersectionObserver === 'undefined') return
@@ -106,6 +125,16 @@ export function CardBrowser<T>({ items, fields, renderTile, itemKey, empty, defa
 
   return (
     <div className="card-browser">
+      {groupBySet && <details className="shop-set-directory">
+        <summary>Browse all {setOptions.length} sets <span>Find your favorite expansion</span></summary>
+        <div className="shop-set-links">
+          {setOptions.map(s => <button key={s.id} type="button" aria-pressed={setFilter === s.id}
+            onClick={event => { setSetFilter(s.id); event.currentTarget.closest('details')?.removeAttribute('open') }}>
+            {setInfo.get(s.id)?.images.symbol && <img src={setInfo.get(s.id)!.images.symbol} alt="" loading="lazy" />}
+            <span>{s.name}<small>{s.n} card option{s.n === 1 ? '' : 's'}</small></span>
+          </button>)}
+        </div>
+      </details>}
       <div className="browser-toolbar">
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search name, artist, set…" aria-label="Search cards" />
         <select value={setFilter} onChange={e => setSetFilter(e.target.value)} aria-label="Filter by set">
@@ -117,19 +146,36 @@ export function CardBrowser<T>({ items, fields, renderTile, itemKey, empty, defa
       <div className="browser-summary">
         <span>
           {filtered.length} card{filtered.length === 1 ? '' : 's'}
-          {copies !== filtered.length ? ` · ${copies} copies` : ''} · ≈ {money(total)}
+          {copies !== filtered.length ? ` · ${copies} copies` : ''}
+          {groupBySet ? ` · ${groups.length} set${groups.length === 1 ? '' : 's'}` : ` · ≈ ${money(total)}`}
         </span>
         {actions && filtered.length > 0 && <span className="browser-actions">{actions(filtered.map(r => r.item))}</span>}
       </div>
 
-      {filtered.length === 0 ? <p className="muted">No cards match.</p> : (
+      {groupBySet && setFilter && <button className="shop-all-sets" type="button" onClick={() => setSetFilter('')}>← Back to all sets</button>}
+      {filtered.length === 0 ? <div className="browser-empty"><p className="muted">No cards match your search.</p>
+        <button type="button" onClick={() => { setQ(''); setSetFilter('') }}>Clear filters</button></div> : groupBySet ? (
+        <div className="shop-set-groups">
+          {(groupedOverview ? groupPage.visible : groups).map(group => <section className="shop-set-section" key={group.id} aria-label={group.name}>
+            <header className="shop-set-heading">
+              {setInfo.get(group.id)?.images.symbol && <img src={setInfo.get(group.id)!.images.symbol} alt="" loading="lazy" />}
+              <div><h3>{group.name}</h3><p>{setInfo.get(group.id)?.series ? `${setInfo.get(group.id)!.series} · ` : ''}{group.rows.length} card option{group.rows.length === 1 ? '' : 's'}</p></div>
+              {groupedOverview && group.rows.length > 12 && <button type="button" onClick={() => setSetFilter(group.id)} aria-label={`View all ${group.rows.length} cards in ${group.name}`}>View set →</button>}
+            </header>
+            <div className="trade-grid">
+              {(groupedOverview ? group.rows.slice(0, 12) : page.visible).map(r => <div className="browser-cell" key={itemKey(r.item)}>{renderTile(r.item)}</div>)}
+            </div>
+            {groupedOverview && group.rows.length > 12 && <button className="shop-view-set" type="button" onClick={() => setSetFilter(group.id)}>See all {group.rows.length} cards in {group.name} →</button>}
+          </section>)}
+        </div>
+      ) : (
         <div className="trade-grid">
           {page.visible.map(r => <div className="browser-cell" key={itemKey(r.item)}>{renderTile(r.item)}</div>)}
         </div>
       )}
       {hasMore && (
         <div ref={sentinel} className="browser-more">
-          <button onClick={loadMore}>Show more ({page.remaining} left)</button>
+          <button onClick={loadMore}>Show more {groupedOverview ? 'sets' : 'cards'} ({remaining} left)</button>
         </div>
       )}
     </div>

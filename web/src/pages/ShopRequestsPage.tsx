@@ -47,6 +47,7 @@ function ShopSettingsPanel({ userId, suggestedSlug }: { userId: string; suggeste
       const result = await saveShopSettings(userId, next)
       setDraft(null)
       qc.setQueryData(['shop-settings', userId], result)
+      void qc.invalidateQueries({ queryKey: ['shop'] })
       setMsg(result.enabled ? 'Saved. Your shop is live.' : 'Saved. Your shop is off.')
     } catch (e) {
       const body = (e as { response?: { data?: unknown } }).response?.data
@@ -65,12 +66,25 @@ function ShopSettingsPanel({ userId, suggestedSlug }: { userId: string; suggeste
       <label>Link name (letters, numbers, dashes)
         <input type="text" value={form.slug} maxLength={30} onChange={e => setDraft({ ...form, slug: e.target.value })} />
       </label>
+      <label>Shop name
+        <input type="text" value={form.displayName ?? ''} maxLength={80}
+          placeholder="Give your collection a name" onChange={e => setDraft({ ...form, displayName: e.target.value })} />
+      </label>
+      <label>About you and your cards
+        <textarea value={form.bio ?? ''} rows={4} maxLength={1000}
+          placeholder="Introduce yourself, the cards you collect, and how you like to arrange a sale."
+          onChange={e => setDraft({ ...form, bio: e.target.value })} />
+        <span className="shop-sub">Shown on your public shop. {(form.bio ?? '').length}/1000 characters.</span>
+      </label>
       <label>Your Messenger link (optional, like https://m.me/yourname)
         <input type="text" value={form.messengerUrl} maxLength={200} onChange={e => setDraft({ ...form, messengerUrl: e.target.value })} />
       </label>
       {saved.enabled && saved.slug && <p>Your link: <b>{`${window.location.origin}/shop/${saved.slug}`}</b></p>}
       <div className="shop-sheet-btns">
         <button type="button" className="shop-btn" disabled={busy} onClick={() => save(form)}>{busy ? 'Saving…' : 'Save'}</button>
+        {saved.enabled && saved.slug && (
+          <a className="shop-btn shop-btn-ghost" href={`/shop/${saved.slug}`}>View my shop →</a>
+        )}
         {saved.enabled && saved.slug && (
           <button type="button" className="shop-btn shop-btn-ghost"
             onClick={() => navigator.clipboard.writeText(`${window.location.origin}/shop/${saved.slug}`).then(() => setMsg('Link copied.'), () => setMsg(`Copy this: ${link}`))}>
