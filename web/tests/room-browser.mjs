@@ -176,17 +176,27 @@ async function settle(page) {
   }))
 }
 
-/** Screen position (page px) of the centre of a named object or furniture piece. Null if it isn't on screen. */
-async function screenPoint(page, { name, pieceType }) {
-  return page.evaluate(({ name, pieceType }) => {
+/**
+ * Screen position (page px) of the centre of a named object or furniture piece, or of one binder/box on a shelf unit
+ * ({ name: 'ShelfUnit_binders', instance: 0 }: the unit's first item). Null if it isn't on screen.
+ */
+async function screenPoint(page, { name, pieceType, instance }) {
+  return page.evaluate(({ name, pieceType, instance }) => {
     const { scene, camera, gl, THREE } = window.__nook3d
     let target = null
     if (name) target = scene.getObjectByName(name)
     else scene.traverse(o => { if (!target && o.userData?.pieceType === pieceType) target = o })
     if (!target) return null // hit targets may be invisible on purpose; the raycaster still finds them
-    // Shelf units are instanced meshes: aim at their overall box. Anything else: the centre of its biggest mesh.
+    // Shelf units are instanced meshes: aim at their overall box, or at one instance. Anything else: the centre of its biggest mesh.
     let v
-    if (name?.startsWith('ShelfUnit_')) v = new THREE.Box3().setFromObject(target).getCenter(new THREE.Vector3())
+    if (instance != null) {
+      let mesh = null
+      target.traverse(o => { if (!mesh && o.isInstancedMesh && o.count > instance) mesh = o })
+      if (!mesh) return null
+      const m = new THREE.Matrix4(); mesh.getMatrixAt(instance, m)
+      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox()
+      v = mesh.geometry.boundingBox.getCenter(new THREE.Vector3()).applyMatrix4(m).applyMatrix4(mesh.matrixWorld) // the model's middle, not its origin
+    } else if (name?.startsWith('ShelfUnit_')) v = new THREE.Box3().setFromObject(target).getCenter(new THREE.Vector3())
     else {
       let best = null
       target.traverse(o => { if (o.isMesh) { o.geometry.computeBoundingSphere(); if (!best || o.geometry.boundingSphere.radius > best.geometry.boundingSphere.radius) best = o } })
@@ -197,7 +207,21 @@ async function screenPoint(page, { name, pieceType }) {
     const r = gl.domElement.getBoundingClientRect()
     const x = r.left + (v.x + 1) / 2 * r.width, y = r.top + (1 - v.y) / 2 * r.height
     return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom && v.z < 1 ? { x, y } : { miss: { x: Math.round(x), y: Math.round(y), z: v.z, canvas: [r.left, r.top, r.width, r.height], hash: location.hash, same: (() => { const all = []; scene.traverse(o => { if (o.name === name) { const p = o.getWorldPosition(new THREE.Vector3()).project(camera); let vis = true; o.traverseAncestors(a => { if (!a.visible) vis = false }); all.push([Math.round(r.left + (p.x + 1) / 2 * r.width), Math.round(r.top + (1 - p.y) / 2 * r.height), vis]) } }); return all })() } }
-  }, { name, pieceType })
+  }, { name, pieceType, instance })
+}
+
+/** On-screen height in px of one binder/box on a shelf unit — how big its name label is drawn. */
+async function itemHeightPx(page, name) {
+  return page.evaluate((name) => {
+    const { scene, camera, gl, THREE } = window.__nook3d
+    let mesh = null
+    scene.getObjectByName(name).traverse(o => { if (!mesh && o.isInstancedMesh && o.count) mesh = o })
+    mesh.geometry.computeBoundingBox()
+    const m = new THREE.Matrix4(); mesh.getMatrixAt(0, m); m.premultiply(mesh.matrixWorld)
+    const b = mesh.geometry.boundingBox, h = gl.domElement.getBoundingClientRect().height
+    const y = (v) => (1 - v.applyMatrix4(m).project(camera).y) / 2 * h
+    return Math.abs(y(new THREE.Vector3(0, b.min.y, 0)) - y(new THREE.Vector3(0, b.max.y, 0)))
+  }, name)
 }
 async function clickObject(page, target, touch) {
   await settle(page)
@@ -336,6 +360,46 @@ for (const size of SIZES.filter(s => !only || s.label === only)) {
     await shot(page, `${size.label}-home`)
   })
   await check('home layout: nothing overlaps or spills', async () => layoutSound(page, HUD))
+
+  // From across the room the shelves are too small to read or hit (above all on a phone), so the first tap on any
+  // piece of collection furniture — even right on a binder, box or card — only walks over to it; the second picks.
+  const home = async () => { await page.goto(origin + '/', { waitUntil: 'domcontentloaded' }); await roomReady(page) }
+  // Readable: a binder's spine label is most of its height; a long box is wide and low, so its name plate reads at a smaller height.
+  for (const [unit, zone, label, labels, readable] of [['ShelfUnit_binders', 'binders', 'binder', 'binders', 40], ['ShelfUnit_boxes', 'storage', 'box', 'boxes', 24]]) {
+    await check(`${labels}: tapping a ${label} from across the room zooms to its shelf first, then picks it`, async () => {
+      try {
+        const far = await itemHeightPx(page, unit)
+        await clickObject(page, { name: unit, instance: 0 }, touch)
+        assert.equal(await hash(page), `#/${zone}`, `the first tap must only zoom in, not open the ${label}`)
+        assert.equal(await page.locator('.room3d .item-panel').count(), 0)
+        const near = await itemHeightPx(page, unit)
+        await shot(page, `${size.label}-${zone}-zone`)
+        assert(near > far * 1.6, `zooming in barely helped: a ${label} went from ${far.toFixed(0)} to ${near.toFixed(0)} px tall`)
+        assert(near >= readable, `a ${label} is only ${near.toFixed(0)} px tall up close — too small to read its name`)
+        await clickObject(page, { name: unit, instance: 0 }, touch)
+        const opened = await hash(page)
+        assert.match(opened, new RegExp(`^#/${zone}/[^/]+$`), `the second tap must open the ${label} (went to "${opened}" on ${page.url()})`)
+      } finally { await home() }
+    })
+  }
+  await check('display cabinet: tapping a card from across the room zooms to the cabinet first, then picks it', async () => {
+    try {
+      await clickObject(page, { name: 'DisplayHit_1' }, touch)
+      assert.equal(await hash(page), '#/display', 'the first tap must only zoom in, not open the card')
+      await shot(page, `${size.label}-display-zone`)
+      const cardPx = await page.evaluate(() => {
+        const { scene, camera, gl, THREE } = window.__nook3d
+        const b = new THREE.Box3().setFromObject(scene.getObjectByName('DisplayHit_1')), h = gl.domElement.getBoundingClientRect().height
+        const y = (v) => (1 - v.project(camera).y) / 2 * h
+        return { px: Math.abs(y(new THREE.Vector3(b.min.x, b.min.y, b.max.z)) - y(new THREE.Vector3(b.min.x, b.max.y, b.max.z))), stage: h }
+      })
+      // The cabinet's three shelves must all fit, so on a short screen (a phone on its side) a card can only be so tall.
+      const enough = Math.min(80, cardPx.stage * 0.15)
+      assert(cardPx.px >= enough, `a display card is only ${cardPx.px.toFixed(0)} px tall up close (want ${enough.toFixed(0)})`)
+      await clickObject(page, { name: 'DisplayHit_1' }, touch)
+      assert.equal(await hash(page), '#/display/dslot-1')
+    } finally { await home() }
+  })
 
   await check('binders: tap the bookcase, pick a binder, read a card with its price', async () => {
     await clickObject(page, { name: 'ShelfUnit_binders' }, touch)

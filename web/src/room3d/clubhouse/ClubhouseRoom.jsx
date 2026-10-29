@@ -87,10 +87,19 @@ export default function ClubhouseRoom({
   const style = useMemo(() => makeStyle(theme, { lights: QUALITY.tier !== 'mobile' }), [theme]);
   const room = useMemo(() => {
     const root = new THREE.Group(); const statics = new THREE.Group(); const pool = new MaterialPool();
+    root.name = 'ClubhouseRoom';
+    root.userData.obstacles = []; // boxes around standing furniture, so the camera can find a clear view of a zone (RoomScene.jsx)
     statics.add(buildShell(style));
     for (const piece of layout) {
       const built = buildPiece(piece, style);
       if (!built) continue;
+      if (PIECE_TYPES[piece.type]?.mount === 'floor') { // one box per part (a desk's top, its lamp, its chair), so a box hugs what it stands for
+        built.updateMatrixWorld(true);
+        for (const part of built.children) {
+          const box = new THREE.Box3().setFromObject(part);
+          if (!box.isEmpty() && box.max.y > 0.25) root.userData.obstacles.push(box); // rugs and slippers never block the view
+        }
+      }
       if (INTERACTIVE.has(piece.type)) { mergeStatic(built, pool); root.add(built); } else statics.add(built);
     }
     mergeStatic(statics, pool); // everything that never moves becomes a few meshes, one per material
@@ -142,7 +151,7 @@ export default function ClubhouseRoom({
       </mesh>
       {zones && (
         <DynamicShelving
-          zones={zones} anchors={anchors} onSelect={onSelect} setHovered={setHovered}
+          zones={zones} anchors={anchors} activeZone={activeZone} onSelect={onSelect} setHovered={setHovered}
           hoveredBinder={hoveredBinder} selectedBinder={selectedBinder} setHoveredBinder={setHoveredBinder} onSelectBinder={onSelectBinder}
           hoveredBin={hoveredBin} selectedBin={selectedBin} setHoveredBin={setHoveredBin} onSelectBin={onSelectBin}
         />

@@ -28,6 +28,7 @@ import { ShopPage } from './pages/ShopPage'
 import { ShopRequestsPage } from './pages/ShopRequestsPage'
 import { LegalPage } from './pages/LegalPage'
 import { ShareLinkRedirect } from './pages/ShareLinkRedirect'
+import { NotFoundPage } from './pages/NotFoundPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -87,6 +88,7 @@ export default function App() {
               <Route path="/bulk"              element={<Navigate to="/add" replace />} />
               <Route path="/spaces/default/add" element={<Navigate to="/add" replace />} />
               <Route path="/owned"             element={<Navigate to="/spaces" replace />} />
+              <Route path="*"                  element={<NotFoundPage />} />
             </Routes>
           </BrowserRouter>
         </ToastProvider>

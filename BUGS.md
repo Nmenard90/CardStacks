@@ -276,3 +276,25 @@ branch `feat/3d-room` (cleanup → shop merge → room), not yet on `main`.
 - Still open for a decision: GitHub branches
   `fix/auto-allocation-protection-mismatch` (real duplicate-row bug, not on
   main), `feature/unsorted-holding-box`, `fix/bulk-add-first-edition-sticky-toggle`.
+
+## Site audit, room zoom (2026-10-29)
+
+From the owner's report and `web/tests/site-audit.mjs` run against production
+and the branch. All fixed on `feat/3d-room`; report and screenshots:
+docs/agent-reports/site-audit-20261029.
+- **BUG-039** Room: a tap on a binder/box/display card from across the room
+  opened it without zooming in; on a phone the items were too small to read or
+  hit, and the desk chair hid the box shelf (a tap there went to Add Cards).
+  Now the first tap zooms to the items, framed to fill the free screen, from an
+  unblocked angle; the second tap opens one.
+- **BUG-040** Explore opened on the newest set even when it isn't released yet
+  (ME06, 2026-11-06): broken images and "no price" on every card. Now the
+  newest released set.
+- **BUG-041** Card images that 404 showed the broken-image icon; now the 🃏
+  placeholder.
+- **BUG-042** Unknown URLs rendered a blank page; now "Page not found".
+- **BUG-043** Explore's "Missing — click to list" tile cut off its number.
+- **BUG-044** Phone tap targets under 24 px (demo "Sign out", 📈, auth and
+  legal links, room logo); no page heading on Room/Explore/Add/My Shop.
+- Still open: 2 eslint errors in `SpacesLivePage.tsx` (pre-existing); main
+  bundle chunk > 500 kB warning.

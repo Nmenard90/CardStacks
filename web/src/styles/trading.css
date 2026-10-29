@@ -29,7 +29,7 @@
 
 .trade-empty { max-width: 520px; margin: 48px auto; text-align: center; color: var(--text); padding: 0 16px; }
 .trade-empty p { color: var(--muted); }
-.trade-empty a { color: var(--accent); }
+.trade-empty a { color: var(--accent); display: inline-block; padding: 6px 0; }
 
 /* ── offers ── */
 .offers-layout { display: grid; grid-template-columns: minmax(240px, 340px) 1fr; gap: 16px; align-items: start; }

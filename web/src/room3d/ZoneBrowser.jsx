@@ -32,6 +32,7 @@ export default function ZoneBrowser({ zone, world, state, nav, onOpen }) {
   const isDisplay = zone === 'display';
   const kind = zone === 'binders' ? 'binder' : 'box';
   const noun = zone === 'binders' ? 'binder' : zone === 'storage' ? 'box' : 'card';
+  const nouns = noun === 'box' ? 'boxes' : `${noun}s`;
   const [tab, setTab] = useState('shelf');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
@@ -106,7 +107,7 @@ export default function ZoneBrowser({ zone, world, state, nav, onOpen }) {
             <button type="button" onClick={() => stepUnit(-1)} disabled={unitIndex <= 0} aria-label="Previous shelf unit">‹</button>
             <label>Shelf unit
               <select value={unitId ?? ''} onChange={(e) => setUnit(e.target.value)}>
-                {units.map((u, i) => <option key={u.id} value={u.id}>{i + 1}. {u.name} · {plural(countOf(u), noun)}</option>)}
+                {units.map((u, i) => <option key={u.id} value={u.id}>{i + 1}. {u.name} · {plural(countOf(u), noun, nouns)}</option>)}
               </select>
             </label>
             <button type="button" onClick={() => stepUnit(1)} disabled={unitIndex >= units.length - 1} aria-label="Next shelf unit">›</button>
@@ -120,13 +121,13 @@ export default function ZoneBrowser({ zone, world, state, nav, onOpen }) {
             )}
           </>
         ) : <strong>No shelf units yet — the {zone === 'binders' ? 'library' : 'storage wall'} is ready for one.</strong>}
-        <div className="zone-browser__tabs" role="tablist" aria-label={`${noun}s`}>
+        <div className="zone-browser__tabs" role="tablist" aria-label={nouns}>
           <button type="button" role="tab" aria-selected={tab === 'shelf'} className={tab === 'shelf' ? 'active' : ''} onClick={() => setTab('shelf')}>On this shelf ({z.items.length})</button>
-          <button type="button" role="tab" aria-selected={tab === 'all'} className={tab === 'all' ? 'active' : ''} onClick={() => setTab('all')}>All {noun}s ({total})</button>
+          <button type="button" role="tab" aria-selected={tab === 'all'} className={tab === 'all' ? 'active' : ''} onClick={() => setTab('all')}>All {nouns} ({total})</button>
           <button type="button" role="tab" aria-selected={tab === 'unplaced'} className={tab === 'unplaced' ? 'active' : ''} onClick={() => setTab('unplaced')}>Unplaced ({unplaced})</button>
         </div>
         {tab !== 'shelf' && (
-          <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${noun}s…`} aria-label={`Search ${noun}s`} />
+          <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${nouns}…`} aria-label={`Search ${nouns}`} />
         )}
         {results && results.pageCount > 1 && (
           <Pager label="Page" from={results.page + 1} to={results.page + 1} total={results.pageCount} hasPrev={results.page > 0} hasNext={results.page < results.pageCount - 1}
@@ -136,7 +137,7 @@ export default function ZoneBrowser({ zone, world, state, nav, onOpen }) {
       <div className="zone-picker__rail">
         {entries.length === 0 && (
           <div className="zone-picker__empty">
-            {tab === 'unplaced' ? `Every ${noun} has a place on a shelf.` : tab === 'all' ? (query ? `No ${noun} matches “${query}”.` : `No ${noun}s yet.`) : `No ${noun}s on this shelf.`}
+            {tab === 'unplaced' ? `Every ${noun} has a place on a shelf.` : tab === 'all' ? (query ? `No ${noun} matches “${query}”.` : `No ${nouns} yet.`) : `No ${nouns} on this shelf.`}
           </div>
         )}
         {entries.map((item, i) => (

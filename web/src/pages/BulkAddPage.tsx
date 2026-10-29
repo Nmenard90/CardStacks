@@ -289,6 +289,7 @@ export function BulkAddPage() {
 
   return (
     <div className="page-tracker bulk-page">
+      <h1 className="sr-only">Add cards</h1>
       <style>{STYLE}</style>
       <div id="app" style={{ display: 'block' }}>
         <header>

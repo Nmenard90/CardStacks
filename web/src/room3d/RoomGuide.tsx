@@ -117,7 +117,7 @@ const STEPS: Step[] = [
   {
     title: 'Open anything',
     art: <OpenArt />,
-    text: <>Tap a <b>binder</b> to open it, a <b>box</b> to flip through it, or a <b>display card</b> to read it up close. Tap any card for its price and details.</>,
+    text: <>Once you're up close, tap a <b>binder</b> to open it, a <b>box</b> to flip through it, or a <b>display card</b> to read it. Tap any card for its price and details.</>,
   },
   {
     title: 'Swipe through your cards',

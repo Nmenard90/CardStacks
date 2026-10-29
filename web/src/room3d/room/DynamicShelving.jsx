@@ -13,18 +13,18 @@ const BINDER_ANCHOR = { position: [-0.6, 0, -2.54], rotation: [0, Math.PI, 0] };
 const BOX_ANCHOR = { position: [-3.53, 0, 1.35], rotation: [0, -Math.PI / 2, 0] };
 
 export default function DynamicShelving({
-  zones, anchors = {}, hoveredBinder, selectedBinder, setHoveredBinder, onSelectBinder, hoveredBin, selectedBin, setHoveredBin, onSelectBin, onSelect, setHovered,
+  zones, anchors = {}, activeZone, hoveredBinder, selectedBinder, setHoveredBinder, onSelectBinder, hoveredBin, selectedBin, setHoveredBin, onSelectBin, onSelect, setHovered,
 }) {
   const parts = useFurnitureParts();
   return (
     <>
       <ShelfUnit
-        kind="boxes" zoneType="storage" zone={zones.boxes} parts={parts} {...(anchors.boxes ?? BOX_ANCHOR)}
+        kind="boxes" zoneType="storage" zone={zones.boxes} parts={parts} {...(anchors.boxes ?? BOX_ANCHOR)} focused={activeZone === 'storage'}
         hoveredId={hoveredBin} selectedId={selectedBin} onSelectItem={onSelectBin} onHoverItem={setHoveredBin}
         onSelectZone={() => onSelect('storage')} onHoverZone={setHovered}
       />
       <ShelfUnit
-        kind="binders" zoneType="binders" zone={zones.binders} parts={parts} {...(anchors.binders ?? BINDER_ANCHOR)}
+        kind="binders" zoneType="binders" zone={zones.binders} parts={parts} {...(anchors.binders ?? BINDER_ANCHOR)} focused={activeZone === 'binders'}
         hoveredId={hoveredBinder} selectedId={selectedBinder} onSelectItem={onSelectBinder} onHoverItem={setHoveredBinder}
         onSelectZone={() => onSelect('binders')} onHoverZone={setHovered}
       />

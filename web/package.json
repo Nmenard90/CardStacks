@@ -11,6 +11,7 @@
     "start": "node server.mjs",
     "test:og": "node --test ogTags.test.mjs",
     "test:room": "node --test \"src/room3d/**/*.test.js\" cardArt.test.mjs room3dCss.test.mjs",
+    "test:lib": "node --test \"src/lib/**/*.test.mjs\"",
     "test:room-browser": "node tests/room-browser.mjs"
   },
   "dependencies": {

@@ -3,7 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { injectOg, originFromHeaders, shopOg, shopSlugFromPath } from './ogTags.mjs'
 
-const PAGE = '<!doctype html><html><head><meta charset="UTF-8" /><title>CardStacks</title></head><body></body></html>'
+const PAGE = '<!doctype html><html><head><meta charset="UTF-8" /><meta name="description" content="The site-wide description." /><title>CardStacks</title></head><body></body></html>'
 
 test('only real shop pages get tags', () => {
   assert.equal(shopSlugFromPath('/shop/testowner'), 'testowner')
@@ -29,6 +29,7 @@ test('tags cover title, description, preview image and url, all absolute', () =>
     'name="twitter:card" content="summary_large_image"',
   ]) assert.ok(html.includes(want), `missing: ${want}`)
   assert.equal((html.match(/<title>/g) ?? []).length, 1)
+  assert.equal((html.match(/name="description"/g) ?? []).length, 1, 'the shop description replaces the site-wide one')
   assert.ok(html.indexOf('og:title') < html.indexOf('</head>'), 'tags must be inside <head>')
 })
 

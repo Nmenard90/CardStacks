@@ -9,6 +9,7 @@
  * USED BY: CardTile, SpacesLivePage, AnalyzerPage, BinderViewPage, ConventionModePage
  */
 
+import { useState } from 'react'
 import { basePrice } from '../lib/conditions'
 import { isHolo } from '../lib/rarity'
 import type { PreviewOpts } from './CardPreview'
@@ -35,14 +36,19 @@ interface Props {
 }
 
 export function CardThumb({ card, variant, preview, onClick, showPrice = true, className }: Props) {
-  if (!card.images?.small) {
+  // The image that failed to load, if any. Brand-new sets list cards before their art is on the CDN (404), and a
+  // broken-image icon looks like the site is broken; the placeholder doesn't.
+  const [failed, setFailed] = useState<string | null>(null)
+  if (!card.images?.small || failed === card.images.small) {
     // Still needs a working onClick — a missing image is no reason for a
     // picker/quick-add tile to silently stop being clickable.
     return (
       <div
         className={'thumb-placeholder' + (className ? ' ' + className : '')}
         onClick={onClick}
-        role={onClick ? 'button' : undefined}
+        role={onClick ? 'button' : 'img'}
+        aria-label={card.name}
+        title={card.name}
         tabIndex={onClick ? 0 : undefined}
       >
         🃏
@@ -65,6 +71,7 @@ export function CardThumb({ card, variant, preview, onClick, showPrice = true, c
         onFocus={preview ? show : undefined}
         onBlur={preview ? hide : undefined}
         onClick={onClick ?? show}
+        onError={() => setFailed(card.images.small)}
       />
       {showPrice && price > 0 && <span className="price-ribbon">${price.toFixed(2)}</span>}
     </div>

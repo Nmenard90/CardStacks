@@ -20,7 +20,7 @@ const LAST_UPDATED = 'August 24, 2026'
 function Shell({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{ maxWidth: 720, margin: '0 auto', padding: '32px 20px 80px', lineHeight: 1.6, color: 'var(--text, #e8e8e8)' }}>
-      <Link to="/" style={{ fontSize: 14, opacity: 0.7 }}>&larr; Back to CardStacks</Link>
+      <Link to="/" style={{ fontSize: 14, opacity: 0.7, display: 'inline-block', padding: '6px 0' }}>&larr; Back to CardStacks</Link>
       <h1 style={{ marginTop: 16 }}>{title}</h1>
       <p style={{ opacity: 0.6, fontSize: 13 }}>Last updated {LAST_UPDATED}</p>
       {children}

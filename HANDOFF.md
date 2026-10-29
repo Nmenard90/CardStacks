@@ -175,8 +175,8 @@ tcg/
 
 ## Current state (2026-10-29)
 
-Branch `feat/3d-room` (worktree `.worktrees/room3d`) holds three commits on
-top of `main`, **NOT merged/live yet**:
+Branch `feat/3d-room` (worktree `.worktrees/room3d`) holds four commits on
+top of `main` (plus a docs commit), **NOT merged/live yet**:
 
 1. **Cleanup** (`chore/cleanup-20261029`) — removed dead pages/components
    (OwnedPage, ShelfPage, duplicate CollectionPage, CollectionShelf,
@@ -199,6 +199,15 @@ top of `main`, **NOT merged/live yet**:
    (old `/?area=…` links redirect). First-visit animated guide; `/card-art`
    relay for TCGplayer art (`web/cardArt.mjs`). The pinboard opens My Shop.
    Prototype source stays in `D:\Projects\CardStacks\experiments\nook-concept`.
+4. **Room zoom + site audit fixes** — in the room, the first tap on the box
+   shelf, bookcase or display cabinet (even right on an item) only zooms in;
+   the camera frames the items themselves and picks an angle no furniture
+   blocks; the second tap opens the item. Site-wide: Explore opens on the newest
+   *released* set (it was opening on an unreleased one with no art or prices),
+   failed card images fall back to a placeholder, unknown URLs get a "Page not
+   found" page, small phone tap targets padded, hidden page headings, page
+   description. `web/tests/site-audit.mjs` re-runs the audit. Report:
+   `docs/agent-reports/site-audit-20261029/`.
 
 **Before merging:** migration 019 (`shop_photos`) must exist in production with
 the columns in `sql/migration_019_shop_photos.sql` — the public shop response
@@ -210,7 +219,9 @@ never checked; run the migration (it is `IF NOT EXISTS`) and confirm
 a local Postgres with schema + migrations 010–020); `tsc` clean; build OK;
 `test:room` 90/90; og 4/4; `shop-browser.mjs` 11/11 (desktop + phone);
 `room-browser.mjs` (4 screen sizes). Reports and screenshots:
-`docs/agent-reports/cleanup-20261029/`, `docs/agent-reports/room3d-landing/`.
+`docs/agent-reports/cleanup-20261029/`, `docs/agent-reports/room3d-landing/`,
+`docs/agent-reports/site-audit-20261029/` (after the zoom/audit commit:
+room-browser 67 checks pass at 4 sizes, shop-browser 11/11, test:room 90/90, test:lib 4/4, og 4/4).
 
 **Repo cleanup (2026-10-29):** everything was backed up first to
 `C:\Users\nicho\tcg-backups\2026-10-29-pre-cleanup\` (git bundle of every

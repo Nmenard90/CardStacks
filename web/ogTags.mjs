@@ -54,10 +54,11 @@ export function shopOg(slug, origin) {
   }
 }
 
-/** Swaps the page <title> and adds the tags just before </head>. */
+/** Swaps the page <title>, drops the site-wide description (the tags bring the shop's own) and adds the tags just before </head>. */
 export function injectOg(html, { title, tags }) {
   return html
     .replace(/<title>[\s\S]*?<\/title>/i, `<title>${esc(title)}</title>`)
+    .replace(/\s*<meta name="description"[^>]*>/i, '')
     .replace(/<\/head>/i, `    ${tags}\n  </head>`)
 }
 

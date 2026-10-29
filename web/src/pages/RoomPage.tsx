@@ -95,6 +95,7 @@ export function RoomPage() {
 
   return (
     <main className="page-tracker room-page" ref={page}>
+      <h1 className="sr-only">Your collection room</h1>
       <header className="room-page__header">
         <Link to="/" className="logo">CARD<span>STACKS</span></Link>
         <div className="user-badge">● <b>{user.username || 'Collector'}</b></div>

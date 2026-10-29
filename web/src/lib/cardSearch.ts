@@ -42,3 +42,16 @@ export function narrowByCollectorNumber(
     return !!t && (t.printed.startsWith(denom) || t.total.startsWith(denom))
   })
 }
+
+/**
+ * The newest set that has already been released — the sensible set to open on. TCGTracking lists sets a few weeks
+ * before release, with no prices or card art yet. Dates come as "2026-11-06" or "1999/01/09"; with nothing released
+ * yet (a brand-new game), the newest set of all.
+ * @param sets  at least one set
+ * @param today "YYYY-MM-DD", for tests; defaults to today's local date
+ */
+export function newestReleasedSet(sets: CardSet[], today = new Date().toLocaleDateString('en-CA')): CardSet {
+  const day = (s: CardSet) => (s.releaseDate ?? '').replaceAll('/', '-')
+  const newestFirst = [...sets].sort((a, b) => day(b).localeCompare(day(a)))
+  return newestFirst.find(s => day(s) && day(s) <= today) ?? newestFirst[0]
+}

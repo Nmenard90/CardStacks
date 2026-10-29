@@ -95,7 +95,7 @@
   .page-tracker .auth-form button[type=submit]:hover{background:#e6b800;}
   .page-tracker .auth-form button[type=submit]:disabled{opacity:.6;cursor:default;}
   .page-tracker .auth-switch{margin-top:18px;text-align:center;font-size:14px;color:var(--muted);}
-  .page-tracker .auth-switch button{background:none;border:none;color:var(--accent2);font-weight:700;cursor:pointer;font-size:14px;padding:0;}
+  .page-tracker .auth-switch button{background:none;border:none;color:var(--accent2);font-weight:700;cursor:pointer;font-size:14px;padding:6px 2px;}
 
   .page-tracker .auth-divider{display:flex;align-items:center;gap:12px;margin:18px 0;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.06em;}
   .page-tracker .auth-divider::before,.page-tracker .auth-divider::after{content:'';flex:1;height:var(--ink-w);background:var(--border);}
@@ -373,6 +373,7 @@
   .page-tracker .history-toggle{
     border:0;background:transparent;cursor:pointer;font-size:13px;
     margin-left:4px;opacity:.55;padding:0;vertical-align:middle;
+    min-width:28px;min-height:28px; /* a fingertip-sized target on phones */
   }
   .page-tracker .history-toggle:hover{opacity:1;}
   .page-tracker .history-popover{

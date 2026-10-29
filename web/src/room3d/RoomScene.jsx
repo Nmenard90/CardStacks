@@ -11,7 +11,8 @@
  * HOW IT WORKS
  *   Where you are lives in the URL hash (#/binders/<id>/card/<id>, #/storage/<id>, #/display/<id>), set through
  *   react-router, so the back button, reloads and shared links all land on the same view. The camera rig eases to
- *   the zone's viewpoint and slides the subject into whatever part of the screen the panels leave free (freeRect.js).
+ *   the zone, close enough that its binders, boxes or display cards fill whatever part of the screen the panels leave
+ *   free (freeRect.js), and slides them into that area.
  *
  * IMPORTS EXPLAINED
  *   @react-three/fiber — the WebGL canvas and per-frame hooks
@@ -36,6 +37,7 @@ import ZoneBrowser from './ZoneBrowser.jsx';
 import { useLiveRoom, usePocketSearch } from './data/useLiveRoom.ts';
 import ClubhouseRoom from './clubhouse/ClubhouseRoom.jsx';
 import { CANVAS, DEFAULT_CAM, HOTSPOTS as ZONES } from './clubhouse/config.js';
+import { ROOM } from './clubhouse/layout.js';
 import './styles.css';
 import './clubhouse/site-ui.css';
 
@@ -107,6 +109,9 @@ function useSpread(stage) {
 const FILL = 0.84; // share of the free screen area a selected card may fill
 const REF_ASPECT = 1.55; // the authored room/zone views fit the screen width at this aspect; narrower screens back away in proportion
 const ZONE_SHARE = 0.6; // about how much of an authored zone view's width its furniture takes up
+const ZONE_FILL = 0.9; // share of the free screen area a zone's binders, boxes or display cards fill
+const MIN_ZONE_DISTANCE = 1.2; // metres; a zone with one small item doesn't push the camera into the shelf
+const ZONE_SUBJECT = { binders: 'ShelfUnit_binders', storage: 'ShelfUnit_boxes', display: 'DisplayCabinet' }; // scene names (ShelfUnit.jsx, Room.jsx)
 const ROOM_CENTRE = new THREE.Vector3(0, 1.5, 0);
 const scratch = { p: new THREE.Vector3(), n: new THREE.Vector3(), q: new THREE.Quaternion(), box: new THREE.Box3(), size: new THREE.Vector3() };
 
@@ -121,11 +126,88 @@ function inspectView(scene, seed) {
   return { look: scratch.p.clone(), normal: scratch.n.clone(), w: Math.hypot(scratch.size.x, scratch.size.z), h: scratch.size.y };
 }
 
+/**
+ * The box (world space) around what a zone is for: the binders or boxes on its shelf unit, or the cards in the display
+ * cabinet — not the empty shelves around them, which on a phone would leave the items too small to read. An empty unit
+ * or cabinet frames the whole piece. Null if it isn't in the scene.
+ */
+function zoneSubject(scene, focus, out) {
+  const root = ZONE_SUBJECT[focus] ? scene.getObjectByName(ZONE_SUBJECT[focus]) : null;
+  if (!root) return null;
+  out.makeEmpty();
+  if (focus === 'display') {
+    // The cards on show, not the whole cabinet. Measured from where each card stands (plus a card's size), not from its
+    // mesh, so a card growing on hover doesn't nudge the camera.
+    const at = new THREE.Vector3(); const half = new THREE.Vector3(0.3, 0.42, 0.08);
+    root.traverse((o) => { if (o.name.startsWith('DisplayHit_')) { o.getWorldPosition(at); out.expandByPoint(at.clone().sub(half)).expandByPoint(at.clone().add(half)); } });
+  } else {
+    const m = new THREE.Matrix4(); const part = new THREE.Box3();
+    root.updateWorldMatrix(true, true);
+    root.traverse((o) => {
+      if (!o.isInstancedMesh || !o.count) return;
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      for (let i = 0; i < o.count; i++) { o.getMatrixAt(i, m); m.premultiply(o.matrixWorld); out.union(part.copy(o.geometry.boundingBox).applyMatrix4(m)); }
+    });
+  }
+  if (out.isEmpty()) out.setFromObject(root); // an empty shelf unit: show the whole unit
+  return out.isEmpty() ? null : out;
+}
+
+/** Turns (radians) to try, smallest first, when furniture stands between the camera and a zone: [around, upward]. */
+const VIEW_TRIES = [[0, 0], [0.26, 0], [-0.26, 0], [0, 0.2], [0.26, 0.2], [-0.26, 0.2], [0.5, 0], [-0.5, 0], [0, 0.4], [0.5, 0.3], [-0.5, 0.3]];
+const INSIDE = { x0: ROOM.x0 + 0.3, x1: ROOM.x1 - 0.3, z0: ROOM.z0 + 0.3, z1: ROOM.z1 - 0.3, y0: 0.4, y1: ROOM.h - 0.3 }; // where the camera may stand
+
+/** True if nothing in `obstacles` stands between `from` and the middle and corners of `box` (pulled in a little). */
+function clearView(from, box, obstacles) {
+  if (!obstacles.length) return true;
+  const ray = new THREE.Ray(); const hit = new THREE.Vector3(); const centre = box.getCenter(new THREE.Vector3()); const to = new THREE.Vector3();
+  for (let i = 0; i < 9; i++) {
+    if (i === 8) to.copy(centre);
+    else to.set(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).lerp(centre, 0.15);
+    const length = from.distanceTo(to);
+    ray.set(from, to.clone().sub(from).normalize());
+    if (obstacles.some((o) => !o.containsPoint(to) && ray.intersectBox(o, hit) && from.distanceTo(hit) < length)) return false;
+  }
+  return true;
+}
+
+/**
+ * Where to stand to see a zone's subject as large as the free screen area allows: from the zone's authored angle, or the
+ * nearest angle to it with nothing (a desk, a chair) in the way and still inside the room.
+ * @return {{ look: THREE.Vector3, pos: THREE.Vector3 }}
+ */
+function zoneView(box, zone, pxPerMetreAtOne, rect, obstacles) {
+  const authored = new THREE.Vector3(...zone.camPos).sub(new THREE.Vector3(...zone.camTarget)).normalize();
+  const centre = box.getCenter(new THREE.Vector3());
+  const corner = new THREE.Vector3();
+  let first = null;
+  for (const [around, upward] of VIEW_TRIES) {
+    const toCamera = authored.clone().applyAxisAngle(THREE.Object3D.DEFAULT_UP, around);
+    const flat = Math.hypot(toCamera.x, toCamera.z); const pitch = Math.min(1.2, Math.atan2(toCamera.y, flat) + upward);
+    toCamera.set((toCamera.x / flat) * Math.cos(pitch), Math.sin(pitch), (toCamera.z / flat) * Math.cos(pitch));
+    const right = new THREE.Vector3().crossVectors(toCamera.clone().negate(), THREE.Object3D.DEFAULT_UP).normalize();
+    const up = new THREE.Vector3().crossVectors(right, toCamera.clone().negate());
+    let halfW = 0; let halfH = 0; let front = 0;
+    for (let i = 0; i < 8; i++) {
+      corner.set(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).sub(centre);
+      halfW = Math.max(halfW, Math.abs(corner.dot(right))); halfH = Math.max(halfH, Math.abs(corner.dot(up))); front = Math.max(front, corner.dot(toCamera));
+    }
+    // Far enough back that the subject's width and height both fit ZONE_FILL of the free area, measured from its front face.
+    const fit = Math.max(2 * halfH * pxPerMetreAtOne / (ZONE_FILL * rect.h), 2 * halfW * pxPerMetreAtOne / (ZONE_FILL * rect.w));
+    const pos = centre.clone().addScaledVector(toCamera, Math.max(MIN_ZONE_DISTANCE, front + fit));
+    first ??= pos;
+    const inside = pos.x > INSIDE.x0 && pos.x < INSIDE.x1 && pos.z > INSIDE.z0 && pos.z < INSIDE.z1 && pos.y > INSIDE.y0 && pos.y < INSIDE.y1;
+    if (inside && clearView(pos, box, obstacles)) return { look: centre, pos };
+  }
+  return { look: centre, pos: first };
+}
+
 function FixedCameraRig({ focus, reducedMotion, inspectSeed = null }) {
   const { camera, size, scene } = useThree();
   const currentLook = useRef(new THREE.Vector3(...DEFAULT_CAM.target));
   const offset = useRef({ x: 0, y: 0 }); // eased framing offset in screen pixels, moves the subject into the free area
   const free = useRef(null);
+  const subject = useRef({ focus: null, box: new THREE.Box3(), view: null }); // the zone's contents and where to stand to see them
   const tick = useRef(0);
   useFrame((_, delta) => {
     const destination = focus ? ZONES[focus] : null;
@@ -134,13 +216,20 @@ function FixedCameraRig({ focus, reducedMotion, inspectSeed = null }) {
     const ease = reducedMotion ? 1 : 1 - Math.pow(0.0018, delta);
     const aspect = size.width / size.height;
     const view = inspectSeed !== null ? inspectView(scene, inspectSeed) : null;
-    if (!free.current || tick.current++ % 6 === 0) free.current = freeRect(size.width, size.height);
+    const pxPerMetreAtOne = size.height / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
+    // The free area and the zone's contents (shelves page, items move) are re-measured every few frames, not every frame.
+    if (!free.current || tick.current++ % 6 === 0 || subject.current.focus !== focus) {
+      free.current = freeRect(size.width, size.height); subject.current.focus = focus;
+      const box = destination && zoneSubject(scene, focus, subject.current.box);
+      subject.current.view = box ? zoneView(box, destination, pxPerMetreAtOne, free.current, scene.getObjectByName('ClubhouseRoom')?.userData.obstacles ?? []) : null;
+    }
     const rect = free.current;
     if (view) {
       // Stand far enough back that the card fills FILL of the free area, whichever of its width or height is the tighter fit.
-      const pxPerMetreAtOne = size.height / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
       const fit = rect ? Math.max(view.h * pxPerMetreAtOne / (FILL * rect.h), view.w * pxPerMetreAtOne / (FILL * rect.w)) : 1.95;
       look = view.look; pos = view.look.clone().addScaledVector(view.normal, Math.max(0.4, fit));
+    } else if (destination && subject.current.view) {
+      look = subject.current.view.look.clone(); pos = subject.current.view.pos.clone();
     } else {
       // Narrow spaces back away in proportion to how much narrower they are than the authored view. A zone fits the
       // area the panels leave free, and its furniture is only part of the authored view, so it backs away less.

@@ -185,14 +185,16 @@ function LabelMesh({ kind, labels }) {
 
 /**
  * @param {{ kind: 'binders'|'boxes', zoneType: string, zone: { plan: object, items: object[] }, parts: object, position: number[], rotation: number[],
- *   hoveredId: string|null, selectedId: string|null, onSelectItem: Function, onHoverItem: Function, onSelectZone: Function, onHoverZone: Function }} props
+ *   focused: boolean, hoveredId: string|null, selectedId: string|null, onSelectItem: Function, onHoverItem: Function, onSelectZone: Function, onHoverZone: Function }} props
+ *   focused — the camera is on this unit. Until it is, a tap anywhere on the unit (binder or box included) only zooms in,
+ *   because from across the room the items are too small to read or hit, above all on a phone.
  */
-export default function ShelfUnit({ kind, zoneType, zone, parts, position, rotation, hoveredId, selectedId, onSelectItem, onHoverItem, onSelectZone, onHoverZone }) {
+export default function ShelfUnit({ kind, zoneType, zone, parts, position, rotation, focused, hoveredId, selectedId, onSelectItem, onHoverItem, onSelectZone, onHoverZone }) {
   const { plan, items } = zone;
   const built = useMemo(() => (kind === 'binders' ? buildBinders(plan, items, parts) : buildBoxes(plan, items, parts)), [kind, plan, items, parts]);
   // While one item of this zone is open, the shelf ignores clicks so nothing behind it is selected by accident.
   const interactive = !selectedId;
-  const handlers = interactive ? {
+  const handlers = interactive && focused ? {
     onItemClick: (e, id) => { e.stopPropagation(); onSelectItem(id); },
     onItemMove: (e, id) => { e.stopPropagation(); if (id !== hoveredId) onHoverItem(id); },
     onItemOut: () => onHoverItem(null),
@@ -202,8 +204,8 @@ export default function ShelfUnit({ kind, zoneType, zone, parts, position, rotat
       name={`ShelfUnit_${kind}`}
       position={position}
       rotation={rotation}
-      onClick={interactive ? (e) => { e.stopPropagation(); onSelectZone(); } : undefined}
-      onPointerOver={(e) => { e.stopPropagation(); onHoverZone(zoneType); }}
+      onClick={interactive && !focused ? (e) => { e.stopPropagation(); onSelectZone(); } : undefined}
+      onPointerOver={(e) => { e.stopPropagation(); if (!focused) onHoverZone(zoneType); }}
       onPointerOut={() => onHoverZone(null)}
     >
       <Frame kind={kind} frame={plan.frame} parts={parts} />

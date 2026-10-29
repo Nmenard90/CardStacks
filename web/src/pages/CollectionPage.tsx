@@ -37,7 +37,7 @@ import { useUser } from '../context/UserContext'
 import {
   basePrice, cardValue, condPrice, fromCondList, toCondList, totalQty, type CondMap,
 } from '../lib/conditions'
-import { buildSetTotals, narrowByCollectorNumber } from '../lib/cardSearch'
+import { buildSetTotals, narrowByCollectorNumber, newestReleasedSet } from '../lib/cardSearch'
 import { usePagedList } from '../lib/usePagedList'
 import { downloadCSV, type ImportRow } from '../lib/csv'
 import type { Card } from '../types'
@@ -107,13 +107,14 @@ export function CollectionPage() {
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets, enabled: !!user })
 
   // The set actually shown: the saved choice if it's still real, otherwise
-  // the newest set. Computed directly (not via an effect) so there's no
+  // the newest set that's already out (a set announced for next month has no
+  // prices or art yet). Computed directly (not via an effect) so there's no
   // flash of an empty grid on load.
   const activeSetId = useMemo(() => {
     if (setId === ALL_SETS) return ALL_SETS
     if (setId && sets.some(s => s.id === setId)) return setId
     if (sets.length === 0) return null
-    return [...sets].sort((a, b) => b.releaseDate.localeCompare(a.releaseDate))[0].id
+    return newestReleasedSet(sets).id
   }, [sets, setId])
 
   const setTotals = useMemo(() => buildSetTotals(sets), [sets])
@@ -449,6 +450,7 @@ export function CollectionPage() {
 
   return (
     <div className="page-tracker">
+      <h1 className="sr-only">Explore cards</h1>
       <div id="app" style={{ display: 'block' }}>
         <header>
           <div className="logo">CARD<span>STACKS</span></div>
@@ -483,7 +485,8 @@ export function CollectionPage() {
             className="stat" disabled={!set}
             onClick={() => setOwnership(o => (o === 'missing' ? 'all' : 'missing'))}
             title={set ? 'Show only the cards you are missing from this set' : 'Pick a set to see what you are missing'}
-            style={{ textAlign: 'left', font: 'inherit', color: 'inherit', cursor: set ? 'pointer' : 'default',
+            // Stacked like the other tiles: the site's button style would put the label and the number side by side and cut the number off.
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start', whiteSpace: 'normal', textAlign: 'left', font: 'inherit', color: 'inherit', cursor: set ? 'pointer' : 'default',
               outline: ownership === 'missing' ? '2px solid var(--accent)' : undefined }}
           >
             <div className="stat-label">Missing{set ? ' — click to list' : ''}</div>

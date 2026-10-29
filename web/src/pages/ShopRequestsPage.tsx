@@ -149,6 +149,7 @@ export function ShopRequestsPage() {
 
   return (
     <div className="page-tracker page-shop-inbox">
+      <h1 className="sr-only">My Shop</h1>
       <div id="app" style={{ display: 'block' }}>
         <header>
           <div className="logo">🛍 MY <span>SHOP</span></div>

@@ -315,8 +315,9 @@ function HoloCard({ position, rotation = [0, Math.PI, 0], seed = 0, card, active
       name={`DisplayHit_${seed}`}
       position={position}
       rotation={selected ? [0, Math.PI, 0] : rotation}
-      onClick={(e) => { e.stopPropagation(); onClick && onClick(); }}
-      onPointerOver={(e) => { e.stopPropagation(); onPointerOver && onPointerOver(); }}
+      // Until the camera is on the cabinet (`active`), a tap on a card falls through to the cabinet, which zooms in first.
+      onClick={active ? (e) => { e.stopPropagation(); onClick && onClick(); } : undefined}
+      onPointerOver={active ? (e) => { e.stopPropagation(); onPointerOver && onPointerOver(); } : undefined}
       onPointerOut={() => onPointerOut && onPointerOut()}
     >
       <CardSlab width={0.48} height={0.68} depth={0.045} radius={0.028} smoothness={4} castShadow>
@@ -424,6 +425,7 @@ function VitrineAsset({ position, rotation, onSelect, setHovered, children }) {
   useEffect(() => () => vitrine.dispose(), [vitrine]);
   return (
     <group
+      name="DisplayCabinet" // the camera rig frames this when the cabinet is opened
       position={position} rotation={rotation}
       onClick={(event) => { event.stopPropagation(); onSelect('display'); }}
       onPointerOver={(event) => { event.stopPropagation(); setHovered('display'); }}
