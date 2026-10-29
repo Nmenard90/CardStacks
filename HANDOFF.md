@@ -209,22 +209,17 @@ top of `main` (plus a docs commit), **NOT merged/live yet**:
    description. `web/tests/site-audit.mjs` re-runs the audit. Report:
    `docs/agent-reports/site-audit-20261029/`.
 
-**Before merging:** production's `shop_photos` (checked by the owner
-2026-10-29) has only `user_id, card_id, condition, side, image`; the code reads
-`updated_at` on every public shop page and writes `content_type`/`updated_at`
-with `ON CONFLICT (user_id, card_id, condition, side)`. Migration 019 is
-`CREATE TABLE IF NOT EXISTS`, so it can't fix an existing table: run
-**`sql/migration_021_shop_photos_columns.sql`**: one transaction, re-runnable,
-never touches `image`. Adds the two columns, labels any existing PNG/WebP in
-the new `content_type` (the API only accepts JPEG and never reads that
-column), and guarantees `PRIMARY KEY (user_id, card_id, condition, side)`:
-adds it if missing, keeps it if it's already those columns, and stops with
-everything rolled back if a different key or duplicate photo keys exist.
-Tested locally in 7 scenarios (no key / right key / reordered key / different
-key / duplicates / full 019 table / second run) with md5 checks on every
-image. Then confirm 7 columns + the key with the check queries at the bottom
-of that file. Nothing runs migrations on deploy (no runner; the backend image
-doesn't include `sql/`), so running it by hand can't conflict.
+**Migration 019 verified in production (2026-10-29, owner via `railway connect
+Postgres`):** `shop_photos` has all 7 columns (`content_type` default
+`'image/jpeg'`, `updated_at` default `now()`, all NOT NULL), the
+`side IN ('front','back')` check, `PRIMARY KEY (user_id, card_id, condition,
+side)`, and 0 rows. An earlier report of only 5 columns was mistaken (the side
+check exists only via 019). `sql/migration_021_shop_photos_columns.sql` was
+written for that report: additive, a no-op on production as it is, kept for any
+database created from an older shape. Nothing runs migrations on deploy (no
+runner; the backend image doesn't include `sql/`). Note: Railway's web SQL
+editor appends `LIMIT` and can't run multi-statement scripts; use
+`railway connect Postgres` (psql, `C:\Program Files\PostgreSQL8in` on PATH).
 
 **Verification (2026-10-29):** backend 66 passed / 1 skipped (DB suites against
 a local Postgres with schema + migrations 010–020); `tsc` clean; build OK;

@@ -298,8 +298,7 @@ docs/agent-reports/site-audit-20261029.
   legal links, room logo); no page heading on Room/Explore/Add/My Shop.
 - Still open: 2 eslint errors in `SpacesLivePage.tsx` (pre-existing); main
   bundle chunk > 500 kB warning.
-- **BUG-045** (caught before deploy) Production `shop_photos` predates
-  migration 019's final shape: no `content_type`/`updated_at`, so the shop
-  code would 500 on every public shop page. 019 is `CREATE TABLE IF NOT
-  EXISTS` and can't add them; migration 021 does (additive). Must run before
-  `feat/3d-room` is merged.
+- **BUG-045** (not a bug) A report that production `shop_photos` had only
+  5 columns led to migration 021. Checked with psql on 2026-10-29: production
+  already has 019's full shape (7 columns, the side check, the primary key,
+  0 rows), so 021 is a no-op there; it stays as a safe, additive guard.
