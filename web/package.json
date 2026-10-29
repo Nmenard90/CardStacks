@@ -9,11 +9,15 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "start": "node server.mjs",
-    "test:og": "node --test ogTags.test.mjs"
+    "test:og": "node --test ogTags.test.mjs",
+    "test:room": "node --test \"src/room3d/**/*.test.js\" cardArt.test.mjs room3dCss.test.mjs",
+    "test:room-browser": "node tests/room-browser.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.2",
     "@capacitor/core": "^8.4.2",
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.2",
     "@supabase/supabase-js": "^2.112.3",
     "@tanstack/react-query": "^5.101.0",
     "axios": "^1.17.0",
@@ -22,7 +26,8 @@
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-router-dom": "^7.17.0",
-    "serve": "^14.2.5"
+    "serve": "^14.2.5",
+    "three": "^0.169.0"
   },
   "engines": {
     "node": ">=20"

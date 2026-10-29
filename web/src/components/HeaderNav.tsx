@@ -25,7 +25,8 @@ import { DEFAULT_GAME, currentGame, switchGame } from '../lib/game'
 interface NavItem { to: string; label: string }
 
 const ITEMS: NavItem[] = [
-  { to: '/',                   label: '🏠 Spaces' },
+  { to: '/',                   label: '🏠 Room' },
+  { to: '/spaces',             label: '📦 Spaces' },
   { to: '/explore',            label: '🗂 Explore' },
   { to: '/add',                label: '⚡ Add Cards' },
   { to: '/shop/requests',      label: '🛍 Shop' },
@@ -110,6 +111,9 @@ function GameSwitcher() {
   )
 }
 
+/** Spaces stays highlighted on its sub-pages (a binder opened from it is /spaces/<space>/binders/<id>). */
+const isActive = (to: string, pathname: string) => pathname === to || (to === '/spaces' && pathname.startsWith('/spaces/'))
+
 export function HeaderNav() {
   const { pathname } = useLocation()
   const { setUser } = useUser()
@@ -124,7 +128,7 @@ export function HeaderNav() {
           <Link
             key={item.to}
             to={item.to}
-            className={'nav-link' + (pathname === item.to || (item.to === '/' && pathname.startsWith('/spaces/')) ? ' active' : '')}
+            className={'nav-link' + (isActive(item.to, pathname) ? ' active' : '')}
           >
             {item.label}{badge(item.to)}
           </Link>
@@ -148,7 +152,7 @@ export function HeaderNav() {
             <Link
               key={item.to}
               to={item.to}
-              className={'bottom-nav-link' + (pathname === item.to || (item.to === '/' && pathname.startsWith('/spaces/')) ? ' active' : '')}
+              className={'bottom-nav-link' + (isActive(item.to, pathname) ? ' active' : '')}
             >
               <span className="bnl-icon">{icon}</span>
               <span className="bnl-label">{rest.join(' ')}</span>

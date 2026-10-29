@@ -1,0 +1,262 @@
+/**
+ * site-ui.css — the room's menus, panels and buttons in the same language as the rest of CardStacks.
+ *
+ * Tokens and look come from the real site (web/src/index.css): a plum-navy "dusk" background, flat comic colours, a bright
+ * yellow accent, thick dark ink outlines and hard offset "sticker" shadows instead of blur. Nunito for text, Baloo 2 for headings.
+ * Everything is scoped under `.ui-site` (on the room's root element, pages/RoomPage.tsx); the build also prefixes every
+ * selector with `.room3d` (vite.config.ts). Viewport units are container units (cqw/cqh): the room is a size container,
+ * so panels fit the room's area under the site header, not the whole window. The site already loads the fonts.
+ */
+
+.ui-site {
+  --bg: #221b3a; --surface: #2e2650; --surface2: #3a3164; --surface3: #463c78; --ink: #120e24;
+  --accent: #ffcb05; --accent2: #5b8dff; --text: #f6f4ff; --muted: #b6aed6; --green: #3ddc73; --red: #ff5d68;
+  --radius: 1.25rem; --radius-sm: 0.875rem; --ink-w: clamp(2px, 0.16rem, 4px); --sticker: 0.25rem 0.25rem 0 rgba(0, 0, 0, .35);
+  --head: 'Baloo 2', 'Nunito', system-ui, sans-serif; --body: 'Nunito', system-ui, sans-serif;
+  font-family: var(--body);
+}
+
+/* ── Panels: one surface language everywhere ─────────────────────────── */
+.ui-site .hud, .ui-site .focus-label, .ui-site .zone-nav, .ui-site .sync-chip, .ui-site .connect-card, .ui-site .zone-picker,
+.ui-site .item-panel, .ui-site .view-bar, .ui-site .route-notice, .ui-site .add-panel {
+  color: var(--text); background: var(--surface); border: var(--ink-w) solid var(--ink); border-radius: var(--radius);
+  box-shadow: var(--sticker); backdrop-filter: none; font-family: var(--body);
+}
+.ui-site .hud { padding: 0.625rem 1rem; font-size: 0.875rem; line-height: 1.45; border-radius: var(--radius-sm); }
+.ui-site .hud b { color: var(--accent); font-family: var(--head); font-weight: 800; }
+.ui-site .focus-label { padding: 0.5rem 1rem; border-radius: 6.1875rem; font: 800 0.9375rem/1 var(--head); color: var(--accent); }
+.ui-site .rolodex-label { color: var(--text); background: var(--surface); border: var(--ink-w) solid var(--ink); border-radius: 0.75rem; box-shadow: 3px 3px 0 rgba(0, 0, 0, .35); font: 700 0.8125rem/1.2 var(--body); }
+
+/* ── Buttons: yellow sticker for the main action, surface for the rest ── */
+.ui-site .back-btn, .ui-site .add-fab, .ui-site .view-bar .view-bar__add, .ui-site .add-primary, .ui-site .add-starter button {
+  color: #111; background: var(--accent); border: var(--ink-w) solid var(--ink); border-radius: 6.1875rem; box-shadow: 3px 3px 0 var(--ink);
+  font: 800 0.9375rem/1 var(--head); transition: transform 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+.ui-site .back-btn { min-height: 2.875rem; padding: 0 1.25rem; }
+.ui-site .add-fab { padding: 0 1.25rem; min-height: 3rem; }
+.ui-site .back-btn:hover, .ui-site .add-fab:hover, .ui-site .view-bar .view-bar__add:hover:not(:disabled), .ui-site .add-primary:hover, .ui-site .add-starter button:hover { background: #ffd93d; transform: translate(-1px, -1px); box-shadow: 0.25rem 0.25rem 0 var(--ink); }
+.ui-site .back-btn:active, .ui-site .add-fab:active, .ui-site .view-bar .view-bar__add:active, .ui-site .add-primary:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); }
+.ui-site .back-btn:focus-visible, .ui-site .add-fab:focus-visible, .ui-site button:focus-visible, .ui-site input:focus-visible, .ui-site select:focus-visible { outline: 3px solid var(--accent2); outline-offset: 2px; }
+.ui-site .add-fab span { font-size: 1.375rem; }
+.ui-site .add-fab--pulse { animation: none; }
+
+.ui-site .zone-nav { overflow: hidden; border-radius: var(--radius); }
+.ui-site .zone-nav button { min-height: 3.25rem; color: var(--text); font: 800 0.9375rem/1 var(--head); border-bottom: var(--ink-w) solid var(--ink); }
+.ui-site .zone-nav button:last-child { border-bottom: 0; }
+.ui-site .zone-nav button span { color: var(--accent); }
+.ui-site .zone-nav button:hover, .ui-site .zone-nav button:focus-visible { background: var(--accent); color: #111; }
+.ui-site .zone-nav button:hover span, .ui-site .zone-nav button:focus-visible span { color: #111; }
+
+.ui-site .view-bar { padding: 0.5rem 0.625rem; border-radius: 6.1875rem; }
+.ui-site .view-bar button { color: var(--text); background: var(--surface2); border: var(--ink-w) solid var(--ink); border-radius: 6.1875rem; font: 800 0.875rem/1 var(--head); }
+.ui-site .view-bar button:hover:not(:disabled) { background: var(--surface3); }
+.ui-site .view-bar__label { font: 800 0.9375rem/1 var(--head); color: var(--text); }
+.ui-site .view-bar__label small, .ui-site .view-bar__hint { color: var(--muted); }
+.ui-site .view-bar__search span { color: var(--accent); font-family: var(--head); }
+.ui-site .view-bar__search input, .ui-site .zone-browser select, .ui-site .zone-browser input[type="search"], .ui-site .connect-card input,
+.ui-site .add-grid input:not([type=radio]), .ui-site .add-grid select {
+  color: var(--text); background: var(--surface3); border: var(--ink-w) solid var(--ink); border-radius: 0.75rem; font: 700 0.875rem var(--body);
+}
+.ui-site .view-bar__search input { border-radius: 6.1875rem; padding: 0 1rem; }
+.ui-site .view-bar__error, .ui-site .connect-card__error, .ui-site .add-note--error { color: #fff; background: var(--red); border: var(--ink-w) solid var(--ink); border-radius: 0.75rem; }
+
+/* ── The card / box / binder record (right-hand panel) ───────────────── */
+.ui-site .item-panel { padding: 1.5rem 1.375rem; width: min(23.125rem, calc(100cqw - 2.5rem)); }
+.ui-site .item-panel__close { width: 2.375rem; height: 2.375rem; color: var(--text); background: var(--surface2); border: var(--ink-w) solid var(--ink); box-shadow: 2px 2px 0 var(--ink); font: 700 1.375rem/1 var(--body); }
+.ui-site .item-panel__close:hover, .ui-site .item-panel__close:focus-visible { color: #fff; background: var(--red); }
+.ui-site .item-panel__eyebrow, .ui-site .zone-picker__intro > span { color: var(--accent); font: 800 0.75rem/1.2 var(--head); letter-spacing: .1em; }
+.ui-site .item-panel h1 { color: var(--text); font: 800 1.875rem/1.05 var(--head); letter-spacing: 0; }
+.ui-site .item-panel__subhead { color: var(--muted); font: 700 0.875rem/1.4 var(--body); }
+.ui-site .item-panel__stats { border: var(--ink-w) solid var(--ink); border-radius: var(--radius-sm); overflow: hidden; background: var(--surface2); }
+.ui-site .item-panel__stats { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }
+.ui-site .item-panel__stats > div { border-right: var(--ink-w) solid var(--ink); padding: 0.75rem 0.5rem; }
+.ui-site .item-panel__stats strong { color: var(--accent); font: 800 1.375rem/1 var(--head); }
+.ui-site .item-panel__stats span { color: var(--muted); font: 800 0.6875rem/1.2 var(--body); }
+.ui-site .meter { height: 0.75rem; border: var(--ink-w) solid var(--ink); border-radius: 6.1875rem; background: var(--surface2); }
+.ui-site .meter span { background: var(--green); }
+.ui-site .meter--coral span { background: var(--red); }
+.ui-site .empty-selection { color: var(--muted); background: var(--surface2); border: 2px dashed var(--surface3); border-radius: var(--radius-sm); font: 700 0.8125rem/1.4 var(--body); }
+.ui-site .empty-selection span { color: var(--accent); }
+/* The bottom hint already says how to use the binder; the panel does not repeat it. */
+.ui-site .item-panel__instruction, .ui-site .empty-selection--hint { display: none; }
+
+.ui-site .card-facts { border-top: var(--ink-w) solid var(--ink); }
+.ui-site .card-facts > div:first-child span { color: var(--accent); font: 800 0.75rem/1.2 var(--head); letter-spacing: .08em; }
+.ui-site .card-facts > div:first-child strong { color: var(--text); font: 800 1.625rem/1.05 var(--head); }
+.ui-site .card-facts > div:first-child small { color: var(--muted); font: 700 0.875rem/1.4 var(--body); }
+.ui-site .card-facts dl { gap: var(--ink-w); background: var(--ink); border: var(--ink-w) solid var(--ink); border-radius: var(--radius-sm); overflow: hidden; }
+.ui-site .card-facts dl div { background: var(--surface2); padding: 0.625rem 0.75rem; }
+.ui-site .card-facts dl div:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.ui-site .card-facts dt { color: var(--muted); font: 800 0.6875rem/1.2 var(--body); letter-spacing: .06em; }
+.ui-site .card-facts dd { color: var(--text); font: 800 0.9375rem/1.25 var(--body); }
+.ui-site .item-note { color: var(--text); background: var(--surface2); border: var(--ink-w) solid var(--ink); border-radius: var(--radius-sm); font: 600 0.8125rem/1.45 var(--body); }
+.holo-chip { display: inline-block; margin-left: 0.5rem; padding: 2px 0.5625rem 3px; color: #111; background: linear-gradient(100deg, #ff8cb8, #ffd36b, #74dcc0, #71bfff); border: 2px solid #120e24; border-radius: 6.1875rem; font: 800 0.6875rem/1.2 'Baloo 2', 'Nunito', system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; vertical-align: 2px; }
+
+/* ── Box drawers ─────────────────────────────────────────────────────── */
+.ui-site .drawer-tabs button { color: var(--text); background: var(--surface2); border: var(--ink-w) solid var(--ink); border-radius: 0.75rem; font: 800 0.8125rem/1 var(--body); }
+.ui-site .drawer-tabs button span { color: var(--accent); }
+.ui-site .drawer-tabs button.active { color: #111; background: var(--accent); }
+.ui-site .drawer-tabs button.active span { color: #111; }
+.ui-site .drawer-card { width: 100%; padding: 0.5rem 0.75rem 0.5rem 0.625rem; text-align: left; color: var(--text); background: var(--surface2); border: var(--ink-w) solid var(--ink); border-radius: 0.75rem; cursor: pointer; }
+.ui-site .drawer-card:hover { background: var(--surface3); }
+.ui-site .drawer-card.active { background: var(--surface3); border-color: var(--accent); }
+.ui-site .drawer-card__swatch { border-radius: 0.25rem; }
+.ui-site .drawer-card strong { color: var(--text); font: 800 0.875rem/1.3 var(--body); }
+.ui-site .drawer-card small { color: var(--muted); font: 700 0.75rem/1.3 var(--body); }
+.ui-site .drawer-card > b { color: var(--accent); font: 800 0.875rem/1 var(--head); }
+.ui-site .drawer-card.active strong { color: var(--accent); }
+
+/* ── Index rail along the bottom (binders / boxes / display slots) ───── */
+.ui-site .zone-picker { border-radius: var(--radius); }
+.ui-site .zone-picker__intro { border-right: var(--ink-w) solid var(--ink); }
+.ui-site .zone-picker__intro strong { color: var(--text); font: 800 1.0625rem/1.2 var(--head); }
+.ui-site .zone-picker__intro small, .ui-site .zone-browser label, .ui-site .zone-browser__pager span { color: var(--muted); font-family: var(--body); }
+.ui-site .zone-picker__rail { scrollbar-color: var(--accent) var(--surface2); }
+.ui-site .zone-picker__rail button { color: var(--text); background: var(--surface2); border: var(--ink-w) solid var(--ink); border-radius: var(--radius-sm); box-shadow: 3px 3px 0 var(--ink); }
+.ui-site .zone-picker__rail button:hover, .ui-site .zone-picker__rail button:focus-visible { background: var(--surface3); border-color: var(--ink); transform: translate(-1px, -1px); box-shadow: 0.25rem 0.25rem 0 var(--ink); }
+.ui-site .zone-picker__rail button > span { color: #111; background: var(--accent); border-radius: 0.5rem; font: 800 0.75rem/1 var(--head); }
+.ui-site .zone-picker__rail button strong { color: var(--text); font: 800 0.875rem/1.2 var(--body); }
+.ui-site .zone-picker__rail button { flex-basis: 11rem; grid-template-rows: auto auto; align-content: center; row-gap: 0.125rem; }
+.ui-site .zone-picker__rail button small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 700 0.75rem/1.2 var(--body); }
+.ui-site .zone-picker__empty { color: var(--muted); font: 700 0.875rem var(--body); }
+.ui-site .zone-browser__bar { border-bottom: var(--ink-w) solid var(--ink); font-family: var(--body); }
+.ui-site .zone-browser__bar > strong { color: var(--text); font: 800 1rem/1.2 var(--head); }
+.ui-site .zone-browser__bar button { color: var(--text); background: var(--surface2); border: var(--ink-w) solid var(--ink); border-radius: 0.625rem; font: 800 0.8125rem/1 var(--head); }
+.ui-site .zone-browser__bar button:hover:not(:disabled), .ui-site .zone-browser__bar button:focus-visible { background: var(--surface3); border-color: var(--ink); }
+.ui-site .zone-browser__tabs button.active { color: #111; background: var(--accent); border-color: var(--ink); }
+.ui-site .zone-browser__count { color: var(--muted); font: 700 0.8125rem/1.2 var(--body); }
+.ui-site .zone-picker__rail button.explore-missing > span { color: var(--muted); background: var(--surface3); }
+.ui-site .zone-picker__rail button:disabled { cursor: default; opacity: 0.85; transform: none; box-shadow: 3px 3px 0 var(--ink); }
+.ui-site .zone-browser__empty-slot { color: var(--muted); background: transparent; border: 2px dashed var(--surface3); border-radius: var(--radius-sm); }
+.ui-site .zone-browser__empty-slot span { color: var(--muted); background: var(--surface2); border-radius: 0.5rem; }
+
+/* ── Connect box, sync chip, route notice ────────────────────────────── */
+.ui-site .connect-card__mark { color: #111; background: var(--accent); border: var(--ink-w) solid var(--ink); border-radius: 0.875rem; }
+.ui-site .connect-card__copy > span { color: var(--accent); font-family: var(--head); }
+.ui-site .connect-card__copy p, .ui-site .connect-card__privacy, .ui-site .connect-card label { color: var(--muted); }
+.ui-site .connect-card form button { color: #111; background: var(--accent); border: var(--ink-w) solid var(--ink); border-radius: 6.1875rem; font: 800 0.875rem var(--head); }
+.ui-site .sync-chip { padding: 0.5rem 0.75rem; border-radius: 6.1875rem; }
+.ui-site .sync-chip strong { color: var(--text); font: 800 0.8125rem var(--head); }
+.ui-site .sync-chip small { color: var(--muted); }
+.ui-site .sync-chip__dot { background: var(--green); box-shadow: 0 0 0 0.25rem rgba(61, 220, 115, .2); }
+.ui-site .sync-chip button { color: var(--text); background: var(--surface2); border: var(--ink-w) solid var(--ink); border-radius: 6.1875rem; }
+.ui-site .route-notice { border-radius: var(--radius-sm); font: 700 0.875rem var(--body); }
+.ui-site .route-notice b { color: var(--accent); font-family: var(--head); }
+.ui-site .route-notice code { color: var(--text); background: var(--surface3); border-radius: 0.375rem; }
+
+/* ── Add to collection ───────────────────────────────────────────────── */
+.ui-site .add-scrim { background: rgba(18, 14, 36, .72); backdrop-filter: none; }
+.ui-site .add-panel { padding: 1.5rem; }
+.ui-site .add-panel h1 { color: var(--text); font: 800 1.75rem/1.05 var(--head); }
+.ui-site .add-panel__eyebrow { color: var(--accent); font: 800 0.75rem/1.2 var(--head); }
+.ui-site .add-panel__close { color: var(--text); background: var(--surface2); border: var(--ink-w) solid var(--ink); border-radius: 50%; }
+.ui-site .add-starter { background: var(--surface2); border: var(--ink-w) solid var(--ink); border-radius: var(--radius-sm); }
+.ui-site .add-starter small, .ui-site .add-empty p, .ui-site .add-results small, .ui-site .add-results__none { color: var(--muted); }
+.ui-site .add-tabs { background: var(--surface2); border: var(--ink-w) solid var(--ink); border-radius: 6.1875rem; }
+.ui-site .add-tabs button { flex: 1 1 auto; padding: 0 0.75rem; white-space: nowrap; color: var(--muted); border-radius: 6.1875rem; font: 800 0.875rem var(--head); }
+.ui-site .add-tabs button.active { color: #111; background: var(--accent); box-shadow: none; }
+.ui-site .add-grid label, .ui-site .add-swatches legend { color: var(--muted); }
+.ui-site .add-results li { background: var(--surface2); border: var(--ink-w) solid var(--ink); border-radius: var(--radius-sm); }
+.ui-site .add-results strong { color: var(--text); }
+.ui-site .add-results img { background: var(--surface3); }
+.ui-site .add-results button, .ui-site .add-row button { color: #111; background: var(--accent); border: var(--ink-w) solid var(--ink); border-radius: 6.1875rem; font: 800 0.8125rem var(--head); }
+.ui-site .add-note { color: #062; background: var(--green); border: var(--ink-w) solid var(--ink); border-radius: 0.75rem; }
+.ui-site .add-swatches input:checked + span { box-shadow: 0 0 0 3px var(--accent); }
+.ui-site .add-danger { color: var(--muted); }
+.ui-site .add-danger button { color: var(--text); border-color: var(--ink); background: var(--surface2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-site .back-btn, .ui-site .add-fab, .ui-site .view-bar button, .ui-site .zone-picker__rail button { transition: none; transform: none; }
+}
+
+/* Price block of the card record, like the price line on the site's card tile. */
+.ui-site .card-facts__price { display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: 2px 0.625rem; margin-top: 0.75rem; padding: 0.75rem 0.875rem; background: var(--surface2); border: var(--ink-w) solid var(--ink); border-radius: var(--radius-sm); }
+.ui-site .card-facts__price strong { color: var(--green); font: 800 1.875rem/1 var(--head); }
+.ui-site .card-facts__price em { color: var(--text); font: 800 0.9375rem/1 var(--body); font-style: normal; }
+.ui-site .card-facts__price small { grid-column: 1 / -1; color: var(--muted); font: 700 0.75rem/1.3 var(--body); }
+.ui-site .card-facts__price--none strong { color: var(--muted); font-size: 1.25rem; }
+.ui-site .cond-dot { display: inline-block; width: 0.625rem; height: 0.625rem; margin-right: 0.4375rem; border: 2px solid var(--ink); border-radius: 50%; vertical-align: 1px; }
+
+/* Classic view: a quiet text link under the area menu that drops the ?room=clubhouse flag. */
+.ui-site .classic-link {
+  position: fixed; right: 1rem; bottom: 1rem; z-index: 5;
+  padding: 0.375rem 0.75rem; border-radius: 62.4375rem; border: 2.5px solid var(--ink); background: var(--surface);
+  color: var(--muted); font: 700 0.75rem/1 'Nunito', system-ui, sans-serif; text-decoration: none; box-shadow: 3px 3px 0 rgba(0,0,0,.35);
+}
+.ui-site .classic-link:hover, .ui-site .classic-link:focus-visible { color: var(--text); background: var(--surface2); outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Scrollbars follow the plum theme instead of the browser's white default. */
+.ui-site * { scrollbar-color: var(--surface3) var(--surface); scrollbar-width: thin; }
+
+/* ---- Fit any screen ------------------------------------------------------------------------------------------------
+   No pixel breakpoints. Sizes are rem (scaled from the screen in styles.css) or fractions of the viewport; the layout
+   changes with the screen's shape: wide screens put panels at the side, tall screens (phones, portrait tablets) at the bottom. */
+.ui-site .item-panel { width: min(26rem, 44cqw); max-height: calc(100cqh - 5.25rem); overflow-y: auto; overscroll-behavior: contain; } /* top 4.5rem + 0.75rem below */
+.ui-site .add-panel, .ui-site .add-card { max-height: calc(100cqh - 1.5rem); }
+.ui-site .zone-nav { width: min(16rem, 26cqw); }
+/* The Add button sits just under the room-area list, whatever its length: nav top + rows × (row + border) + a gap. */
+.ui-site { --nav-rows: 3; }
+.ui-site:has(.zone-nav button:nth-child(4)) { --nav-rows: 4; }
+.ui-site .add-fab:not(.add-fab--focus) { top: calc(0.875rem + var(--nav-rows) * (3.25rem + var(--ink-w)) + 1.25rem); }
+.ui-site .hud { max-width: min(30rem, calc(100cqw - 2rem)); }
+.ui-site .classic-link { right: 1rem; bottom: 1rem; }
+
+@media (max-aspect-ratio: 1/1) {
+  .ui-site .zone-nav { top: auto; right: 0.75rem; left: 0.75rem; bottom: 4.9rem; width: auto; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+  .ui-site .zone-nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.1rem; min-height: 3.4rem; padding: 0.4rem 0.25rem; font-size: 0.85rem; line-height: 1.1; text-align: center; border-bottom: 0; border-right: var(--ink-w) solid var(--ink); }
+  .ui-site .zone-nav button:last-child { border-right: 0; }
+  .ui-site .zone-nav button span { font-size: 0.7rem; }
+  .ui-site .hud { display: none; }
+  .ui-site .add-fab, .ui-site .add-fab:not(.add-fab--focus) { top: auto; left: 0.75rem; right: 0.75rem; bottom: 0.75rem; width: auto; justify-content: center; }
+  .ui-site .classic-link { top: 1rem; right: 0.75rem; bottom: auto; }
+  .ui-site .item-panel { left: 0.75rem; right: 0.75rem; width: auto; top: auto; bottom: 5.1rem; max-height: 48cqh; }
+  .ui-site:not(:has(.view-bar, .add-fab)) .item-panel { bottom: 0.75rem; } /* nothing underneath to leave room for */
+  .ui-site .view-bar--picker { flex-wrap: wrap; justify-content: flex-end; border-radius: 1.5rem; }
+  .ui-site .view-bar--picker .view-bar__search { flex: 1 1 100%; }
+}
+.ui-site:has(.view-bar--picker) .item-panel { display: none; } /* while picking, the card gets the room */
+.ui-site:has(.view-bar) .hud { display: none; } /* the page / picker bar carries its own controls; the hint would only collide with it */
+/* Very wide and short screens (a phone on its side): the side panel takes the full height and the hint steps aside. */
+@media (min-aspect-ratio: 2/1) {
+  .ui-site .hud { display: none; }
+  .ui-site .item-panel { top: 0.75rem; bottom: auto; max-height: calc(100cqh - 1.5rem); }
+  /* the browse panel becomes a right-hand column (below the Add button) so the room keeps the rest of the screen */
+  .ui-site .zone-picker { left: auto; right: 0.75rem; top: 7.75rem; bottom: 0.75rem; width: min(26rem, 44cqw); grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .ui-site .zone-picker__intro { border-right: 0; border-bottom: var(--ink-w) solid var(--ink); }
+  .ui-site .zone-picker__rail { flex-direction: column; overflow: hidden auto; }
+  .ui-site .zone-picker__rail button { flex: 0 0 auto; }
+  .ui-site .zone-nav button { min-height: 2.6rem; }
+  .ui-site .zone-browser__title, .ui-site .zone-browser__count { display: none; } /* the panel is short here: the list gets the room, the focus label already names the area */
+}
+
+/* ---- Live site additions (pages/RoomPage.tsx) ---------------------------------------------------------------------- */
+/* Status chip: the help button is the accent sticker, the reload button stays quiet; a pulse while reading. */
+.ui-site .sync-chip button { display: grid; place-items: center; min-width: 1.875rem; min-height: 1.875rem; padding: 0; font-weight: 800; cursor: pointer; }
+.ui-site .sync-chip button:disabled { opacity: 0.55; cursor: progress; }
+.ui-site .sync-chip .sync-chip__help { color: #111; background: var(--accent); box-shadow: 2px 2px 0 var(--ink); font: 800 1rem/1 var(--head); }
+.ui-site .sync-chip .sync-chip__help:hover { background: #ffd93d; }
+.ui-site .sync-chip__dot--busy { background: var(--accent); animation: chip-pulse 1s ease-in-out infinite alternate; }
+.ui-site .sync-chip--error .sync-chip__dot { background: var(--red); box-shadow: 0 0 0 0.25rem rgba(255, 93, 104, .2); }
+.ui-site .sync-chip--error small { color: #ffc2c7; }
+@keyframes chip-pulse { from { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .ui-site .sync-chip__dot--busy { animation: none; } }
+
+/* The way out to the full page where an item is managed. */
+.ui-site .item-panel__site-link {
+  display: flex; justify-content: center; align-items: center; min-height: 2.75rem; margin-top: 1rem; padding: 0 1rem;
+  color: var(--text); background: var(--surface2); border: var(--ink-w) solid var(--ink); border-radius: 6.1875rem;
+  box-shadow: 3px 3px 0 var(--ink); font: 800 0.9375rem/1 var(--head); text-decoration: none;
+}
+.ui-site .item-panel__site-link:hover { background: var(--surface3); }
+.ui-site .item-panel__site-link:focus-visible { outline: 3px solid var(--accent2); outline-offset: 2px; }
+/* The see-through, focusable hit buttons over display slots (DomAnchor in Room.jsx) must stay see-through: the
+   general button look above would otherwise paint a panel over the card. */
+.ui-site .object-hit, .ui-site .object-hit:hover { background: transparent; border: 0; box-shadow: none; padding: 0; }
+
+/* Very wide and short rooms (a phone on its side): the side panel owns the right-hand column, so the page bar ends
+   before it, the zone name it repeats steps aside, and the Add button sits bottom-left under the room. */
+@media (min-aspect-ratio: 2/1) {
+  .ui-site:has(.item-panel) .focus-label { display: none; }
+  .ui-site:has(.item-panel) .view-bar { left: 0.75rem; right: auto; transform: none; max-width: calc(100cqw - min(26rem, 44cqw) - 2.25rem); flex-wrap: wrap; }
+  .ui-site .add-fab:not(.add-fab--focus) { top: auto; bottom: 0.75rem; left: 0.75rem; right: auto; }
+}

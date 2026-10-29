@@ -71,7 +71,7 @@ export function BinderViewPage() {
   const navigate = useNavigate()
   const { binderId = '', spaceId } = useParams()
   // Back to the Binder Library this binder was opened from.
-  const library = `/?area=binders${spaceId && spaceId !== 'default' ? `&space=${spaceId}` : ''}`
+  const library = `/spaces?area=binders${spaceId && spaceId !== 'default' ? `&space=${spaceId}` : ''}`
   const preview = usePreview()
 
   const [binder, setBinder] = useState<Binder | null>(null)

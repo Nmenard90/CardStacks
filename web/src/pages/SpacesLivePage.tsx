@@ -1,6 +1,7 @@
 /**
- * SpacesLivePage — the logged-in landing page ("/") and physical-collection
- * organizer. A Space has three live areas: Storage (real boxes stacked on
+ * SpacesLivePage — the list view of the physical collection ("/spaces"; the
+ * 3D room at "/" is the landing page and links here to manage things) and
+ * physical-collection organizer. A Space has three live areas: Storage (real boxes stacked on
  * shelf units), Binder Library, and Display Gallery — all backed by the
  * Scala `RoomService`/`RoomRepository` endpoints.
  *
@@ -313,7 +314,7 @@ export function SpacesLivePage() {
     }
   }
 
-  // Spaces is "/" — the app's actual landing page — so it has to gate on
+  // Spaces is a main page anyone can bookmark, so it has to gate on
   // login itself rather than redirecting, or a logged-out visitor lands on
   // a permanent "Building your collection room…" screen with no way in.
   if (!user) return <main className="page-tracker spaces-concept"><LoginScreen /></main>

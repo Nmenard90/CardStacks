@@ -1,0 +1,280 @@
+{
+  "at": "2026-10-29T09:14:13.798Z",
+  "results": [
+    {
+      "name": "guide opens on the first visit, steps through, and stays closed",
+      "ok": true,
+      "ms": 33670
+    },
+    {
+      "name": "no page errors on first visit",
+      "ok": true,
+      "ms": 1
+    },
+    {
+      "name": "guide fits a phone screen",
+      "ok": true,
+      "ms": 10243
+    },
+    {
+      "name": "room loads the collection and draws",
+      "ok": true,
+      "ms": 17108
+    },
+    {
+      "name": "home layout: nothing overlaps or spills",
+      "ok": true,
+      "ms": 3
+    },
+    {
+      "name": "binders: tap the bookcase, pick a binder, read a card with its price",
+      "ok": true,
+      "ms": 44437
+    },
+    {
+      "name": "binder pocket: pick one of my cards and place it (same PUT as the binder page)",
+      "ok": true,
+      "ms": 25372
+    },
+    {
+      "name": "binder pocket: search the catalog from the picker",
+      "ok": true,
+      "ms": 6398
+    },
+    {
+      "name": "\"Open binder page\" goes to the real binder page, and back returns",
+      "ok": true,
+      "ms": 7415
+    },
+    {
+      "name": "Esc / Back steps out one level at a time",
+      "ok": true,
+      "ms": 423
+    },
+    {
+      "name": "boxes: open a box, switch compartment, read a card",
+      "ok": true,
+      "ms": 12460
+    },
+    {
+      "name": "boxes: TCGplayer art is requested through the /card-art relay",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "name": "display cabinet: tap a card in the case to read it",
+      "ok": true,
+      "ms": 20957
+    },
+    {
+      "name": "furniture leads to the rest of the site (desk → Add Cards, Explore button → Explore)",
+      "ok": true,
+      "ms": 30708
+    },
+    {
+      "name": "old Spaces links open Spaces at /spaces",
+      "ok": true,
+      "ms": 2573
+    },
+    {
+      "name": "no page errors",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "name": "room loads the collection and draws",
+      "ok": true,
+      "ms": 11304
+    },
+    {
+      "name": "home layout: nothing overlaps or spills",
+      "ok": true,
+      "ms": 2
+    },
+    {
+      "name": "binders: tap the bookcase, pick a binder, read a card with its price",
+      "ok": true,
+      "ms": 20180
+    },
+    {
+      "name": "binder pocket: pick one of my cards and place it (same PUT as the binder page)",
+      "ok": true,
+      "ms": 13142
+    },
+    {
+      "name": "binder pocket: search the catalog from the picker",
+      "ok": true,
+      "ms": 4398
+    },
+    {
+      "name": "\"Open binder page\" goes to the real binder page, and back returns",
+      "ok": true,
+      "ms": 3506
+    },
+    {
+      "name": "Esc / Back steps out one level at a time",
+      "ok": true,
+      "ms": 3496
+    },
+    {
+      "name": "boxes: open a box, switch compartment, read a card",
+      "ok": true,
+      "ms": 6644
+    },
+    {
+      "name": "boxes: TCGplayer art is requested through the /card-art relay",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "name": "display cabinet: tap a card in the case to read it",
+      "ok": true,
+      "ms": 6343
+    },
+    {
+      "name": "furniture leads to the rest of the site (desk → Add Cards, Explore button → Explore)",
+      "ok": true,
+      "ms": 19494
+    },
+    {
+      "name": "old Spaces links open Spaces at /spaces",
+      "ok": true,
+      "ms": 1187
+    },
+    {
+      "name": "no page errors",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "name": "room loads the collection and draws",
+      "ok": true,
+      "ms": 14015
+    },
+    {
+      "name": "home layout: nothing overlaps or spills",
+      "ok": true,
+      "ms": 1
+    },
+    {
+      "name": "binders: tap the bookcase, pick a binder, read a card with its price",
+      "ok": true,
+      "ms": 37709
+    },
+    {
+      "name": "binder pocket: pick one of my cards and place it (same PUT as the binder page)",
+      "ok": true,
+      "ms": 24110
+    },
+    {
+      "name": "binder pocket: search the catalog from the picker",
+      "ok": true,
+      "ms": 8086
+    },
+    {
+      "name": "\"Open binder page\" goes to the real binder page, and back returns",
+      "ok": true,
+      "ms": 6485
+    },
+    {
+      "name": "Esc / Back steps out one level at a time",
+      "ok": true,
+      "ms": 6490
+    },
+    {
+      "name": "boxes: open a box, switch compartment, read a card",
+      "ok": true,
+      "ms": 11688
+    },
+    {
+      "name": "boxes: TCGplayer art is requested through the /card-art relay",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "name": "display cabinet: tap a card in the case to read it",
+      "ok": true,
+      "ms": 13706
+    },
+    {
+      "name": "furniture leads to the rest of the site (desk → Add Cards, Explore button → Explore)",
+      "ok": true,
+      "ms": 24737
+    },
+    {
+      "name": "old Spaces links open Spaces at /spaces",
+      "ok": true,
+      "ms": 1924
+    },
+    {
+      "name": "no page errors",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "name": "room loads the collection and draws",
+      "ok": true,
+      "ms": 8713
+    },
+    {
+      "name": "home layout: nothing overlaps or spills",
+      "ok": true,
+      "ms": 1
+    },
+    {
+      "name": "binders: tap the bookcase, pick a binder, read a card with its price",
+      "ok": true,
+      "ms": 19715
+    },
+    {
+      "name": "binder pocket: pick one of my cards and place it (same PUT as the binder page)",
+      "ok": true,
+      "ms": 14183
+    },
+    {
+      "name": "binder pocket: search the catalog from the picker",
+      "ok": true,
+      "ms": 4385
+    },
+    {
+      "name": "\"Open binder page\" goes to the real binder page, and back returns",
+      "ok": true,
+      "ms": 3455
+    },
+    {
+      "name": "Esc / Back steps out one level at a time",
+      "ok": true,
+      "ms": 2957
+    },
+    {
+      "name": "boxes: open a box, switch compartment, read a card",
+      "ok": true,
+      "ms": 9361
+    },
+    {
+      "name": "boxes: TCGplayer art is requested through the /card-art relay",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "name": "display cabinet: tap a card in the case to read it",
+      "ok": true,
+      "ms": 8035
+    },
+    {
+      "name": "furniture leads to the rest of the site (desk → Add Cards, Explore button → Explore)",
+      "ok": true,
+      "ms": 18667
+    },
+    {
+      "name": "old Spaces links open Spaces at /spaces",
+      "ok": true,
+      "ms": 1361
+    },
+    {
+      "name": "no page errors",
+      "ok": true,
+      "ms": 0
+    }
+  ]
+}

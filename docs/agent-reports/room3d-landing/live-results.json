@@ -1,0 +1,30 @@
+{
+  "at": "2026-10-29T08:23:03.433Z",
+  "origin": "http://127.0.0.1:5180",
+  "steps": [
+    {
+      "name": "sign in with \"Try the demo\" lands on the room with the guide",
+      "ok": true
+    },
+    {
+      "name": "add cards and a binder through the real API",
+      "ok": true
+    },
+    {
+      "name": "the room shows them after a reload, with real prices",
+      "ok": true
+    },
+    {
+      "name": "auto-filed box opens in the room with the owned copies",
+      "ok": true
+    },
+    {
+      "name": "placing a card in a binder pocket from the room is saved on the server",
+      "ok": true
+    },
+    {
+      "name": "no page errors",
+      "ok": true
+    }
+  ]
+}

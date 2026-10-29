@@ -160,7 +160,20 @@ tcg/
   shrink below content); page headers wrap or scroll rather than clip. Check
   with a 390px-wide view for any element past the right edge.
 
-## Current state (2026-10-25)
+## Current state (2026-10-29)
+
+**3D room landing page** — branch `feat/3d-room` (worktree `.worktrees/room3d`),
+NOT merged/live yet. `/` becomes the 3D collector's room (`web/src/room3d/`,
+React Three Fiber 9 / drei 10 / three 0.169, lazy-loaded) showing the user's
+real binders, boxes and display cases; Spaces moves to `/spaces` (old
+`/?area=…` links redirect). First-visit animated guide; `/card-art` relay for
+TCGplayer art (`web/cardArt.mjs`). No backend change, no migration. Tests:
+`npm run test:room`, `tests/room-browser.mjs` (mocked API, 4 screen sizes),
+`tests/room-live-smoke.mjs` (real backend, demo account). Full write-up and
+screenshots: `docs/agent-reports/room3d-landing/`. Prototype source stays in
+`D:\Projects\CardStacks\experiments\nook-concept` (not a repo).
+
+## Earlier state (2026-10-25)
 
 Shop profile / organization update is implemented in
 `.worktrees/shop-inviting-20261025` (`feat/shop-inviting-20261025`), validated locally. Adds owner-editable shop name/bio, set-grouped public inventory,

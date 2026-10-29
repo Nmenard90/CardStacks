@@ -1,0 +1,57 @@
+/* room-page.css — layout of the landing page (pages/RoomPage.tsx): the site header on top and the 3D room filling
+ * exactly the rest of the screen, never scrolling the page. On phones the room stops above the fixed bottom tab bar.
+ * The room's own panels live in room3d/ (scoped under .room3d at build time). */
+
+/* The page is one screen tall: the demo banner (if any), the header, then the room. */
+html:has(.room-page), html:has(.room-page) body { height: 100%; overflow: hidden; }
+#root:has(.room-page) { height: 100dvh; display: flex; flex-direction: column; }
+.page-tracker.room-page { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #0d0b08; }
+
+.room-page__header {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 18px;
+  background: var(--surface); border-bottom: var(--ink-w) solid var(--border); position: relative; z-index: 20;
+}
+.room-page__header .logo { text-decoration: none; }
+
+/* The room: a size container (its panels use cqw/cqh), and the containing block for its fixed-position panels
+   (the transform), so they sit inside the room instead of over the site header. */
+.room-page .room3d {
+  flex: 1; min-height: 0; position: relative; overflow: hidden;
+  container-type: size; transform: translateZ(0);
+}
+.room3d .room3d-stage { position: absolute; inset: 0; }
+
+@media (max-width: 720px) {
+  .room-page__header { padding: 8px 12px; }
+  .room-page__header .user-badge { display: none; }
+}
+/* Clear the fixed phone tab bar (HeaderNav). RoomPage measures it into --bottom-nav-h; 0 where it's hidden. */
+.room-page .room3d { margin-bottom: var(--bottom-nav-h, 0px); }
+
+.room-page__loading, .room-page__fallback {
+  position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 14px; padding: 24px;
+  text-align: center; color: var(--text); background: radial-gradient(circle at 50% 40%, var(--surface2), var(--bg) 70%);
+  font: 700 16px 'Nunito', sans-serif;
+}
+.room-page__fallback h2 { font: 800 24px 'Baloo 2', sans-serif; }
+.room-page__fallback p { color: var(--muted); max-width: 32ch; }
+.room-page__fallback-link {
+  color: #111; background: var(--accent); border: var(--ink-w) solid var(--border); border-radius: 99px;
+  padding: 10px 18px; font-weight: 800; text-decoration: none; box-shadow: 3px 3px 0 var(--border);
+}
+.room-page__spinner {
+  width: 42px; height: 42px; border-radius: 50%; border: 5px solid var(--surface3); border-top-color: var(--accent);
+  animation: room-spin .9s linear infinite;
+}
+@keyframes room-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .room-page__spinner { animation-duration: 3s; } }
+
+/* Short screens (a phone on its side): the header becomes one slim row so the room keeps the height. */
+@media (max-height: 520px) and (min-width: 721px) {
+  .room-page__header { padding: 4px 10px; gap: 8px; flex-wrap: nowrap; }
+  .room-page__header .user-badge { display: none; }
+  .room-page__header .logo { font-size: 18px; }
+  .room-page__header .app-nav { gap: 4px; flex-wrap: nowrap; }
+  .room-page__header .nav-link { padding: 4px 9px; font-size: 12.5px; }
+  .room-page__header .game-switch { padding: 3px 6px; }
+}
