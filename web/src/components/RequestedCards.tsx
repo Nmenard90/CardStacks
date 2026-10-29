@@ -53,11 +53,11 @@ export function RequestedCards({ items, userId }: { items: ShopRequestItem[]; us
   const byId = new Map<string, OwnedCard>(owned.map(o => [o.cardId, o]))
   const setName = new Map(sets.map(s => [s.id, s.name]))
 
-  let total = 0
+  const priceOf = (item: ShopRequestItem) => { const card = byId.get(item.cardId)?.card; return card ? condPrice(card, item.condition) : 0 }
+  const total = items.reduce((sum, item) => sum + priceOf(item) * item.qty, 0)
   const rows = items.map((item, n) => {
     const card = byId.get(item.cardId)?.card
-    const each = card ? condPrice(card, item.condition) : 0
-    total += each * item.qty
+    const each = priceOf(item)
     const here = places.filter(p => p.cardId === item.cardId)
     // The copies in the requested condition first; a binder pocket with no stored copy has no condition to compare.
     const cond = item.condition.split(' ')[0]
