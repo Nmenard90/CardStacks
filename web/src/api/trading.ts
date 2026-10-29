@@ -1,14 +1,12 @@
 /**
- * API calls for share-link trading: share settings, the trade list, the
- * public share page, and offers with their message threads.
- * ENDPOINTS: /api/share/:slug (public), /api/trading/:userId/*
- * USED BY: TradePage, SharePage, HeaderNav (unread badge)
+ * API calls for card offers and their message threads (My Shop → Offers).
+ * New offers aren't made here any more: the share-link trade page was folded
+ * into the shop, where buyers send buy/trade requests (api/shop).
+ * ENDPOINTS: /api/trading/:userId/offers…, /api/trading/:userId/unread
+ * USED BY: components/OfferInbox, pages/ShopRequestsPage, HeaderNav (badge)
  */
 import { api } from './client'
-import type { CardOffer, OfferLine, CardOfferStatus, ShareSettings, SharedProfile, TradeListItem } from '../types'
-
-/** One card in a bulk listing; no asking price = "make me an offer". */
-export interface TradeLine { cardId: string; condition: string; quantity: number; askingPrice?: number }
+import type { CardOffer, CardOfferStatus } from '../types'
 
 /** The backend sends `{ error }` with a readable message on 4xx. */
 export const tradingError = (e: unknown, fallback: string): string => {
@@ -16,34 +14,8 @@ export const tradingError = (e: unknown, fallback: string): string => {
   return data?.error || fallback
 }
 
-/** `game` is explicit: a share page shows the owner's game, not whichever
- *  game the visitor's own app happens to be on. */
-export const getSharedProfile = (slug: string, game: string) =>
-  api.get<SharedProfile>(`/api/share/${slug}`, { params: { game } }).then(r => r.data)
-
-export const getShareSettings = (userId: string) =>
-  api.get<ShareSettings>(`/api/trading/${userId}/share`).then(r => r.data)
-export const updateShareSettings = (userId: string, value: { enabled: boolean; collectionPublic: boolean; bio?: string }) =>
-  api.put<ShareSettings>(`/api/trading/${userId}/share`, value).then(r => r.data)
-export const regenerateShareLink = (userId: string) =>
-  api.post<ShareSettings>(`/api/trading/${userId}/share/regenerate`).then(r => r.data)
-
-export const getTradeList = (userId: string) =>
-  api.get<TradeListItem[]>(`/api/trading/${userId}/list`).then(r => r.data)
-export const saveTradeItem = (userId: string, value: { cardId: string; condition: string; quantity: number; askingPrice?: number; note?: string }) =>
-  api.put<TradeListItem[]>(`/api/trading/${userId}/list`, value).then(r => r.data)
-export const removeTradeItem = (userId: string, itemId: string) =>
-  api.delete(`/api/trading/${userId}/list/${itemId}`).then(r => r.data)
-/** Lists many cards at once (quantities above what's owned are cut down); returns the whole list. */
-export const saveTradeItems = (userId: string, items: TradeLine[]) =>
-  api.put<TradeListItem[]>(`/api/trading/${userId}/list/bulk`, { items }).then(r => r.data)
-export const removeTradeItems = (userId: string, ids: string[]) =>
-  api.post<{ removed: number }>(`/api/trading/${userId}/list/remove`, { ids }).then(r => r.data.removed)
-
 export const getOffers = (userId: string) =>
   api.get<CardOffer[]>(`/api/trading/${userId}/offers`).then(r => r.data)
-export const makeOffer = (userId: string, value: { slug: string; wants: OfferLine[]; gives: OfferLine[]; cashAmount?: number; message?: string }) =>
-  api.post<CardOffer>(`/api/trading/${userId}/offers`, value).then(r => r.data)
 export const getOffer = (userId: string, offerId: string) =>
   api.get<CardOffer>(`/api/trading/${userId}/offers/${offerId}`).then(r => r.data)
 export const setOfferStatus = (userId: string, offerId: string, status: CardOfferStatus) =>

@@ -21,7 +21,7 @@ test('tags cover title, description, preview image and url, all absolute', () =>
   for (const want of [
     "<title>testowner's Pokémon card shop</title>",
     'property="og:title" content="testowner\'s Pokémon card shop"',
-    'property="og:description" content="Explore Pokémon singles organized by set',
+    'property="og:description" content="Browse Pokémon singles by set',
     'property="og:image" content="https://cards.example/og-shop.png"',
     'property="og:url" content="https://cards.example/shop/testowner"',
     'property="og:image:width" content="1200"',
@@ -32,10 +32,14 @@ test('tags cover title, description, preview image and url, all absolute', () =>
   assert.ok(html.indexOf('og:title') < html.indexOf('</head>'), 'tags must be inside <head>')
 })
 
-test('the preview describes set browsing and the account-free request flow', () => {
+test('the preview describes the request flow, the no-percentage rule and that trades are welcome', () => {
   const { tags } = shopOg('testowner', 'https://cards.example')
-  assert.match(tags, /organized by set/)
-  assert.match(tags, /No account needed to make a request/)
+  assert.match(tags, /by set/)
+  assert.match(tags, /no account needed/)
+  assert.match(tags, /Prices follow the market/)
+  assert.match(tags, /No percentage offers on buys or trades/)
+  assert.match(tags, /Trades welcome/)
+  assert.doesNotMatch(tags, /no trades|sales only/i)
 })
 
 test('origin comes from proxy headers; junk hosts fall back safely', () => {

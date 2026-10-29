@@ -225,6 +225,9 @@ needs them is pushed.
 - `migration_018_shop.sql` (`shop_settings` + `shop_requests`, the public shop) — run by hand in
   production on 2026-10-23, under the working name "017" before it was renumbered. All statements
   are `IF NOT EXISTS`, so re-running is a no-op. The shop code (`ShopRoutes`) needs these tables.
+- `migration_019_shop_photos.sql` (`shop_photos`, seller photos of the actual cards) — **NOT RUN YET.**
+  Run it in Railway's SQL editor BEFORE the shop-photos code reaches `main` (the shop page's public
+  response now queries `shop_photos`, so deploying first would break every shop page).
 - Migration 003 (per-variant `card_prices`) is DISABLED — never run it.
 
 ### Pricing audit (2026-10-14)

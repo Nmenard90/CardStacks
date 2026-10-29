@@ -232,48 +232,7 @@ export interface VendorNote {
   createdAt: string
 }
 
-// ─── Share-link trading (see backend models/Trading.scala) ──────────────────
-
-export interface ShareSettings {
-  slug: string
-  enabled: boolean
-  collectionPublic: boolean
-  bio?: string
-}
-
-/** A card on a share page / trade list. Never carries purchase prices. */
-export interface TradeCardView {
-  cardId: string
-  name: string
-  setId: string
-  number: string
-  rarity?: string
-  artist?: string
-  imageSmall: string
-  imageLarge: string
-  condition: string
-  quantity: number
-  marketPrice?: number
-}
-
-export interface TradeListItem {
-  id: string
-  card: TradeCardView
-  askingPrice?: number   // absent = "make me an offer"
-  note?: string
-  updatedAt: string
-}
-
-export interface SharedProfile {
-  game: string               // which game this page is showing
-  games: string[]            // every game the owner has something to show in
-  username: string
-  reputation: number
-  memberSince: string
-  bio?: string
-  tradeList: TradeListItem[]
-  collection?: TradeCardView[]   // only when the owner made it public
-}
+// ─── Card offers (see backend models/Trading.scala) ─────────────────────────
 
 export interface OfferCard {
   cardId: string
@@ -307,8 +266,6 @@ export interface CardOffer {
   updatedAt: string
   messages: OfferMessage[]
 }
-
-export interface OfferLine { cardId: string; condition: string; quantity: number }
 
 // ─── Games (see backend models/Game.scala) ──────────────────────────────────
 

@@ -225,21 +225,13 @@ class MultiGameSuite extends munit.FunSuite:
     assertNotEquals(en.head.id, jpSpaces.head.id)
   }
 
-  dbTest("an offer can't mix games, and offers/share pages are per game") {
-    val trading = TradingService.Live(TradingRepository.Live(xa), UserRepository.Live(xa))
-    val coll = CollectionRepository.Live(xa)
-    val now = java.time.Instant.now()
-    run(coll.upsertEntry(CollectionEntry("x3", u2, "mgset-1", List(ConditionCount("NM", 1, None)), "NM", now)))
-    run(trading.saveTradeItem(u1, "tt85-mg-1", "NM", 1, None, None))
-    val slug = run(trading.updateShare(u1, enabled = true, collectionPublic = false, bio = None)).slug
-    val mixed = run(trading.makeOffer(u2, slug, List(OfferLine("tt85-mg-1", "NM", 1)), List(OfferLine("mgset-1", "NM", 1)), None, None).either)
-    assert(mixed.left.exists { case TradingError(400, m) => m.contains("one game"); case _ => false }, mixed.toString)
-    val ok = run(trading.makeOffer(u2, slug, List(OfferLine("tt85-mg-1", "NM", 1)), Nil, Some(3.0), None))
-    assertEquals(run(trading.offers(u2, "pokemon-jp")).map(_.id), List(ok.id))
+  dbTest("offers are listed per game") {
+    val trading = TradingService.Live(TradingRepository.Live(xa))
+    val id = java.util.UUID.randomUUID().toString
+    run(sql"""INSERT INTO card_offers (id, seller_id, buyer_id, cash_amount, game_id)
+              VALUES ($id, $u1, $u2, 3.0, 'pokemon-jp')""".update.run.transact(xa))
+    assertEquals(run(trading.offers(u2, "pokemon-jp")).map(_.id), List(id))
     assertEquals(run(trading.offers(u2, "pokemon")), Nil)
-    assertEquals(run(trading.sharedProfile(slug, "pokemon-jp")).tradeList.map(_.card.cardId), List("tt85-mg-1"))
-    assertEquals(run(trading.sharedProfile(slug, "pokemon")).tradeList, Nil)
-    assertEquals(run(trading.sharedProfile(slug, "pokemon")).games, List("pokemon-jp"))
   }
 
   // ── live TCGTracking import (network) ─────────────────────────────────────

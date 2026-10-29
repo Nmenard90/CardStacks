@@ -1,9 +1,8 @@
 /**
- * Share-link trading: a user hand-picks cards into a trade list, shares one
- * link to it (optionally to their whole collection too), and signed-in
- * collectors make offers — cash, cards from their own collection, or both.
- * Every offer carries a message thread. No money moves through the app;
- * cash amounts are proposals settled off-platform.
+ * Card offers between two signed-in collectors — cash, cards, or both —
+ * each with a message thread. They were made from the old share-link trade
+ * page (now folded into the shop) and are answered from My Shop → Offers.
+ * No money moves through the app; cash amounts are settled off-platform.
  *
  * USED BY: TradingRepository, TradingService, TradingRoutes
  */
@@ -12,60 +11,6 @@ package com.poketracker.models
 
 import zio.json.*
 import java.time.Instant
-
-/** The owner's own view of their share settings. */
-final case class ShareSettings(
-  slug:             String,
-  enabled:          Boolean,
-  collectionPublic: Boolean,
-  bio:              Option[String]
-)
-object ShareSettings:
-  given JsonCodec[ShareSettings] = DeriveJsonCodec.gen[ShareSettings]
-
-/** A card shown on a share page or trade list. Deliberately carries no
- *  purchase price / purchase date — those stay private to the owner. */
-final case class TradeCardView(
-  cardId:      String,
-  name:        String,
-  setId:       String,
-  number:      String,
-  rarity:      Option[String],
-  artist:      Option[String],
-  imageSmall:  String,
-  imageLarge:  String,
-  condition:   String,
-  quantity:    Int,
-  marketPrice: Option[Double]
-)
-object TradeCardView:
-  given JsonCodec[TradeCardView] = DeriveJsonCodec.gen[TradeCardView]
-
-final case class TradeListItem(
-  id:          String,
-  card:        TradeCardView,
-  askingPrice: Option[Double],
-  note:        Option[String],
-  updatedAt:   Instant
-)
-object TradeListItem:
-  given JsonCodec[TradeListItem] = DeriveJsonCodec.gen[TradeListItem]
-
-/** What anyone with the link sees, for one game. `collection` is None
- *  unless the owner turned on collectionPublic. `games` lists every game the
- *  owner has something to show in, so the page can offer a game picker. */
-final case class SharedProfile(
-  username:    String,
-  reputation:  Int,
-  memberSince: Instant,
-  bio:         Option[String],
-  tradeList:   List[TradeListItem],
-  collection:  Option[List[TradeCardView]],
-  game:        String,
-  games:       List[String]
-)
-object SharedProfile:
-  given JsonCodec[SharedProfile] = DeriveJsonCodec.gen[SharedProfile]
 
 /** One card line inside an offer, snapshotted when the offer is made so
  *  later price or catalog changes don't rewrite what was agreed. */

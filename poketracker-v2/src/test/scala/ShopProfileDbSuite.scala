@@ -45,3 +45,19 @@ class ShopProfileDbSuite extends munit.FunSuite:
     try assertEquals(run(repo.getSettings("profile-legacy")), Some(ShopSettings("profile-legacy", false, "")))
     finally run(sql"DELETE FROM shop_settings WHERE user_id='profile-legacy'".update.run.transact(xa))
   }
+
+  test("an old share link leads to the same person's shop, only while it's open") {
+    val u = "profile-share-user"
+    def exec(q: Fragment) = run(q.update.run.transact(xa))
+    exec(sql"""INSERT INTO users (id, supabase_user_id, username, email) VALUES ($u, ${"sb-" + u}, $u, ${u + "@example.test"})""")
+    try
+      exec(sql"INSERT INTO share_profiles (user_id, slug) VALUES ($u, 'oldlink-test')")
+      run(repo.saveSettings(u, ShopSettings("share-shop", true, "")))
+      assertEquals(run(repo.shopSlugForShareLink("oldlink-test")), Some("share-shop"))
+      assertEquals(run(repo.shopSlugForShareLink("no-such-link")), None)
+      run(repo.saveSettings(u, ShopSettings("share-shop", false, "")))
+      assertEquals(run(repo.shopSlugForShareLink("oldlink-test")), None)
+    finally
+      exec(sql"DELETE FROM shop_settings WHERE user_id = $u")
+      exec(sql"DELETE FROM users WHERE id = $u")
+  }

@@ -9,8 +9,8 @@
  * single-purpose utility page (Trade Analyzer, Convention Mode) under one
  * nav slot instead of each getting its own top-level link.
  *
- * USED BY: every page (CollectionPage, OwnedPage, BulkAddPage,
- *   ShelfPage, BinderViewPage, AnalyzerPage, ConventionModePage)
+ * USED BY: every signed-in page (RoomPage, SpacesLivePage, CollectionPage, BulkAddPage,
+ *   BinderViewPage, AnalyzerPage, ConventionModePage, ShopRequestsPage)
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -18,6 +18,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useUser } from '../context/UserContext'
 import { getUnreadOffers } from '../api/trading'
+import { getShopRequests } from '../api/shop'
 import { getGames } from '../api/cards'
 import { DEFAULT_GAME, currentGame, switchGame } from '../lib/game'
 
@@ -27,27 +28,30 @@ const ITEMS: NavItem[] = [
   { to: '/',                   label: '🏠 Spaces' },
   { to: '/explore',            label: '🗂 Explore' },
   { to: '/add',                label: '⚡ Add Cards' },
-  { to: '/trade',              label: '🤝 Trade' },
+  { to: '/shop/requests',      label: '🛍 Shop' },
 ]
 
-/** Offers with activity the user hasn't seen — shown as a badge on Trade.
- *  Polls once a minute; demo accounts can't trade, so they never ask. */
-function useUnreadOffers(): number {
+/** New shop requests plus offers with unseen activity — the badge on Shop.
+ *  Polls once a minute; demo accounts can't have a shop, so they never ask. */
+function useShopInbox(): number {
   const { user } = useUser()
-  const { data = 0 } = useQuery({
+  const enabled = !!user && !user.isAnonymous
+  const { data: offers = 0 } = useQuery({
     queryKey: ['unread-offers', user?.id],
     queryFn: () => getUnreadOffers(user!.id),
-    enabled: !!user && !user.isAnonymous,
-    refetchInterval: 60_000,
-    retry: false,
+    enabled, refetchInterval: 60_000, retry: false,
   })
-  return data
+  const { data: requests = [] } = useQuery({
+    queryKey: ['shop-requests', user?.id],
+    queryFn: () => getShopRequests(user!.id),
+    enabled, refetchInterval: 60_000, retry: false,
+  })
+  return offers + requests.filter(r => r.status === 'new').length
 }
 
 const TOOLS_ITEMS: NavItem[] = [
   { to: '/analyzer',           label: '🧪 Trade Analyzer' },
   { to: '/convention',         label: '🎪 Convention Mode' },
-  { to: '/shop/requests',      label: '🛍 My Shop' },
 ]
 
 /** Shared by both the desktop row and the mobile bottom bar — only the
@@ -109,8 +113,8 @@ function GameSwitcher() {
 export function HeaderNav() {
   const { pathname } = useLocation()
   const { setUser } = useUser()
-  const unread = useUnreadOffers()
-  const badge = (to: string) => (to === '/trade' && unread > 0 ? <span className="nav-badge">{unread}</span> : null)
+  const unread = useShopInbox()
+  const badge = (to: string) => (to === '/shop/requests' && unread > 0 ? <span className="nav-badge">{unread}</span> : null)
 
   return (
     <>

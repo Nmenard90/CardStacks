@@ -1,25 +1,16 @@
 /**
- * TradingRoutes — HTTP endpoints for share links, trade lists and offers.
+ * TradingRoutes — HTTP endpoints for card offers (My Shop → Offers).
  *
  * HOW IT WORKS
- *   Pure request/response plumbing over TradingService. `publicRoutes`
- *   (the share page itself) needs no session; everything under
+ *   Pure request/response plumbing over TradingService. Everything under
  *   /api/trading/:userId is behind AuthGuard, which also 403s any request
  *   whose path userId isn't the caller ("trading" is a user-scoped
  *   resource there). TradingError carries its own HTTP status.
+ *   New offers are no longer made here: the share-link trade page was folded
+ *   into the shop, where buyers send buy/trade requests (ShopRoutes).
  *
  * ENDPOINTS
- *   GET    /api/share/:slug                                  — public share page data
- *   GET    /api/trading/:userId/share                        — own share settings (creates link)
- *   PUT    /api/trading/:userId/share                        — update settings
- *   POST   /api/trading/:userId/share/regenerate             — new link, old one stops working
- *   GET    /api/trading/:userId/list                         — own trade list
- *   PUT    /api/trading/:userId/list                         — add/update a trade list item
- *   DELETE /api/trading/:userId/list/:itemId                 — remove one
- *   PUT    /api/trading/:userId/list/bulk                    — list many cards at once
- *   POST   /api/trading/:userId/list/remove                  — remove many at once
  *   GET    /api/trading/:userId/offers                       — offers made and received
- *   POST   /api/trading/:userId/offers                       — make an offer on a share link
  *   GET    /api/trading/:userId/offers/:offerId              — one offer + thread (marks read)
  *   PUT    /api/trading/:userId/offers/:offerId/status       — accept/decline/withdraw/complete/cancel
  *   POST   /api/trading/:userId/offers/:offerId/messages     — post to the thread
@@ -31,28 +22,16 @@
 
 package com.poketracker.api
 
-import com.poketracker.service.{OfferLine, TradeLine, TradingError, TradingService}
+import com.poketracker.service.{TradingError, TradingService}
 import zio.*
 import zio.http.*
 import zio.json.*
 
 object TradingRoutes:
 
-  private case class ShareUpdate(enabled: Boolean, collectionPublic: Boolean, bio: Option[String])
-  private case class ItemRequest(cardId: String, condition: String, quantity: Int, askingPrice: Option[Double], note: Option[String])
-  private case class OfferRequest(slug: String, wants: List[OfferLine], gives: List[OfferLine], cashAmount: Option[Double], message: Option[String])
-  private case class BulkRequest(items: List[TradeLine])
-  private case class RemoveRequest(ids: List[String])
   private case class StatusRequest(status: String)
   private case class MessageRequest(body: String)
 
-  private given JsonDecoder[OfferLine]      = DeriveJsonDecoder.gen
-  private given JsonDecoder[ShareUpdate]    = DeriveJsonDecoder.gen
-  private given JsonDecoder[ItemRequest]    = DeriveJsonDecoder.gen
-  private given JsonDecoder[OfferRequest]   = DeriveJsonDecoder.gen
-  private given JsonDecoder[TradeLine]      = DeriveJsonDecoder.gen
-  private given JsonDecoder[BulkRequest]    = DeriveJsonDecoder.gen
-  private given JsonDecoder[RemoveRequest]  = DeriveJsonDecoder.gen
   private given JsonDecoder[StatusRequest]  = DeriveJsonDecoder.gen
   private given JsonDecoder[MessageRequest] = DeriveJsonDecoder.gen
 
@@ -75,55 +54,10 @@ object TradingRoutes:
 
   private def svc = ZIO.service[TradingService]
 
-  val publicRoutes: Routes[TradingService, Nothing] = Routes(
-    Method.GET / "api" / "share" / string("slug") -> handler { (slug: String, req: Request) =>
-      respond(svc.flatMap(_.sharedProfile(slug, GameParam.of(req))))
-    }
-  )
-
   val routes: Routes[TradingService, Nothing] = Routes(
-
-    Method.GET / "api" / "trading" / string("userId") / "share" -> handler { (userId: String, _: Request) =>
-      respond(svc.flatMap(_.getShare(userId)))
-    },
-
-    Method.PUT / "api" / "trading" / string("userId") / "share" -> handler { (userId: String, req: Request) =>
-      respond(body[ShareUpdate](req).flatMap(b => svc.flatMap(_.updateShare(userId, b.enabled, b.collectionPublic, b.bio))))
-    },
-
-    Method.POST / "api" / "trading" / string("userId") / "share" / "regenerate" -> handler { (userId: String, _: Request) =>
-      respond(svc.flatMap(_.regenerateSlug(userId)))
-    },
-
-    Method.GET / "api" / "trading" / string("userId") / "list" -> handler { (userId: String, req: Request) =>
-      respond(svc.flatMap(_.tradeList(userId, GameParam.of(req))))
-    },
-
-    Method.PUT / "api" / "trading" / string("userId") / "list" -> handler { (userId: String, req: Request) =>
-      respond(body[ItemRequest](req).flatMap(b =>
-        svc.flatMap(_.saveTradeItem(userId, b.cardId, b.condition, b.quantity, b.askingPrice, b.note))))
-    },
-
-    Method.PUT / "api" / "trading" / string("userId") / "list" / "bulk" -> handler { (userId: String, req: Request) =>
-      respond(body[BulkRequest](req).flatMap(b => svc.flatMap(_.saveTradeItems(userId, b.items))))
-    },
-
-    Method.POST / "api" / "trading" / string("userId") / "list" / "remove" -> handler { (userId: String, req: Request) =>
-      respond(body[RemoveRequest](req).flatMap(b => svc.flatMap(_.removeTradeItems(userId, b.ids))).map(n => Map("removed" -> n)))
-    },
-
-    Method.DELETE / "api" / "trading" / string("userId") / "list" / string("itemId") -> handler {
-      (userId: String, itemId: String, _: Request) =>
-        respond(svc.flatMap(_.removeTradeItem(userId, itemId)).as(Map("ok" -> true)))
-    },
 
     Method.GET / "api" / "trading" / string("userId") / "offers" -> handler { (userId: String, req: Request) =>
       respond(svc.flatMap(_.offers(userId, GameParam.of(req))))
-    },
-
-    Method.POST / "api" / "trading" / string("userId") / "offers" -> handler { (userId: String, req: Request) =>
-      respond(body[OfferRequest](req).flatMap(b =>
-        svc.flatMap(_.makeOffer(userId, b.slug, b.wants, b.gives, b.cashAmount, b.message))))
     },
 
     Method.GET / "api" / "trading" / string("userId") / "offers" / string("offerId") -> handler {

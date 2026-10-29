@@ -33,8 +33,8 @@ const esc = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replac
 export function shopOg(slug, origin) {
   const title = `${slug}'s Pokémon card shop`
   const description =
-    'Explore Pokémon singles organized by set, check conditions and prices, ' +
-    'and send your picks. No account needed to make a request.'
+    "Browse Pokémon singles by set at today's market prices and send a request — no account needed. " +
+    'Prices follow the market. No percentage offers on buys or trades. Trades welcome.'
   return {
     title,
     tags: [

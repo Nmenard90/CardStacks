@@ -1,6 +1,8 @@
 /**
  * TradingDbSuite — end-to-end check of TradingService + TradingRepository
- * against a real Postgres that has schema.sql and migration 015 applied.
+ * (card offers: thread, unread, status rules) against a real Postgres that
+ * has schema.sql and migration 015 applied. Offers are inserted directly —
+ * new ones are no longer made through the API.
  *
  * Opt-in: skipped unless TRADING_IT_DB_URL is set (a throwaway database —
  * this suite inserts and deletes its own rows), e.g.
@@ -12,8 +14,8 @@ package com.poketracker
 
 import cats.syntax.all.*
 import com.poketracker.models.{CollectionEntry, ConditionCount}
-import com.poketracker.repository.{CollectionRepository, TradingRepository, UserRepository}
-import com.poketracker.service.{OfferLine, TradingError, TradingService}
+import com.poketracker.repository.{CollectionRepository, TradingRepository}
+import com.poketracker.service.{TradingError, TradingService}
 import doobie.*
 import doobie.implicits.*
 import zio.*
@@ -30,7 +32,7 @@ class TradingDbSuite extends munit.FunSuite:
     user = sys.env.getOrElse("TRADING_IT_DB_USER", "postgres"),
     password = sys.env.getOrElse("TRADING_IT_DB_PASSWORD", ""), logHandler = None)
 
-  private lazy val svc = TradingService.Live(TradingRepository.Live(xa), UserRepository.Live(xa))
+  private lazy val svc = TradingService.Live(TradingRepository.Live(xa))
 
   private def run[A](z: Task[A]): A =
     Unsafe.unsafe { implicit u => Runtime.default.unsafe.run(z).getOrThrowFiberFailure() }
@@ -65,64 +67,25 @@ class TradingDbSuite extends munit.FunSuite:
     ).transact(xa).unit
   }
 
+  /** An offer as the old share page saved it: buyer wants 1 LP Pikachu, gives 1 Bulbasaur + cash. */
+  private def newOffer(cash: Double, message: Option[String]): String =
+    val id = java.util.UUID.randomUUID().toString
+    val wants = """[{"cardId":"itset-1","name":"Pikachu","imageSmall":"s1","condition":"LP","quantity":1,"marketPrice":2.0}]"""
+    val gives = """[{"cardId":"itset-3","name":"Bulbasaur","imageSmall":"s3","condition":"NM","quantity":1}]"""
+    run((sql"""INSERT INTO card_offers (id, seller_id, buyer_id, wants, gives, cash_amount, buyer_read_at, game_id)
+               VALUES ($id, $seller, $buyer, $wants::jsonb, $gives::jsonb, $cash, NOW(), 'pokemon')""".update.run *>
+      message.fold(doobie.free.connection.unit)(m =>
+        sql"INSERT INTO offer_messages (offer_id, sender_id, body) VALUES ($id, $buyer, $m)".update.run.void)
+    ).transact(xa))
+    id
+
   override def afterAll(): Unit = if url.nonEmpty then run {
     (sql"DELETE FROM users WHERE id IN ($seller, $buyer, $demo)".update.run *>
       sql"DELETE FROM card_sets WHERE id = 'itset'".update.run).transact(xa).unit
   }
 
-  test("share link: created lazily, stable, regenerable; demo accounts refused") {
-    val a = run(svc.getShare(seller))
-    assertEquals(a.slug.length, 12)
-    assertEquals(run(svc.getShare(seller)).slug, a.slug)
-    val b = run(svc.regenerateSlug(seller))
-    assertNotEquals(b.slug, a.slug)
-    failsWith(404)(svc.sharedProfile(a.slug, "pokemon"))
-    failsWith(403)(svc.getShare(demo))
-  }
-
-  test("trade list respects owned quantity and condition pricing") {
-    failsWith(400)(svc.saveTradeItem(seller, "itset-1", "NM", 4, None, None))
-    val list = run(svc.saveTradeItem(seller, "itset-1", "LP", 1, Some(3.0), Some("  minor edge wear ")))
-    val item = list.find(_.card.condition == "LP").get
-    assertEquals(item.card.marketPrice, Some(2.0))
-    assertEquals(item.note, Some("minor edge wear"))
-    run(svc.saveTradeItem(seller, "itset-2", "NM 1st Ed", 1, None, None))
-    val all = run(svc.tradeList(seller, "pokemon"))
-    assertEquals(all.find(_.card.cardId == "itset-2").get.card.marketPrice, Some(300.0))
-  }
-
-  test("share page hides collection until made public, and turns off") {
-    val slug = run(svc.getShare(seller)).slug
-    val p = run(svc.sharedProfile(slug, "pokemon"))
-    assertEquals(p.username, seller)
-    assertEquals(p.tradeList.size, 2)
-    assertEquals(p.collection, None)
-    run(svc.updateShare(seller, enabled = true, collectionPublic = true, bio = Some("hi")))
-    val p2 = run(svc.sharedProfile(slug, "pokemon"))
-    assertEquals(p2.collection.map(_.map(c => (c.cardId, c.condition, c.quantity)).toSet),
-      Some(Set(("itset-1", "NM", 3), ("itset-1", "LP", 1), ("itset-2", "NM 1st Ed", 1))))
-    run(svc.updateShare(seller, enabled = false, collectionPublic = true, bio = Some("hi")))
-    failsWith(404)(svc.sharedProfile(slug, "pokemon"))
-    run(svc.updateShare(seller, enabled = true, collectionPublic = false, bio = None))
-  }
-
-  test("offer validation") {
-    val slug = run(svc.getShare(seller)).slug
-    val want = List(OfferLine("itset-1", "LP", 1))
-    failsWith(403)(svc.makeOffer(demo, slug, want, Nil, Some(5), None))
-    failsWith(400)(svc.makeOffer(seller, slug, want, Nil, Some(5), None))                                // own cards
-    failsWith(400)(svc.makeOffer(buyer, slug, Nil, Nil, Some(5), None))                                  // wants nothing
-    failsWith(400)(svc.makeOffer(buyer, slug, want, Nil, None, None))                                    // offers nothing
-    failsWith(400)(svc.makeOffer(buyer, slug, List(OfferLine("itset-1", "NM", 1)), Nil, Some(5), None))  // not listed, collection private
-    failsWith(400)(svc.makeOffer(buyer, slug, List(OfferLine("itset-1", "LP", 2)), Nil, Some(5), None))  // more than listed
-    failsWith(400)(svc.makeOffer(buyer, slug, want, List(OfferLine("itset-3", "NM", 3)), None, None))    // buyer doesn't own 3
-    failsWith(404)(svc.makeOffer(buyer, "nope", want, Nil, Some(5), None))
-  }
-
   test("offer lifecycle: thread, unread, status rules") {
-    val slug = run(svc.getShare(seller)).slug
-    val o = run(svc.makeOffer(buyer, slug, List(OfferLine("itset-1", "LP", 1)),
-      List(OfferLine("itset-3", "NM", 1)), Some(1.5), Some("Would you take this?")))
+    val o = run(svc.offer(buyer, newOffer(1.5, Some("Would you take this?"))))
     assertEquals(o.role, "buyer")
     assertEquals(o.otherUser, seller)
     assertEquals(o.status, "Pending")
@@ -157,19 +120,16 @@ class TradingDbSuite extends munit.FunSuite:
 
   test("status update is compare-and-set: a stale 'from' changes nothing") {
     val repo = TradingRepository.Live(xa)
-    val slug = run(svc.getShare(seller)).slug
-    val o = run(svc.makeOffer(buyer, slug, List(OfferLine("itset-1", "LP", 1)), Nil, Some(2.0), None))
+    val o = run(svc.offer(buyer, newOffer(2.0, None)))
     run(svc.setStatus(buyer, o.id, "Withdrawn"))
     // The seller's Accept was decided while the offer still looked Pending.
     assert(!run(repo.setStatus(o.id, "Pending", "Accepted", seller)))
     assertEquals(run(svc.offer(seller, o.id)).status, "Withdrawn")
   }
 
-  test("a Reverse copy is its own inventory lot and is priced as a Reverse") {
+  test("a Reverse copy is its own inventory lot") {
     val now = java.time.Instant.now()
-    // Seller owns 1 NM Normal + 2 NM Reverse of Bulbasaur; Reverse has its own price.
-    run(sql"""INSERT INTO card_variant_prices (card_id, variant, price_nm) VALUES ('itset-3', 'reverse', 9.99)
-              ON CONFLICT (card_id, variant) DO UPDATE SET price_nm = 9.99""".update.run.transact(xa))
+    // Seller owns 1 NM Normal + 2 NM Reverse of Bulbasaur.
     run(CollectionRepository.Live(xa).upsertEntry(CollectionEntry("e1", seller, "itset-3",
       List(ConditionCount("NM", 1, None), ConditionCount("NM · reverse", 2, None)), "NM", now)))
 
@@ -177,11 +137,6 @@ class TradingDbSuite extends munit.FunSuite:
                          WHERE user_id = $seller AND card_id = 'itset-3' AND quantity > 0 ORDER BY variant_key"""
       .query[(String, String, Int)].to[List].transact(xa))
     assertEquals(lots, List(("reverse", "NM", 2), ("standard", "NM", 1)))
-
-    failsWith(400)(svc.saveTradeItem(seller, "itset-3", "NM · reverse", 3, None, None))
-    val listed = run(svc.saveTradeItem(seller, "itset-3", "NM · reverse", 2, None, None))
-      .find(i => i.card.cardId == "itset-3" && i.card.condition == "NM · reverse").get
-    assertEquals(listed.card.marketPrice, Some(9.99))
 
     // Dropping the Reverse copies zeroes that lot only.
     run(CollectionRepository.Live(xa).upsertEntry(CollectionEntry("e1", seller, "itset-3",

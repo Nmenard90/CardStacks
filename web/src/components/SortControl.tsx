@@ -3,7 +3,7 @@
  * direction. Picking a new sort resets the direction to that sort's natural
  * one (Value starts high→low, Name starts A→Z…).
  *
- * USED BY: CollectionPage, OwnedPage, SpacesLivePage (BoxInventory), CardBrowser
+ * USED BY: CollectionPage, ShopPage, SpacesLivePage (BoxInventory)
  */
 
 import { DEFAULT_DIR, SORT_LABELS, type SortDir, type SortKey } from '../lib/cardSort'

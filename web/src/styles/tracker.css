@@ -265,79 +265,7 @@
     display:flex;flex-direction:column;
   }
   .page-tracker #sidebar.open{width:280px;}
-
-  .page-tracker .sb-head{
-    padding:12px 14px 10px;border-bottom:var(--ink-w) solid var(--border);
-    display:flex;flex-direction:column;gap:8px;flex-shrink:0;
-  }
-  .page-tracker .sb-title{font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;justify-content:space-between;}
-  .page-tracker .sb-close{font-size:18px;cursor:pointer;color:var(--muted);transition:color .15s;line-height:1;background:none;border:none;padding:0;}
-  .page-tracker .sb-close:hover{color:var(--text);}
-
-  .page-tracker .sb-binder-row{display:flex;align-items:center;gap:6px;}
-  .page-tracker .sb-binder-row label{font-size:13px;color:var(--muted);white-space:nowrap;font-weight:500;}
-  .page-tracker .sb-binder-sel{
-    flex:1;padding:5px 8px;font-size:14px;
-    background:var(--surface2);border:var(--ink-w) solid var(--border);
-    border-radius:6px;color:var(--text);outline:none;font-family:'Nunito',sans-serif;
-  }
-  .page-tracker .sb-binder-sel:focus{border-color:var(--accent2);}
-  .page-tracker .sb-add-btn{
-    font-size:13px;font-weight:700;padding:5px 10px;border-radius:6px;
-    background:var(--accent2);border:none;color:#fff;cursor:pointer;
-    white-space:nowrap;transition:all .15s;
-  }
-  .page-tracker .sb-add-btn:hover{background:#2d4ec7;}
-  .page-tracker .sb-add-btn:disabled{opacity:.4;cursor:default;}
-
-  .page-tracker .sb-list{overflow-y:auto;flex:1;padding:6px 0;}
-  .page-tracker .sb-item{
-    display:flex;align-items:center;gap:8px;
-    padding:7px 12px;transition:background .15s,border-left .15s;cursor:pointer;
-    border-bottom:var(--ink-w) solid var(--border);
-    border-left:3px solid transparent;
-  }
-  .page-tracker .sb-item:hover{background:var(--surface2);}
-  .page-tracker .sb-item.checked{background:rgba(99,102,241,0.12) !important;border-left:3px solid #6366f1 !important;}
-  .page-tracker .sb-item.checked .sb-item-name{color:#a5b4fc !important;}
-  .page-tracker .sb-item img{width:32px;height:44px;object-fit:contain;border-radius:3px;flex-shrink:0;background:var(--surface2);}
-  .page-tracker .sb-item-info{flex:1;min-width:0;}
-  .page-tracker .sb-item-name{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .page-tracker .sb-item-meta{font-size:12px;color:var(--muted);display:flex;gap:4px;align-items:center;margin-top:1px;}
-  .page-tracker .sb-item-cond{padding:1px 5px;border-radius:4px;font-size:11px;font-weight:700;letter-spacing:.04em;}
-  .page-tracker .sb-item-cond.NM{background:rgba(34,197,94,.15);color:#22c55e;}
-  .page-tracker .sb-item-cond.LP{background:rgba(132,204,22,.15);color:#84cc16;}
-  .page-tracker .sb-item-cond.MP{background:rgba(234,179,8,.15);color:#eab308;}
-  .page-tracker .sb-item-cond.HP{background:rgba(249,115,22,.15);color:#f97316;}
-  .page-tracker .sb-item-cond.DMG{background:rgba(239,68,68,.15);color:#ef4444;}
-  .page-tracker .sb-item-rm{font-size:16px;color:var(--muted);cursor:pointer;padding:2px 4px;border-radius:4px;transition:all .15s;background:none;border:none;flex-shrink:0;}
-  .page-tracker .sb-item-rm:hover{color:var(--red);background:rgba(255,107,107,.1);}
   .page-tracker .sb-empty{padding:24px 14px;text-align:center;color:var(--muted);font-size:14px;line-height:1.6;}
-
-  .page-tracker .sb-footer{padding:8px 12px;border-top:var(--ink-w) solid var(--border);flex-shrink:0;display:flex;justify-content:space-between;align-items:center;}
-  .page-tracker .sb-count{font-size:13px;color:var(--muted);}
-  .page-tracker .sb-clear{font-size:13px;color:var(--muted);cursor:pointer;background:none;border:none;transition:color .15s;}
-  .page-tracker .sb-clear:hover{color:var(--red);}
-
-
-  .page-tracker .quick-entry{
-    display:flex;align-items:center;gap:10px;margin-bottom:14px;
-    background:var(--surface);border:var(--ink-w) solid var(--border);border-radius:var(--radius);padding:10px 14px;
-  }
-  .page-tracker .quick-entry label{font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;white-space:nowrap;font-family:'Space Mono',monospace;}
-  .page-tracker .quick-entry input{
-    width:90px;font-family:'Space Mono',monospace;font-size:18px;font-weight:700;
-    padding:5px 10px;background:var(--surface2);border:var(--ink-w) solid var(--border);
-    border-radius:8px;color:var(--accent-ink);outline:none;transition:border-color .15s;
-  }
-  .page-tracker .quick-entry input:focus{border-color:var(--accent);}
-  .page-tracker .quick-entry input.flash-ok{border-color:var(--green)!important;background:rgba(61,220,115,.2);}
-  .page-tracker .quick-entry input.flash-err{border-color:var(--red)!important;background:rgba(255,77,79,.2);}
-  .page-tracker .quick-confirm{font-size:15px;color:var(--green);font-family:'Space Mono',monospace;opacity:0;transition:opacity .2s;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis;}
-  .page-tracker .quick-confirm.show{opacity:1;}
-  .page-tracker .quick-confirm.err{color:var(--red);}
-  .page-tracker .quick-hint{font-size:14px;color:var(--muted);margin-left:auto;white-space:nowrap;}
-  .page-tracker .quick-hint b{color:var(--text);font-weight:500;}
 
   .page-tracker .set-info{display:flex;align-items:center;gap:12px;margin-bottom:12px;}
   .page-tracker .set-logo{height:34px;object-fit:contain;}
@@ -637,11 +565,6 @@
   .page-tracker #ctName{font-size:15px;font-weight:600;color:var(--text);margin-bottom:2px;}
   .page-tracker #ctMeta{font-size:13px;color:var(--muted);margin-bottom:6px;}
   .page-tracker #ctPills{display:flex;flex-wrap:wrap;gap:4px;}
-  .page-tracker .ctpill{font-size:12px;font-weight:600;padding:2px 7px;border-radius:99px;letter-spacing:0.03em;}
-  .page-tracker .ctpill.price{background:rgba(81,207,102,0.15);color:var(--green);border:1px solid rgba(81,207,102,0.25);}
-  .page-tracker .ctpill.rarity{background:rgba(59,91,219,0.15);color:#a5b4fc;border:1px solid rgba(59,91,219,0.3);}
-  .page-tracker .ctpill.artist{background:var(--surface2);color:var(--muted);border:var(--ink-w) solid var(--border);}
-  .page-tracker .ctpill.type{background:rgba(255,203,5,0.12);color:var(--accent-ink);border:1px solid rgba(255,203,5,0.2);}
 
   /* Unscoped (not `.page-tracker`-prefixed) so the hover-zoom preview works
      on every page that uses usePreview(), not just the main tracker. */
@@ -689,13 +612,3 @@
     border:2.5px solid #000;box-shadow:3px 3px 0 rgba(0,0,0,.6);
     white-space:nowrap;
   }
-
-  .page-tracker .first-ed-label{
-    display:flex;align-items:center;gap:6px;font-size:15px;
-    color:var(--muted);cursor:pointer;white-space:nowrap;
-    font-family:'Space Mono',monospace;
-  }
-  .page-tracker .first-ed-label input{
-    width:15px;height:15px;cursor:pointer;accent-color:var(--accent);
-  }
-  .page-tracker .first-ed-label:has(input:checked){color:var(--accent-ink);}

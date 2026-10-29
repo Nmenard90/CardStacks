@@ -12,11 +12,9 @@
  * DEPENDS ON: pages/*, context/UserContext, components/Toast
  */
 
-import { useEffect } from 'react'
-import { BrowserRouter, Navigate, Routes, Route, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Navigate, Routes, Route, useSearchParams } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { UserProvider, useUser } from './context/UserContext'
-import { RETURN_KEY } from './lib/trading'
+import { UserProvider } from './context/UserContext'
 import { ToastProvider } from './components/Toast'
 import { DemoBanner } from './components/DemoBanner'
 import { CollectionPage } from './pages/CollectionPage'
@@ -28,8 +26,7 @@ import { SpacesLivePage } from './pages/SpacesLivePage'
 import { ShopPage } from './pages/ShopPage'
 import { ShopRequestsPage } from './pages/ShopRequestsPage'
 import { LegalPage } from './pages/LegalPage'
-import { TradePage } from './pages/TradePage'
-import { SharePage } from './pages/SharePage'
+import { ShareLinkRedirect } from './pages/ShareLinkRedirect'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -40,19 +37,12 @@ const queryClient = new QueryClient({
   },
 })
 
-/** Google sign-in always lands back on the site root. If the visitor started
- *  it from someone's share page (SharePage stores the path), send them
- *  straight back there so they can finish their offer. */
-function ReturnAfterLogin() {
-  const { user } = useUser()
-  const navigate = useNavigate()
-  useEffect(() => {
-    if (!user) return
-    let to: string | null = null
-    try { to = sessionStorage.getItem(RETURN_KEY); sessionStorage.removeItem(RETURN_KEY) } catch { /* storage blocked */ }
-    if (to && to.startsWith('/s/') && window.location.pathname !== to) navigate(to, { replace: true })
-  }, [user, navigate])
-  return null
+/** The old Trade page now lives in My Shop: offer links (/trade?offer=<id>)
+ *  open that offer there, anything else opens My Shop's Offers tab. */
+function TradeRedirect() {
+  const [params] = useSearchParams()
+  const offer = params.get('offer')
+  return <Navigate to={offer ? `/shop/requests?offer=${encodeURIComponent(offer)}` : '/shop/requests?tab=offers'} replace />
 }
 
 /** Pages handle their own login gating — CollectionPage shows the login
@@ -64,7 +54,6 @@ export default function App() {
         <DemoBanner />
         <ToastProvider>
           <BrowserRouter>
-            <ReturnAfterLogin />
             <Routes>
               <Route path="/"                  element={<SpacesLivePage />} />
               <Route path="/explore"           element={<CollectionPage />} />
@@ -75,8 +64,8 @@ export default function App() {
               <Route path="/spaces/:spaceId/binders/:binderId" element={<BinderViewPage />} />
               <Route path="/analyzer"          element={<AnalyzerPage />} />
               <Route path="/convention"        element={<ConventionModePage />} />
-              <Route path="/trade"             element={<TradePage />} />
-              <Route path="/s/:slug"           element={<SharePage />} />
+              <Route path="/trade"             element={<TradeRedirect />} />
+              <Route path="/s/:slug"           element={<ShareLinkRedirect />} />
               <Route path="/shop/requests"     element={<ShopRequestsPage />} />
               <Route path="/shop/:slug"        element={<ShopPage />} />
               <Route path="/privacy"           element={<LegalPage page="privacy" />} />

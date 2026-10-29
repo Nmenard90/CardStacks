@@ -1,23 +1,31 @@
 /**
- * ShopRequestsPage — the seller's inbox for requests sent from the public /shop page.
+ * ShopRequestsPage — "My Shop": everything the seller does with their public shop, in one place.
  *
  * HOW IT WORKS
- *   Login required (owner only; the backend enforces it by path). Newest first.
- *   Each request shows who, how to reach them, what they picked, and buttons
- *   to mark it answered / done.
+ *   Login required (owner only; the backend enforces it by path). Three tabs, kept in the URL
+ *   (?tab=requests|offers|settings, ?offer=<id> opens one offer) so Back steps between them:
+ *   - Requests: buy and trade requests sent from the public /shop/<slug> page, newest first,
+ *     each with who, how to reach them, what they picked, and answered / done buttons.
+ *   - Offers: card offers made through the old share-link trade page (folded into the shop),
+ *     still answerable with their message threads. Hidden when there are none.
+ *   - Settings: shop on/off, link name, shop name, bio and Messenger link.
+ *   /trade and its ?offer= links redirect here (App.tsx).
  *
- * USED BY: App.tsx (route "/shop/requests"), HeaderNav (Tools menu)
- * DEPENDS ON: api/shop
+ * USED BY: App.tsx (route "/shop/requests"), HeaderNav ("Shop")
+ * DEPENDS ON: api/shop, api/trading, components/OfferInbox
  */
 
 import { useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getShopRequests, getShopSettings, saveShopSettings, setShopRequestStatus,
   type ShopRequest, type ShopRequestStatus, type ShopSettings,
 } from '../api/shop'
+import { getOffers } from '../api/trading'
 import { HeaderNav } from '../components/HeaderNav'
 import { LoginScreen } from '../components/LoginScreen'
+import { OfferInbox } from '../components/OfferInbox'
 import { useUser } from '../context/UserContext'
 
 const STATUS_LABEL: Record<ShopRequestStatus, string> = { new: 'New', answered: 'Answered', done: 'Done' }
@@ -83,7 +91,7 @@ function ShopSettingsPanel({ userId, suggestedSlug }: { userId: string; suggeste
       <div className="shop-sheet-btns">
         <button type="button" className="shop-btn" disabled={busy} onClick={() => save(form)}>{busy ? 'Saving…' : 'Save'}</button>
         {saved.enabled && saved.slug && (
-          <a className="shop-btn shop-btn-ghost" href={`/shop/${saved.slug}`}>View my shop →</a>
+          <Link className="shop-btn shop-btn-ghost" to={`/shop/${saved.slug}`}>👁 View my shop</Link>
         )}
         {saved.enabled && saved.slug && (
           <button type="button" className="shop-btn shop-btn-ghost"
@@ -97,10 +105,13 @@ function ShopSettingsPanel({ userId, suggestedSlug }: { userId: string; suggeste
   )
 }
 
+type Tab = 'requests' | 'offers' | 'settings'
+
 export function ShopRequestsPage() {
   const { user } = useUser()
   const userId = user?.id ?? ''
   const qc = useQueryClient()
+  const [params, setParams] = useSearchParams()
   const [filter, setFilter] = useState<ShopRequestStatus | 'all'>('new')
 
   const { data: requests = [], isLoading, isError } = useQuery({
@@ -109,6 +120,20 @@ export function ShopRequestsPage() {
     enabled: !!userId,
     refetchInterval: 60_000, // new requests show up without a manual refresh
   })
+  const { data: offers = [] } = useQuery({
+    queryKey: ['offers', userId],
+    queryFn: () => getOffers(userId),
+    enabled: !!userId && !user?.isAnonymous,
+    refetchInterval: 30_000,
+  })
+  const { data: settings } = useQuery({
+    queryKey: ['shop-settings', userId], queryFn: () => getShopSettings(userId), enabled: !!userId,
+  })
+
+  const openOffer = params.get('offer') ?? ''
+  const urlTab = params.get('tab')
+  const tab: Tab = openOffer ? 'offers' : urlTab === 'offers' || urlTab === 'settings' ? urlTab : 'requests'
+  const setTab = (t: Tab) => { if (t !== tab) setParams(t === 'requests' ? {} : { tab: t }) }
 
   const mark = async (r: ShopRequest, status: ShopRequestStatus) => {
     await setShopRequestStatus(userId, r.id, status)
@@ -119,52 +144,80 @@ export function ShopRequestsPage() {
 
   const shown = requests.filter(r => filter === 'all' || r.status === filter)
   const newCount = requests.filter(r => r.status === 'new').length
+  const unreadOffers = offers.filter(o => o.unread).length
+  const shopOff = settings && !settings.enabled
 
   return (
-    <div className="page-shop page-shop-inbox">
-      <header className="shop-top">
-        <h1>Shop requests {newCount > 0 && <span className="shop-badge">{newCount} new</span>}</h1>
-        <p>Requests from your public shop page. Reply on Facebook, by phone, or by email using the contact they gave.</p>
-        <HeaderNav />
-      </header>
+    <div className="page-tracker page-shop-inbox">
+      <div id="app" style={{ display: 'block' }}>
+        <header>
+          <div className="logo">🛍 MY <span>SHOP</span></div>
+          <div className="user-badge">👤 <b>{user.username}</b></div>
+          <div className="header-right"><HeaderNav /></div>
+        </header>
 
-      <ShopSettingsPanel userId={userId} suggestedSlug={user.username} />
-
-      <div className="shop-tools">
-        {(['new', 'answered', 'done', 'all'] as const).map(f => (
-          <button key={f} type="button" className={'shop-btn' + (filter === f ? '' : ' shop-btn-ghost')} onClick={() => setFilter(f)}>
-            {f === 'all' ? 'All' : STATUS_LABEL[f]}
-          </button>
-        ))}
-      </div>
-
-      {isLoading && <p className="shop-msg">Loading…</p>}
-      {isError && <p className="shop-msg">Could not load requests. If this is the first time, the shop_requests table may not exist yet (run migration 017).</p>}
-      {!isLoading && !isError && shown.length === 0 && <p className="shop-msg">Nothing here.</p>}
-
-      <ul className="shop-list">
-        {shown.map(r => (
-          <li key={r.id} className="shop-req">
-            <div className="shop-req-head">
-              <b>{r.buyerName}</b>
-              <span className={'shop-pill shop-pill-' + r.status}>{r.kind === 'chat' ? 'Question' : 'Buy request'} · {STATUS_LABEL[r.status]}</span>
-              <span className="shop-sub">{new Date(r.createdAt).toLocaleString()}</span>
-            </div>
-            <div>Reach them at: <b>{r.buyerContact}</b></div>
-            {r.items.length > 0 && (
-              <ul className="shop-summary">
-                {r.items.map((i, n) => <li key={n}>{i.qty}× {i.name} #{i.number} ({i.condition})</li>)}
-              </ul>
+        <main className="trade-main">
+          <nav className="trade-tabs" aria-label="My Shop sections">
+            <button className={tab === 'requests' ? 'active' : ''} onClick={() => setTab('requests')}>
+              Requests {newCount > 0 && <span className="trade-badge">{newCount}</span>}
+            </button>
+            {(offers.length > 0 || tab === 'offers') && (
+              <button className={tab === 'offers' ? 'active' : ''} onClick={() => setTab('offers')}>
+                Offers {unreadOffers > 0 && <span className="trade-badge">{unreadOffers}</span>}
+              </button>
             )}
-            {r.message && <p className="shop-req-msg">{r.message}</p>}
-            <div className="shop-sheet-btns">
-              {r.status !== 'answered' && <button type="button" className="shop-btn shop-btn-ghost" onClick={() => mark(r, 'answered')}>Mark answered</button>}
-              {r.status !== 'done' && <button type="button" className="shop-btn shop-btn-ghost" onClick={() => mark(r, 'done')}>Mark done</button>}
-              {r.status !== 'new' && <button type="button" className="shop-btn shop-btn-ghost" onClick={() => mark(r, 'new')}>Reopen</button>}
+            <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>Settings</button>
+            {settings?.enabled && settings.slug && <Link className="shop-view-link" to={`/shop/${settings.slug}`}>👁 View my shop</Link>}
+          </nav>
+
+          {tab === 'settings' && <ShopSettingsPanel userId={userId} suggestedSlug={user.username} />}
+
+          {tab === 'offers' && (
+            <OfferInbox userId={userId} offers={offers} openId={openOffer}
+              setOpenId={id => setParams(id ? { offer: id } : { tab: 'offers' })} />
+          )}
+
+          {tab === 'requests' && <>
+            <p className="shop-sub">Buy and trade requests from your public shop. Reply on Facebook, by phone, or by email using the contact they gave.</p>
+            {shopOff && <p className="shop-msg">Your shop is off, so nobody can send requests. <button type="button" className="shop-link-btn" onClick={() => setTab('settings')}>Turn it on in Settings →</button></p>}
+            <div className="shop-tools">
+              {(['new', 'answered', 'done', 'all'] as const).map(f => (
+                <button key={f} type="button" className={'shop-btn' + (filter === f ? '' : ' shop-btn-ghost')} onClick={() => setFilter(f)}>
+                  {f === 'all' ? 'All' : STATUS_LABEL[f]}
+                </button>
+              ))}
             </div>
-          </li>
-        ))}
-      </ul>
+
+            {isLoading && <p className="shop-msg">Loading…</p>}
+            {isError && <p className="shop-msg">Could not load requests. Please try again.</p>}
+            {!isLoading && !isError && shown.length === 0 && <p className="shop-msg">Nothing here.</p>}
+
+            <ul className="shop-list">
+              {shown.map(r => (
+                <li key={r.id} className="shop-req">
+                  <div className="shop-req-head">
+                    <b>{r.buyerName}</b>
+                    <span className={'shop-pill shop-pill-' + r.status}>{r.kind === 'chat' ? 'Question' : r.message.startsWith('TRADE OFFER') ? 'Trade request' : 'Buy request'} · {STATUS_LABEL[r.status]}</span>
+                    <span className="shop-sub">{new Date(r.createdAt).toLocaleString()}</span>
+                  </div>
+                  <div>Reach them at: <b>{r.buyerContact}</b></div>
+                  {r.items.length > 0 && (
+                    <ul className="shop-summary">
+                      {r.items.map((i, n) => <li key={n}>{i.qty}× {i.name} #{i.number} ({i.condition})</li>)}
+                    </ul>
+                  )}
+                  {r.message && <p className="shop-req-msg">{r.message}</p>}
+                  <div className="shop-sheet-btns">
+                    {r.status !== 'answered' && <button type="button" className="shop-btn shop-btn-ghost" onClick={() => mark(r, 'answered')}>Mark answered</button>}
+                    {r.status !== 'done' && <button type="button" className="shop-btn shop-btn-ghost" onClick={() => mark(r, 'done')}>Mark done</button>}
+                    {r.status !== 'new' && <button type="button" className="shop-btn shop-btn-ghost" onClick={() => mark(r, 'new')}>Reopen</button>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>}
+        </main>
+      </div>
     </div>
   )
 }

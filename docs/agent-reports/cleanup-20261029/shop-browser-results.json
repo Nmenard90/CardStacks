@@ -1,0 +1,46 @@
+[
+  {
+    "name": "public shop: layout, rules, set filter, search, buy request (1440px)",
+    "status": "pass"
+  },
+  {
+    "name": "public shop: layout, rules, set filter, search, buy request (390px)",
+    "status": "pass"
+  },
+  {
+    "name": "trade request: catalog search, must cover the cards picked, cash top-up",
+    "status": "pass"
+  },
+  {
+    "name": "public shop: loading, closed, empty and unpriced states",
+    "status": "pass"
+  },
+  {
+    "name": "owner: shop page links to My Shop; Settings saves name and bio",
+    "status": "pass"
+  },
+  {
+    "name": "My Shop: requests inbox, nav badge, no Offers tab without offers (1440px)",
+    "status": "pass"
+  },
+  {
+    "name": "My Shop: requests inbox, nav badge, no Offers tab without offers (390px)",
+    "status": "pass"
+  },
+  {
+    "name": "old trade links: /trade?offer= opens the offer in My Shop, accept works (1440px)",
+    "status": "pass"
+  },
+  {
+    "name": "old trade links: /trade?offer= opens the offer in My Shop, accept works (390px)",
+    "status": "pass"
+  },
+  {
+    "name": "old share links: /s/<slug> opens that collector's shop, or says the link moved",
+    "status": "pass"
+  },
+  {
+    "name": "Explore owned price descending is independent of the first catalog page",
+    "status": "pass"
+  }
+]

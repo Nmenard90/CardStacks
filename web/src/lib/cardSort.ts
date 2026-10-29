@@ -8,7 +8,7 @@
  * whichever direction. Ties fall back to set release date, then card
  * number, then name, so the order never jumps around.
  *
- * USED BY: CollectionPage, OwnedPage, SpacesLivePage (BoxInventory), CardBrowser, SortControl
+ * USED BY: CollectionPage, ShopPage, SpacesLivePage (BoxInventory), SortControl
  */
 
 export type SortKey = 'number' | 'name' | 'value' | 'qty' | 'rarity' | 'artist' | 'set' | 'condition' | 'recent'

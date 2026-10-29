@@ -1,6 +1,6 @@
 /**
- * TradingSuite — security boundary and offer-state rules for share-link
- * trading: the share page is the only public trading path, every
+ * TradingSuite — security boundary and offer-state rules for card offers:
+ * nothing under trading is public (the old share page is gone), every
  * /api/trading/:userId path is owner-checked, and only the right side can
  * move an offer between states.
  */
@@ -13,15 +13,14 @@ import zio.http.Method
 
 class TradingSuite extends munit.FunSuite:
 
-  test("share page is public for GET only") {
-    assert(AuthGuard.isPublicPath(Method.GET, "/api/share/abc123"))
-    assert(!AuthGuard.isPublicPath(Method.POST, "/api/share/abc123"))
+  test("the retired share-link page is no longer public") {
+    assert(!AuthGuard.isPublicPath(Method.GET, "/api/share/abc123"))
   }
 
   test("trading endpoints are not public and are owner-scoped") {
     assert(!AuthGuard.isPublicPath(Method.GET, "/api/trading/u1/offers"))
     assertEquals(AuthGuard.requiredOwnerUserId("/api/trading/u1/offers/o9/status"), Some("u1"))
-    assertEquals(AuthGuard.requiredOwnerUserId("/api/trading/u1/list"), Some("u1"))
+    assertEquals(AuthGuard.requiredOwnerUserId("/api/trading/u1/unread"), Some("u1"))
   }
 
   test("seller accepts or declines a pending offer; buyer can't") {

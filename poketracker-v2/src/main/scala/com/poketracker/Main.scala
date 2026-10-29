@@ -77,7 +77,6 @@ object Main extends ZIOAppDefault:
         publicRoutes    = Routes(Method.GET / "health" -> Handler.ok) ++
                           CardRoutes.publicRoutes ++
                           RipRoutes.verdictRoutes ++
-                          TradingRoutes.publicRoutes ++
                           ShopRoutes.publicRoutes
 
         // Protected: AuthGuard verifies the caller's Supabase token, provisions/
@@ -135,6 +134,7 @@ object Main extends ZIOAppDefault:
         serverEffect = cleanupJob.forkDaemon *> priceJob.forkDaemon *> catalogJob.forkDaemon *> Server.serve(allRoutes @@ cors)
 
         _          <- ZIO.logInfo(s"Starting PokéTracker API on port $port")
-        _          <- serverEffect.provide(appLayer, Server.defaultWithPort(port))
+        // Bodies up to 2 MB, so a seller can upload a card photo (the library's default is 100 KB).
+        _          <- serverEffect.provide(appLayer, Server.defaultWith(_.port(port).disableRequestStreaming(2 * 1024 * 1024)))
       yield ()
     }
