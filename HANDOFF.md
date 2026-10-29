@@ -209,11 +209,16 @@ top of `main` (plus a docs commit), **NOT merged/live yet**:
    description. `web/tests/site-audit.mjs` re-runs the audit. Report:
    `docs/agent-reports/site-audit-20261029/`.
 
-**Before merging:** migration 019 (`shop_photos`) must exist in production with
-the columns in `sql/migration_019_shop_photos.sql` — the public shop response
-reads it. The table was seen in production on 2026-10-25 but its columns were
-never checked; run the migration (it is `IF NOT EXISTS`) and confirm
-`user_id, card_id, condition, side, image, content_type, updated_at` exist.
+**Before merging:** production's `shop_photos` (checked by the owner
+2026-10-29) has only `user_id, card_id, condition, side, image`; the code reads
+`updated_at` on every public shop page and writes `content_type`/`updated_at`
+with `ON CONFLICT (user_id, card_id, condition, side)`. Migration 019 is
+`CREATE TABLE IF NOT EXISTS`, so it can't fix an existing table: run
+**`sql/migration_021_shop_photos_columns.sql`** (adds the two columns and the
+primary key if missing; additive, re-runnable, rolls back as a whole on
+duplicate rows; tested locally against 5-column tables with and without a key
+and with duplicates), then confirm 7 columns + the primary key with the check
+queries at the bottom of that file.
 
 **Verification (2026-10-29):** backend 66 passed / 1 skipped (DB suites against
 a local Postgres with schema + migrations 010–020); `tsc` clean; build OK;
