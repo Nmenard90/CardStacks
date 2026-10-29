@@ -214,11 +214,17 @@ top of `main` (plus a docs commit), **NOT merged/live yet**:
 `updated_at` on every public shop page and writes `content_type`/`updated_at`
 with `ON CONFLICT (user_id, card_id, condition, side)`. Migration 019 is
 `CREATE TABLE IF NOT EXISTS`, so it can't fix an existing table: run
-**`sql/migration_021_shop_photos_columns.sql`** (adds the two columns and the
-primary key if missing; additive, re-runnable, rolls back as a whole on
-duplicate rows; tested locally against 5-column tables with and without a key
-and with duplicates), then confirm 7 columns + the primary key with the check
-queries at the bottom of that file.
+**`sql/migration_021_shop_photos_columns.sql`**: one transaction, re-runnable,
+never touches `image`. Adds the two columns, labels any existing PNG/WebP in
+the new `content_type` (the API only accepts JPEG and never reads that
+column), and guarantees `PRIMARY KEY (user_id, card_id, condition, side)`:
+adds it if missing, keeps it if it's already those columns, and stops with
+everything rolled back if a different key or duplicate photo keys exist.
+Tested locally in 7 scenarios (no key / right key / reordered key / different
+key / duplicates / full 019 table / second run) with md5 checks on every
+image. Then confirm 7 columns + the key with the check queries at the bottom
+of that file. Nothing runs migrations on deploy (no runner; the backend image
+doesn't include `sql/`), so running it by hand can't conflict.
 
 **Verification (2026-10-29):** backend 66 passed / 1 skipped (DB suites against
 a local Postgres with schema + migrations 010–020); `tsc` clean; build OK;
