@@ -219,7 +219,7 @@ written for that report: additive, a no-op on production as it is, kept for any
 database created from an older shape. Nothing runs migrations on deploy (no
 runner; the backend image doesn't include `sql/`). Note: Railway's web SQL
 editor appends `LIMIT` and can't run multi-statement scripts; use
-`railway connect Postgres` (psql, `C:\Program Files\PostgreSQL8in` on PATH).
+`railway connect Postgres` (psql, `C:\Program Files\PostgreSQL\18\bin` on PATH).
 
 **Verification (2026-10-29):** backend 66 passed / 1 skipped (DB suites against
 a local Postgres with schema + migrations 010–020); `tsc` clean; build OK;
