@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url'
 const require = createRequire(import.meta.url)
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const root = fileURLToPath(new URL('../../', import.meta.url))
-const report = path.join(root, 'docs/agent-reports/cleanup-20261029')
+const report = process.env.SHOP_TEST_SHOTS || path.join(root, 'docs/agent-reports/cleanup-20261029')
 const fixture = JSON.parse(fs.readFileSync(path.join(root, 'web/tests/fixtures/shop.json'), 'utf8'))
 const origin = process.env.SHOP_TEST_ORIGIN || 'http://127.0.0.1:5178'
 const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}) })
@@ -47,7 +47,7 @@ async function setup({ width = 1440, height = 900, authenticated = false, mode =
   const state = {
     mode, sent: [], statusPuts: [], offers: structuredClone(offers), release: null,
     settings: { slug: 'nmenard90', enabled: true, messengerUrl: '', displayName: fixture.shop.displayName, bio: fixture.shop.bio },
-    inbox: [{ id: 'r1', sellerUserId: user.id, buyerName: 'Ash', buyerContact: 'ash@example.test', kind: 'buy', status: 'new', createdAt: '2026-10-28T12:00:00Z', items: [{ cardId: 'me1-65', name: 'Greavard', number: '65', condition: 'NM', qty: 1 }],
+    inbox: [{ id: 'r1', sellerUserId: user.id, buyerName: 'Ash', buyerContact: 'ash@example.test', kind: 'buy', status: 'new', createdAt: '2026-10-28T12:00:00Z', items: [{ cardId: 'me1-65', name: 'Greavard', number: '65', condition: 'NM', qty: 1 }, { cardId: 'owned-1', name: 'Owned Mid', number: '2', condition: 'NM', qty: 2 }],
       message: 'TRADE OFFER (cards about $3.00 for cards about $0.05, at today\'s prices):\n- 1× Trade Bait #9 (NM)' }],
   }
   await context.route('https://qa.supabase.co/**', route => route.fulfill({ json: user }))
@@ -75,6 +75,13 @@ async function setup({ width = 1440, height = 900, authenticated = false, mode =
       return route.fulfill({ json: state.settings })
     }
     if (p.endsWith('/shop-requests')) return route.fulfill({ json: state.inbox })
+    if (p === `/api/spaces/${user.id}/card-locations`) {
+      state.locationIds = url.searchParams.get('cardIds')
+      return route.fulfill({ json: [
+        { cardId: 'owned-1', kind: 'box', container: 'Bulk Box 3', part: 'Main', condition: 'NM', quantity: 2, slotIndex: null, pocketSize: null },
+        { cardId: 'owned-1', kind: 'binder', container: 'Trade Binder', part: null, condition: null, quantity: 1, slotIndex: 22, pocketSize: 'Nine' },
+      ] })
+    }
     if (/\/shop-requests\/[^/]+$/.test(p)) {
       const r = state.inbox.find(x => p.endsWith('/' + x.id)); if (r) r.status = req.postDataJSON().status
       return route.fulfill({ json: { ok: true } })
@@ -143,11 +150,17 @@ try {
     await page.getByRole('button', { name: 'Send request' }).click()
     const dialog = page.getByRole('dialog')
     await dialog.getByLabel('Your name').fill('QA Buyer')
-    await dialog.getByLabel(/How can I reach you/).fill('qa@example.test')
+    // "Facebook" alone can't be followed (what real buyers typed): a profile or Messenger link is required.
+    await dialog.getByLabel(/Your Facebook profile link/).fill('Facebook')
     await dialog.getByRole('checkbox', { name: /prices follow the market/ }).check()
+    await dialog.getByRole('button', { name: 'Send', exact: true }).click()
+    await dialog.getByText(/paste your Facebook profile link/).waitFor()
+    assert.equal(state.sent.length, 0, 'a request without a usable contact must not send')
+    await dialog.getByLabel(/Your Facebook profile link/).fill('https://www.facebook.com/qa.buyer')
     await dialog.getByRole('button', { name: 'Send', exact: true }).click()
     await dialog.getByRole('heading', { name: /Sent!/ }).waitFor()
     assert.equal(state.sent.length, 1)
+    assert.equal(state.sent[0].buyerContact, 'https://www.facebook.com/qa.buyer')
     assert.equal(state.sent[0].items[0].cardId, first.id)
     assert.equal(errors.length, 0, errors.join('\n'))
     await context.close()
@@ -163,7 +176,7 @@ try {
     await page.getByRole('button', { name: 'Send request' }).click()
     const dialog = page.getByRole('dialog')
     await dialog.getByLabel('Your name').fill('QA Trader')
-    await dialog.getByLabel(/How can I reach you/).fill('trader@example.test')
+    await dialog.getByLabel(/Your Facebook profile link/).fill('m.me/qa.trader')
     await dialog.getByRole('checkbox', { name: /I'd like to trade/ }).check()
     await dialog.getByLabel('Search cards to trade').fill('Trade Bait')
     await dialog.getByRole('button', { name: 'Add Trade Bait to trade' }).click()
@@ -229,6 +242,18 @@ try {
     await page.locator('.shop-req').first().waitFor()
     assert.equal(await page.getByRole('button', { name: /^Offers/ }).count(), 0)
     assert.match(await page.locator('.shop-req .shop-pill').first().innerText(), /Trade request/)
+    // Each requested card: picture, set, today's price and where it's kept; one the seller no longer owns says so.
+    const mid = page.locator('.req-card', { hasText: 'Owned Mid' })
+    await mid.locator('.req-card__places li', { hasText: 'Bulk Box 3' }).waitFor()
+    const midText = (await mid.innerText()).replace(/\s+/g, ' ')
+    for (const want of ['2× Owned Mid', '#2', 'Great Encounters', '$5.00 each ($10.00)', 'Bulk Box 3 › Main · 2× NM', 'Trade Binder · page 3, pocket 5'])
+      assert(midText.includes(want), `missing "${want}" in: ${midText}`)
+    assert.equal(await mid.locator('img.thumb').count(), 1, 'the card picture is shown')
+    const gone = (await page.locator('.req-card', { hasText: 'Greavard' }).innerText()).replace(/\s+/g, ' ')
+    assert.match(gone, /No longer in your collection/); assert.match(gone, /Not in a box, binder or display case yet/)
+    assert.equal(state.locationIds, 'me1-65,owned-1')
+    // No link from this buyer: a Facebook people search for their name.
+    assert.equal(await page.getByRole('link', { name: /Search “Ash” on Facebook/ }).getAttribute('href'), 'https://www.facebook.com/search/people/?q=Ash')
     // Shop nav link carries the new-request count (desktop row or phone tab bar).
     const nav = width === 390 ? page.locator('.bottom-nav a[href="/shop/requests"]') : page.locator('.app-nav a[href="/shop/requests"]')
     assert.equal(await nav.locator('.nav-badge').innerText(), '1')

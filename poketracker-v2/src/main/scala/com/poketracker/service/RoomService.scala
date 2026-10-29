@@ -16,6 +16,7 @@ trait RoomService:
     lightColor:String,shelfCount:Int,slotsPerShelf:Int,config:String): Task[DisplayCase]
   def setDisplayLights(userId:String,caseId:String,enabled:Boolean): Task[Unit]
   def getInventory(userId:String,game:String): Task[List[InventoryLot]]
+  def cardLocations(userId:String,cardIds:List[String]): Task[List[CardLocation]]
   def getDrawerAllocations(userId:String,drawerId:String): Task[List[CardAllocation]]
   def getCaseAllocations(userId:String,caseId:String): Task[List[CardAllocation]]
   def getBinderAllocations(userId:String,binderId:String): Task[List[CardAllocation]]
@@ -56,6 +57,7 @@ object RoomService:
       repo.createDisplayCase(userId,spaceId,name.trim,caseType,preset,frameColor,lightColor,shelfCount,slotsPerShelf,config)
     def setDisplayLights(userId:String,caseId:String,enabled:Boolean)=repo.setDisplayLights(userId,caseId,enabled)
     def getInventory(userId:String,game:String)=repo.listLots(userId,game)
+    def cardLocations(userId:String,cardIds:List[String])=repo.cardLocations(userId,cardIds)
     def getDrawerAllocations(userId:String,drawerId:String)=repo.listDrawerAllocations(userId,drawerId)
     def getCaseAllocations(userId:String,caseId:String)=repo.listCaseAllocations(userId,caseId)
     def getBinderAllocations(userId:String,binderId:String)=repo.listBinderAllocations(userId,binderId)

@@ -35,6 +35,7 @@ import { TradeCardPicker, type TradeLine } from '../components/TradeCardPicker'
 import { SortControl } from '../components/SortControl'
 import { usePreview } from '../components/CardPreview'
 import type { Card, OwnedCard } from '../types'
+import { isFacebookLink } from '../lib/contact'
 
 /** One picked card + condition. */
 interface CartLine { card: Card; cond: string; qty: number; max: number }
@@ -259,7 +260,8 @@ function RequestForm({ slug, lines, total, onClose, onSent }: {
 
   const submit = async () => {
     setError('')
-    if (!name.trim() || !contact.trim()) { setError('Please enter your name and how to reach you.'); return }
+    if (!name.trim() || !contact.trim()) { setError('Please enter your name and your Facebook profile link.'); return }
+    if (!isFacebookLink(contact)) { setError('Please paste your Facebook profile link (or Messenger link) so I can find you. On Facebook: open your profile, tap ⋯, then Copy link.'); return }
     if (trading && lines.length === 0) { setError('Pick the cards you want from the shop first, then offer your trade.'); return }
     if (trading && tradeLines.length === 0) { setError('Search for the cards you would like to trade and tap Add, or untick the trade box.'); return }
     if (shortBy > 0.005) { setError(`Your offer is ${money(shortBy)} short of the cards you picked. Add more cards or some cash to cover it.`); return }
@@ -289,7 +291,7 @@ function RequestForm({ slug, lines, total, onClose, onSent }: {
         {state === 'sent' ? (
           <>
             <h2>Sent! ✅</h2>
-            <p>Thanks {name.trim()}. I'll get back to you at <b>{contact.trim()}</b> to confirm availability and the price on that day.</p>
+            <p>Thanks {name.trim()}. I'll message you on Facebook to confirm availability and the price on that day.</p>
             <button type="button" className="shop-btn" onClick={onClose}>Close</button>
           </>
         ) : (
@@ -304,8 +306,9 @@ function RequestForm({ slug, lines, total, onClose, onSent }: {
               </ul>
             )}
             <label>Your name<input type="text" value={name} maxLength={80} onChange={e => setName(e.target.value)} /></label>
-            <label>How can I reach you? (Facebook name, phone, or email)
-              <input type="text" value={contact} maxLength={200} onChange={e => setContact(e.target.value)} />
+            <label>Your Facebook profile link
+              <input type="url" inputMode="url" value={contact} maxLength={200} placeholder="https://www.facebook.com/your.name" onChange={e => setContact(e.target.value)} />
+              <small className="shop-hint">On Facebook: open your profile, tap <b>⋯</b>, then <b>Copy link</b>. A Messenger link (m.me/…) works too.</small>
             </label>
             <label className="shop-agree">
               <input type="checkbox" checked={trading} onChange={e => setTrading(e.target.checked)} />

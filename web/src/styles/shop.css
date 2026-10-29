@@ -109,3 +109,21 @@
 .trade-main button.shop-link-btn{background:none;border:0;padding:0;color:var(--accent);font:inherit;font-weight:800;text-decoration:underline;cursor:pointer}
 .page-shop-inbox .shop-sub{margin:4px 0 8px}
 .page-shop-inbox .shop-tools{padding:8px 0}
+
+/* My Shop: a request's cards with picture, set, price and where each is kept (components/RequestedCards.tsx). */
+.shop-hint{font-weight:600;font-size:12.5px;line-height:1.4}
+.shop-req-contact{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.shop-req-contact a{color:var(--accent);overflow-wrap:anywhere}
+.shop-req-contact .shop-req-search{color:var(--text);font-size:13px;text-decoration:none}
+.req-cards__list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.req-card{display:grid;grid-template-columns:56px 1fr;gap:12px;align-items:start;background:var(--surface2);border-radius:12px;padding:8px}
+.req-card__thumb,.req-card .thumb-wrap,.req-card .thumb{width:56px}
+.req-card .thumb{height:auto;border-radius:4px;display:block}
+.req-card .thumb-placeholder{width:56px;height:78px;display:grid;place-items:center;font-size:24px;border-radius:6px;background:var(--surface3)}
+.req-card__body{display:grid;gap:3px;min-width:0}
+.req-card__title span{color:var(--muted);font-weight:700}
+.req-card__meta{font-size:13px;color:var(--muted)}
+.req-card__places{list-style:none;margin:2px 0 0;padding:0;display:grid;gap:2px;font-size:13.5px;font-weight:700}
+.req-card__place--other{color:var(--muted);font-weight:600}
+.req-card__place--none{color:var(--muted);font-weight:600;font-style:italic}
+.req-cards__total{margin:6px 0 0;font-size:14px}

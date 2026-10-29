@@ -19,6 +19,11 @@ export interface NewDisplayCase { spaceId:string;name:string;caseType:DisplayCas
 export const createDisplayCase=(userId:string,value:NewDisplayCase)=>api.post<DisplayCase>(`/api/spaces/${userId}/display-cases`,value).then(r=>r.data)
 export const setDisplayLights=(userId:string,caseId:string,enabled:boolean)=>api.put(`/api/spaces/${userId}/display-cases/${caseId}/lights`,{enabled}).then(r=>r.data)
 
+/** Where a card's copies are kept: a box compartment, a binder pocket (slotIndex + pocketSize) or a display case. */
+export interface CardLocation { cardId:string;kind:'box'|'binder'|'display';container:string;part:string|null;condition:string|null;quantity:number;slotIndex:number|null;pocketSize:string|null }
+/** Every place the owner keeps any of these cards (My Shop's requests). */
+export const getCardLocations=(userId:string,cardIds:string[])=>
+  api.get<CardLocation[]>(`/api/spaces/${userId}/card-locations`,{params:{cardIds:cardIds.join(',')}}).then(r=>r.data)
 export const getSpaceInventory=(userId:string)=>api.get<InventoryLot[]>(`/api/spaces/${userId}/inventory`).then(r=>r.data)
 export const getDrawerPlacements=(userId:string,drawerId:string)=>api.get<CardAllocation[]>(`/api/spaces/${userId}/drawers/${drawerId}/allocations`).then(r=>r.data)
 export const getCaseAllocations=(userId:string,caseId:string)=>api.get<CardAllocation[]>(`/api/spaces/${userId}/display-cases/${caseId}/allocations`).then(r=>r.data)

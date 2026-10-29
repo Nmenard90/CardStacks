@@ -26,6 +26,8 @@ import { getOffers } from '../api/trading'
 import { HeaderNav } from '../components/HeaderNav'
 import { LoginScreen } from '../components/LoginScreen'
 import { OfferInbox } from '../components/OfferInbox'
+import { RequestedCards } from '../components/RequestedCards'
+import { contactUrl, facebookSearchUrl } from '../lib/contact'
 import { useUser } from '../context/UserContext'
 
 const STATUS_LABEL: Record<ShopRequestStatus, string> = { new: 'New', answered: 'Answered', done: 'Done' }
@@ -106,6 +108,21 @@ function ShopSettingsPanel({ userId, suggestedSlug }: { userId: string; suggeste
 }
 
 type Tab = 'requests' | 'offers' | 'settings'
+
+/**
+ * How to reach a buyer: their link when they gave one, otherwise what they typed plus a Facebook search for their
+ * name (older requests often just say "Facebook").
+ */
+function BuyerContact({ name, contact }: { name: string; contact: string }) {
+  const url = contactUrl(contact)
+  return (
+    <div className="shop-req-contact">
+      Reach them at:{' '}
+      {url ? <a href={url.href} target="_blank" rel="noopener noreferrer"><b>{url.hostname.replace(/^www\./, '')}{url.pathname}</b> ↗</a> : <b>{contact}</b>}
+      {!url && <a className="shop-btn shop-btn-ghost shop-req-search" href={facebookSearchUrl(name)} target="_blank" rel="noopener noreferrer">Search “{name}” on Facebook ↗</a>}
+    </div>
+  )
+}
 
 export function ShopRequestsPage() {
   const { user } = useUser()
@@ -201,12 +218,8 @@ export function ShopRequestsPage() {
                     <span className={'shop-pill shop-pill-' + r.status}>{r.kind === 'chat' ? 'Question' : r.message.startsWith('TRADE OFFER') ? 'Trade request' : 'Buy request'} · {STATUS_LABEL[r.status]}</span>
                     <span className="shop-sub">{new Date(r.createdAt).toLocaleString()}</span>
                   </div>
-                  <div>Reach them at: <b>{r.buyerContact}</b></div>
-                  {r.items.length > 0 && (
-                    <ul className="shop-summary">
-                      {r.items.map((i, n) => <li key={n}>{i.qty}× {i.name} #{i.number} ({i.condition})</li>)}
-                    </ul>
-                  )}
+                  <BuyerContact name={r.buyerName} contact={r.buyerContact} />
+                  {r.items.length > 0 && <RequestedCards items={r.items} userId={userId} />}
                   {r.message && <p className="shop-req-msg">{r.message}</p>}
                   <div className="shop-sheet-btns">
                     {r.status !== 'answered' && <button type="button" className="shop-btn shop-btn-ghost" onClick={() => mark(r, 'answered')}>Mark answered</button>}

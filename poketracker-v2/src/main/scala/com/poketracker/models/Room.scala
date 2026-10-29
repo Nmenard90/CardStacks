@@ -42,6 +42,16 @@ final case class InventoryLot(
 object InventoryLot:
   given JsonCodec[InventoryLot] = DeriveJsonCodec.gen[InventoryLot]
 
+/** Where copies of a card are kept, answering "where is this card?" (My Shop's requests).
+ *  kind: "box" (container = box, part = compartment), "binder" (slotIndex + pocketSize give the page and pocket)
+ *  or "display" (container = display case). condition is unknown for a binder pocket filled without a stored copy. */
+final case class CardLocation(
+  cardId: String, kind: String, container: String, part: Option[String], condition: Option[String],
+  quantity: Int, slotIndex: Option[Int], pocketSize: Option[String]
+)
+object CardLocation:
+  given JsonCodec[CardLocation] = DeriveJsonCodec.gen[CardLocation]
+
 final case class CardAllocation(
   id: String, lotId: String, drawerId: Option[String], binderSlotId: Option[String],
   displaySlotId: Option[String], quantity: Int, protection: Option[String],

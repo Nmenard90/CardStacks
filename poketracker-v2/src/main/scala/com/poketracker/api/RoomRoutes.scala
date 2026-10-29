@@ -68,6 +68,11 @@ object RoomRoutes:
     Method.GET / "api" / "spaces" / string("userId") / "inventory" -> handler { (userId:String,req:Request) =>
       ZIO.serviceWithZIO[RoomService](_.getInventory(userId,GameParam.of(req))).map(v=>Response.json(v.toJson)).catchAll(e=>ZIO.succeed(bad(e)))
     },
+    // Where the owner keeps these cards: ?cardIds=a,b,c (up to 200). Used by My Shop to show where a requested card is.
+    Method.GET / "api" / "spaces" / string("userId") / "card-locations" -> handler { (userId:String,req:Request) =>
+      val ids = req.url.queryParams.getAll("cardIds").flatMap(_.split(',')).map(_.trim).filter(_.nonEmpty).distinct.take(200).toList
+      ZIO.serviceWithZIO[RoomService](_.cardLocations(userId,ids)).map(v=>Response.json(v.toJson)).catchAll(e=>ZIO.succeed(bad(e)))
+    },
     Method.GET / "api" / "spaces" / string("userId") / "drawers" / string("drawerId") / "allocations" -> handler { (userId:String,drawerId:String,_:Request) =>
       ZIO.serviceWithZIO[RoomService](_.getDrawerAllocations(userId,drawerId)).map(v=>Response.json(v.toJson)).catchAll(e=>ZIO.succeed(bad(e)))
     },

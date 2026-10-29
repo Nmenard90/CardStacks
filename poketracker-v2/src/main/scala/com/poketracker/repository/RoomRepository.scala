@@ -40,6 +40,8 @@ trait RoomRepository:
   def placeInBinderSlot(userId: String, binderId: String, slotIndex: Int, lotId: String,
     quantity: Int, protection: Option[String], notes: Option[String]): Task[CardAllocation]
   def removeAllocation(userId: String, allocationId: String): Task[Unit]
+  /** Every box compartment, binder pocket and display case holding one of these cards, for one owner. */
+  def cardLocations(userId: String, cardIds: List[String]): Task[List[CardLocation]]
   /** Reorders the set boxes on every shelf unit in unitId's room by set
    *  release date (oldest first), as one run: unit by unit, shelf by shelf,
    *  left to right, top of a stack down. They swap among the positions they
@@ -384,5 +386,27 @@ object RoomRepository:
           case Some(slotId) =>
             sql"UPDATE binder_slots SET card_id=NULL,card_name=NULL,image_url=NULL WHERE id=$slotId".update.run.void
       yield ()).transact(xa)
+
+    def cardLocations(userId: String, cardIds: List[String]): Task[List[CardLocation]] =
+      cardIds.distinct.toNel match
+        case None => ZIO.succeed(Nil)
+        case Some(ids) =>
+          // Boxes and display cases hold stored copies (card_allocations); binder pockets record their card directly,
+          // with the stored copy (and so its condition) only when one was placed there.
+          val boxes = fr"""SELECT l.card_id, 'box', b.name, d.name, l.condition, a.quantity, NULL::int, NULL::text
+            FROM card_allocations a JOIN inventory_lots l ON l.id = a.lot_id
+            JOIN storage_drawers d ON d.id = a.drawer_id JOIN storage_boxes b ON b.id = d.box_id
+            WHERE l.user_id = $userId AND b.user_id = $userId AND """ ++ Fragments.in(fr"l.card_id", ids)
+          val displays = fr"""SELECT l.card_id, 'display', dc.name, NULL::text, l.condition, a.quantity, NULL::int, NULL::text
+            FROM card_allocations a JOIN inventory_lots l ON l.id = a.lot_id
+            JOIN display_slots ds ON ds.id = a.display_slot_id JOIN display_cases dc ON dc.id = ds.display_case_id
+            WHERE l.user_id = $userId AND """ ++ Fragments.in(fr"l.card_id", ids)
+          val pockets = fr"""SELECT bs.card_id, 'binder', bi.name, NULL::text, l.condition, COALESCE(a.quantity, 1), bs.slot_index, bi.pocket_size
+            FROM binder_slots bs JOIN binders bi ON bi.id = bs.binder_id
+            LEFT JOIN card_allocations a ON a.binder_slot_id = bs.id LEFT JOIN inventory_lots l ON l.id = a.lot_id
+            WHERE bi.user_id = $userId AND """ ++ Fragments.in(fr"bs.card_id", ids)
+          (boxes ++ fr"UNION ALL" ++ displays ++ fr"UNION ALL" ++ pockets ++ fr"ORDER BY 1, 2, 3, 4, 7")
+            .query[(String, String, String, Option[String], Option[String], Int, Option[Int], Option[String])]
+            .to[List].map(_.map(CardLocation.apply.tupled)).transact(xa)
 
   val layer: ZLayer[Transactor[Task], Nothing, RoomRepository] = ZLayer.fromFunction(new Live(_))
