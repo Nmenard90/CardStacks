@@ -302,3 +302,11 @@ docs/agent-reports/site-audit-20261029. Live since 2026-10-29 (`a65a2d3`).
   5 columns led to migration 021. Checked with psql on 2026-10-29: production
   already has 019's full shape (7 columns, the side check, the primary key,
   0 rows), so 021 is a no-op there; it stays as a safe, additive guard.
+- **BUG-046** The live room froze for the owner: their Chrome draws WebGL in
+  software. The landing page now detects that and offers Spaces (with how to
+  turn acceleration on, and "Open the 3D room anyway"); pixel cap and adaptive
+  quality for slow devices.
+- **BUG-047** My Shop requests showed only "2× Gloom #44 (NM)" (no set,
+  picture, price or where the card is kept) and buyer contacts like
+  "Facebook". Now shows card details and locations, links, a Facebook search
+  fallback, and the form requires a Facebook profile/Messenger link.

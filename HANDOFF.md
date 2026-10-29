@@ -195,6 +195,23 @@ touch): 49–57 fps, 44 fps with 4× CPU throttle. Note: headless Chromium here
 renders WebGL in software (~1 fps), so 3D screenshots time out there; judge
 3D performance in a GPU browser (chrome-devtools MCP), not headless.
 
+**Follow-up fixes (2026-10-29, owner-approved, pushed together):**
+- *Room froze for the owner.* Their Chrome renders WebGL in software
+  ("Microsoft Basic Render Driver"; graphics acceleration off or the GPU
+  blocked). `web/src/room3d/graphics.ts` now detects software WebGL and the
+  landing page shows "Your browser isn't using your graphics card" with a
+  link to Spaces, how to turn acceleration on, and "Open the 3D room anyway"
+  (localStorage `cardstacks.room.allowSoftware`; tests set it, since headless
+  Chromium is SwiftShader). Also: ~2.4M-pixel cap per frame, the cabinet's
+  point lights off on phones, and drei `PerformanceMonitor` lowering
+  resolution then shadows when slow.
+- *My Shop requests didn't say what or where the cards were*, and contacts
+  often just said "Facebook". New `GET /api/spaces/:userId/card-locations`
+  (reads existing tables; no migration); `components/RequestedCards.tsx`
+  shows picture, set, price and box › compartment / binder page + pocket /
+  display case; contacts are links, or "Search <name> on Facebook"; the shop
+  form requires a Facebook profile or Messenger link (`lib/contact.ts`).
+
 What the release contains (branch `feat/3d-room`, now merged):
 
 1. **Cleanup** (`chore/cleanup-20261029`) — removed dead pages/components
