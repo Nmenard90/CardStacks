@@ -33,6 +33,8 @@ const browser = await chromium.launch({
   ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}),
 })
 const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' })
+// Headless Chromium draws WebGL in software, where the site offers Spaces instead of the room; open it anyway.
+await context.addInitScript(() => { if (location.protocol !== 'about:') localStorage.setItem('cardstacks.room.allowSoftware', '1') })
 const page = await context.newPage()
 const errors = []
 page.on('pageerror', e => errors.push(e.message))

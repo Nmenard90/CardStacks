@@ -26,6 +26,7 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { PerformanceMonitor } from '@react-three/drei';
 import * as THREE from 'three';
 import CardRolodex from './CardRolodex.jsx';
 import BinderBook from './room/BinderBook.jsx';
@@ -246,6 +247,25 @@ function FixedCameraRig({ focus, reducedMotion, inspectSeed = null }) {
   return null;
 }
 
+/**
+ * Steps the room's drawing cost down while it runs too slowly for this device (drei's PerformanceMonitor watches the
+ * frame rate): first fewer pixels, then no shadows. It never steps back up, so a struggling device doesn't flicker
+ * between settings. A fast device never declines and keeps everything.
+ */
+function AdaptiveQuality() {
+  const { gl, scene, setDpr, viewport } = useThree();
+  const step = useRef(0);
+  const decline = useCallback(() => {
+    step.current += 1;
+    if (step.current <= 2) { setDpr(Math.max(0.5, viewport.dpr * 0.75)); return; }
+    if (gl.shadowMap.enabled) {
+      gl.shadowMap.enabled = false;
+      scene.traverse((o) => { const m = o.material; if (m) (Array.isArray(m) ? m : [m]).forEach((x) => { x.needsUpdate = true; }); });
+    }
+  }, [gl, scene, setDpr, viewport.dpr]);
+  return <PerformanceMonitor onDecline={decline} flipflops={Infinity} />;
+}
+
 /** Status chip: loading progress, then the user's totals, with reload and "how to use the room" buttons. */
 function RoomStatus({ room, focused, onHelp }) {
   const help = <button type="button" className="sync-chip__help" onClick={onHelp} aria-label="How to use the room" title="How to use the room">?</button>;
@@ -393,6 +413,7 @@ export default function RoomScene({ userId, onHelp }) {
             onSelectCard={(card) => (pick ? setPick((p) => ({ ...p, cardId: card?.id ?? null, error: null })) : setBoxUi((u) => ({ ...u, cardId: card?.id ?? null })))} />
         </Suspense>
         <FixedCameraRig focus={route.focus} reducedMotion={reducedMotion} inspectSeed={selectedDisplayCard?.displayIndex ?? null} />
+        <AdaptiveQuality />
       </Canvas>
       {hint && <div className={`hud${selectedBinder || pick ? ' hud--quiet' : ''}`}>{hint}{unplacedItems > 0 && !selected && !route.focus && <><br />{unplacedItems === 1 ? '1 binder or box isn’t' : `${unplacedItems} binders or boxes aren’t`} on a shelf yet — find {unplacedItems === 1 ? 'it' : 'them'} under Unplaced in Binders or Card boxes.</>}</div>}
       <RoomStatus room={room} focused={Boolean(route.focus)} onHelp={onHelp} />
