@@ -3,8 +3,7 @@
  * Pure inline SVG (shapes, not an image asset) so it scales cleanly and
  * needs no network round trip.
  *
- * USED BY: LoginScreen, and empty states across OwnedPage/ShelfPage/
- *   AnalyzerPage/ConventionPage/BulkAddPage.
+ * USED BY: LoginScreen
  */
 
 import type { ReactNode } from 'react'

@@ -1,7 +1,7 @@
 /**
  * API calls for physical storage (boxes → drawers → card assignment).
  * ENDPOINTS: /api/storage/:userId/boxes[...], /api/storage/boxes|drawers/:id, /api/storage/:userId/assign[...]
- * USED BY: OwnedPage (Shelf view)
+ * USED BY: SpacesLivePage, room3d/data/useLiveRoom
  */
 import { api } from './client'
 import type { AssignResult, OwnedCard, StorageBox, StorageDrawer } from '../types'

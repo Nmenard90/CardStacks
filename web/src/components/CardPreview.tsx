@@ -7,8 +7,8 @@
  * binder slots, convention search — none of which show a ribbon on their
  * own thumbnail) keeps working unchanged.
  *
- * USED BY: CollectionPage, OwnedPage, BulkAddPage (via CardTile's onPreview),
- *   AnalyzerPage, BinderViewPage, ConventionModePage
+ * USED BY: CollectionPage, BulkAddPage (via CardTile's onPreview), SpacesLivePage,
+ *   ShopPage (ShopCardTile), AnalyzerPage, BinderViewPage, ConventionModePage
  */
 
 import { useState } from 'react'

@@ -1,6 +1,6 @@
 /**
  * cardSort — one set of card sorts shared by every card list (Collection,
- * My Collection, a box's inside, trade lists), so "sort by artist" etc.
+ * My Collection, a box's inside, the shop), so "sort by artist" etc.
  * means the same thing everywhere.
  *
  * Each list maps its rows to SortFields; compareBy() orders them. A row

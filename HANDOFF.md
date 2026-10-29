@@ -3,7 +3,7 @@
 Working context for continuing development. For the public-facing overview see
 `README.md`; for the live defect list see `BUGS.md`.
 
-_Last updated: 2026-10-25._
+_Last updated: 2026-10-29._
 
 **Every session: read this file and `BUGS.md` before starting, and update
 "Current state" (and `BUGS.md`) before finishing.**
@@ -14,8 +14,9 @@ _Last updated: 2026-10-25._
 
 A full-stack trading card collection tracker (Pokémon English + Japanese live;
 other TCGs seeded): log owned cards by condition, print and quantity, organize
-them into Spaces (shelves, boxes, binders, display cases), value the collection
-from market prices, and trade through share links. Card/set data comes from
+them into Spaces (shelves, boxes, binders, display cases) shown as a 3D room on
+the home page, value the collection from market prices, and sell or trade
+through a public shop page. Card/set data comes from
 pokemontcg.io and TCGTracking (cached locally); prices from TCGTracking per
 condition and print, with a Cardmarket price-guide fallback.
 
@@ -41,15 +42,17 @@ React SPA  ──HTTP──▶  ZIO HTTP API  ──Doobie──▶  PostgreSQL
 tcg/
 ├── web/              # React + TypeScript + Vite frontend
 │   └── src/
-│       ├── pages/        # SpacesLivePage (home), CollectionPage (Explore), BulkAddPage, BinderViewPage,
-│       │                 # TradePage, SharePage, AnalyzerPage, ConventionModePage
-│       ├── components/    # CardTile, OwnedCardTile, CardThumb, CardBrowser, HeaderNav, Toast, ...
-│       ├── api/           # client, cards, collection, binders, storage, trading, users, ...
-│       └── lib/           # conditions, game, cardSort, trading, csv, cardSearch
+│       ├── pages/        # RoomPage (home), SpacesLivePage (/spaces), CollectionPage (Explore), BulkAddPage,
+│       │                 # BinderViewPage, ShopPage, ShopRequestsPage (My Shop), AnalyzerPage, ConventionModePage
+│       ├── room3d/        # the 3D room (React Three Fiber, JS + .d.ts shims)
+│       ├── components/    # CardTile, OwnedCardTile, ShopCardTile, CardThumb, OfferInbox, HeaderNav, Toast, ...
+│       ├── api/           # client, cards, collection, binders, storage, rooms, shop, trading, users, ...
+│       └── lib/           # conditions, game, cardSort, csv, cardSearch
+│   └── tests/             # room-browser, shop-browser (mocked API), room-live-smoke (real backend)
 ├── poketracker-v2/   # Scala 3 + ZIO backend
 │   └── src/main/scala/com/poketracker/
-│       ├── api/           # CardRoutes, CollectionRoutes, BinderRoutes, RoomRoutes, StorageRoutes, TradingRoutes, ...
-│       ├── service/       # CardService, TcgTrackingCatalog, PriceService, CardmarketGuide, TradingService, ...
+│       ├── api/           # CardRoutes, CollectionRoutes, BinderRoutes, RoomRoutes, StorageRoutes, ShopRoutes, TradingRoutes, ...
+│       ├── service/       # CardService, TcgTrackingCatalog, PriceService, CardmarketGuide, TradingService (offers), ...
 │       ├── repository/    # CardRepository, CollectionRepository, ...
 │       ├── models/        # Card, CardSet, Binder, ...
 │       └── Main.scala
@@ -71,13 +74,22 @@ tcg/
   separate staging — `main` is the deploy trigger. Don't use feature branches
   unless you specifically want something *not* live; merging back is the only way
   it deploys.
-- **Verification is done against the live Railway deploy**, not a local server.
-  The backend build log is the compile check for Scala changes.
-- **Frontend checks** can be run locally: `cd web && npx tsc -b` (typecheck) and
-  `npx eslint .` (lint). The production build (`npm run build`) runs `tsc -b`,
-  so type errors fail the deploy; eslint does **not** gate the build.
-- **`.metals/` IDE files** sometimes show as modified — they should be
-  git-ignored and not committed. Stage explicit paths, not `git add -A`.
+- **Backend checks run locally:** `sbt` lives in Coursier
+  (`%LOCALAPPDATA%\Coursier\data\bin\sbt.bat`; set `JAVA_HOME` to the JDK 21).
+  `sbt test` runs the pure suites; the DB suites need a throwaway local
+  Postgres (PostgreSQL 18 is installed — `initdb` a scratch folder, start it
+  on 55432, apply `schema.sql` + every migration, then set
+  `TRADING_IT_DB_URL` / `SHOP_PROFILE_IT_DB_URL` / `COLLECTION_IT_DB_URL` to
+  `jdbc:postgresql://127.0.0.1:55432/postgres`).
+- **Frontend checks** can be run locally: `cd web && npx tsc -b` (typecheck),
+  `npx eslint .` (lint), `npm run test:room`, `npm run test:og`, and the
+  browser tests in `web/tests/` (Playwright; `playwright-core` is in the
+  room prototype's `node_modules`, Chromium in `%LOCALAPPDATA%\ms-playwright`).
+  The production build (`npm run build`) runs `tsc -b`, so type errors fail
+  the deploy; eslint does **not** gate the build (2 known errors in
+  `SpacesLivePage`).
+- **IDE caches** (`.metals/`, `.bloop/`, `.bsp/`, `metals.sbt`, `.vscode/`) and
+  local worktrees (`.worktrees/`, `.claude/`) are git-ignored.
 
 ## Useful endpoints
 
@@ -146,7 +158,8 @@ tcg/
 
 - **Back button = URL.** Any view the user would expect "back" to undo must
   live in the URL (`useSearchParams`), not component state. Spaces uses
-  `?area=&space=&unit=&case=&box=`, Explore `?set=`, Trade `?tab=`. Spaces'
+  `?area=&space=&unit=&case=&box=`, Explore `?set=`, the shop `?set=`, My Shop
+  `?tab=`/`?offer=`, the 3D room its URL hash (`#/binders/<id>/card/<id>`). Spaces'
   `closeBox` only calls `navigate(-1)` when the box was opened on this page
   (`location.state.boxOpenedHere`), so a shared/reloaded box link doesn't
   leave the site. Don't add popstate handlers or in-memory history stacks.
@@ -162,16 +175,64 @@ tcg/
 
 ## Current state (2026-10-29)
 
-**3D room landing page** — branch `feat/3d-room` (worktree `.worktrees/room3d`),
-NOT merged/live yet. `/` becomes the 3D collector's room (`web/src/room3d/`,
-React Three Fiber 9 / drei 10 / three 0.169, lazy-loaded) showing the user's
-real binders, boxes and display cases; Spaces moves to `/spaces` (old
-`/?area=…` links redirect). First-visit animated guide; `/card-art` relay for
-TCGplayer art (`web/cardArt.mjs`). No backend change, no migration. Tests:
-`npm run test:room`, `tests/room-browser.mjs` (mocked API, 4 screen sizes),
-`tests/room-live-smoke.mjs` (real backend, demo account). Full write-up and
-screenshots: `docs/agent-reports/room3d-landing/`. Prototype source stays in
-`D:\Projects\CardStacks\experiments\nook-concept` (not a repo).
+Branch `feat/3d-room` (worktree `.worktrees/room3d`) holds three commits on
+top of `main`, **NOT merged/live yet**:
+
+1. **Cleanup** (`chore/cleanup-20261029`) — removed dead pages/components
+   (OwnedPage, ShelfPage, duplicate CollectionPage, CollectionShelf,
+   ExportModal…), the Shelf API (`/api/shelf`; its `shelf_items` table is left
+   in the database, no longer written), the never-wired old trade system
+   (`models/Trade`, `Reputation`, `TradeRepository`), unused CSS selectors,
+   template tests, IDE files and a collection CSV in the root.
+2. **Trade merged into Shop** — one public page (`/shop/<slug>`) and one owner
+   page (My Shop, `/shop/requests`: Requests / Offers / Settings). Brings in the
+   unmerged `feature/shop-branding` + `feature/shop-photos` work (collection-style
+   page, trade offers with catalog search + cash top-up, seller photos with the
+   camera guide), keeping main's shop name/bio and `?set=`. The share-link
+   trade page, trade list and make-offer endpoints are gone; existing offers
+   stay answerable in My Shop → Offers. `/trade` and `/s/<slug>` redirect
+   (`GET /api/shop/from-share/:slug`). Tables `share_profiles`,
+   `trade_list_items`, `card_offers`, `offer_messages` are untouched.
+3. **3D room landing page** — `/` is the 3D collector's room (`web/src/room3d/`,
+   React Three Fiber 9 / drei 10 / three 0.169, lazy-loaded) showing the
+   user's real binders, boxes and display cases; Spaces moved to `/spaces`
+   (old `/?area=…` links redirect). First-visit animated guide; `/card-art`
+   relay for TCGplayer art (`web/cardArt.mjs`). The pinboard opens My Shop.
+   Prototype source stays in `D:\Projects\CardStacks\experiments\nook-concept`.
+
+**Before merging:** migration 019 (`shop_photos`) must exist in production with
+the columns in `sql/migration_019_shop_photos.sql` — the public shop response
+reads it. The table was seen in production on 2026-10-25 but its columns were
+never checked; run the migration (it is `IF NOT EXISTS`) and confirm
+`user_id, card_id, condition, side, image, content_type, updated_at` exist.
+
+**Verification (2026-10-29):** backend 66 passed / 1 skipped (DB suites against
+a local Postgres with schema + migrations 010–020); `tsc` clean; build OK;
+`test:room` 90/90; og 4/4; `shop-browser.mjs` 11/11 (desktop + phone);
+`room-browser.mjs` (4 screen sizes). Reports and screenshots:
+`docs/agent-reports/cleanup-20261029/`, `docs/agent-reports/room3d-landing/`.
+
+**Repo cleanup (2026-10-29):** everything was backed up first to
+`C:\Users\nicho\tcg-backups\2026-10-29-pre-cleanup\` (git bundle of every
+branch/tag, plus each worktree's uncommitted diff and untracked files) and
+tag `backup/pre-cleanup-2026-10-29` on GitHub. Then 27 old worktrees and 31
+local branches were removed, and 5 merged/obsolete GitHub branches deleted.
+`C:\Users\nicho\tcg` is now on current `main` (no longer the pre-rewrite history).
+Unfinished uncommitted work that only lives in that backup: Excel export by set
+(`tcg-excel`: `web/src/lib/xlsxExport.ts`), the TCGTracking PriceService
+rewrite + fixtures (`m1-tcgtracking-openapi`), an integrated trade/inbox
+preview (`collection-integrated`), a collection overview
+(`collection-overview`) and a mobile plan (`tcg-compartments`). Restore one
+with `git apply <name>.diff` and `tar -xzf <name>.untracked.tgz` in a fresh
+worktree of its branch from `all-refs.bundle`.
+
+GitHub branches kept for a decision: `fix/auto-allocation-protection-mismatch`
+(auto-filed copies saved with NULL protection → duplicate rows; not on main;
+its second commit is a one-off cleanup query), `feature/unsorted-holding-box`
+(file new cards into one Unsorted box instead of one per set — a behaviour
+change), `fix/bulk-add-first-edition-sticky-toggle` (probably superseded by
+main's 1st-Edition set list; check before deleting). `feature/shop-branding`
+and `feature/shop-photos` can be deleted once the branch above is merged.
 
 ## Earlier state (2026-10-25)
 
@@ -196,9 +257,10 @@ back failed saves. Local Postgres regressions and full backend suite passed
 (51 passed, 5 skipped). Earlier failed removals must be retried because they
 never saved their intended quantity. No migration was needed.
 
-Photo feature status: GitHub `feature/shop-photos` (`3ee2f98`), not merged or
-live. Production `shop_photos` table exists (checked 2026-10-25), but its full
-schema has not been audited. This profile update does not merge that branch.
+Photo feature status (2026-10-25): GitHub `feature/shop-photos` (`3ee2f98`),
+not merged or live. Production `shop_photos` table exists (checked 2026-10-25),
+but its full schema has not been audited. (Now carried in `feat/3d-room` — see
+Current state.)
 
 Pricing repair deployed and verified (2026-10-25, commit `7a57aec`): Railway frontend and backend were both
 confirmed on GitHub main commit `2fdbdbc`. TCGTracking moved its API to
@@ -215,7 +277,8 @@ was required. The job's "re-priced" summary counts attempts, including skips.
 Live: Supabase auth + demo mode, collection/bulk add, binders, Spaces (shelves,
 boxes with compartments, display cases, auto-filing into per-set boxes), Trade
 Analyzer, Rip Tracker API (no page yet), price history, "Missing only" per-set view, per-print
-prices with a picker on card tiles, multiple card games, share-link trading.
+prices with a picker on card tiles, multiple card games, share-link trading
+(replaced by the shop on `feat/3d-room`), the public shop.
 
 Recent (2026-10-16): "Arrange by date" orders set boxes by release date
 across every shelf unit in a room (`RoomRepository.arrangeSetBoxesByDate`);
@@ -224,8 +287,8 @@ Frontend gotchas); full phone-width audit fixed overflow on every main page.
 Unowned Code Card rows were deleted from production (34 rows).
 
 **Git history was rewritten** (old copy in `C:\Users\nicho\tcg-before-history-rewrite-backup`).
-`C:\Users\nicho\tcg` is still on the OLD history — don't work or commit there;
-use a worktree off current `origin/main`.
+Since 2026-10-29 `C:\Users\nicho\tcg` is on current `main`; still do task work
+in a worktree off `origin/main`.
 
 ### Migrations run in production
 Migrations are applied by hand in Railway's SQL editor, before the code that
@@ -238,9 +301,11 @@ needs them is pushed.
 - `migration_018_shop.sql` (`shop_settings` + `shop_requests`, the public shop) — run by hand in
   production on 2026-10-23, under the working name "017" before it was renumbered. All statements
   are `IF NOT EXISTS`, so re-running is a no-op. The shop code (`ShopRoutes`) needs these tables.
-- `migration_019_shop_photos.sql` (`shop_photos`, seller photos of the actual cards) — **NOT RUN YET.**
-  Run it in Railway's SQL editor BEFORE the shop-photos code reaches `main` (the shop page's public
-  response now queries `shop_photos`, so deploying first would break every shop page).
+- `migration_019_shop_photos.sql` (`shop_photos`, seller photos of the actual cards) — table seen in
+  production 2026-10-25, columns **not verified**. Run it (idempotent) and check its columns in Railway's
+  SQL editor BEFORE `feat/3d-room` reaches `main` (the shop page's public response queries
+  `shop_photos`, so a missing/wrong table would break every shop page).
+- `migration_020_shop_profile.sql` (`shop_settings.display_name`, `bio`) — run 2026-10-25.
 - Migration 003 (per-variant `card_prices`) is DISABLED — never run it.
 
 ### Pricing audit (2026-10-14)
@@ -275,25 +340,29 @@ re-prices instead of keeping stored wrong values until its next refresh.
 - **Not covered yet:** TCGplayer's catch-all promo groups (Blister
   Exclusives, Alternate Art Promos — no real release date) and Japanese One
   Piece.
-- **Share-link trading** — LIVE. (`/trade`, public `/s/:slug`): trade list, share
-  link (optionally exposing the whole collection), offers with cash and/or
-  cards, per-offer message thread, unread badge on the Trade nav link. No
-  payments in-app; completing a deal doesn't change collections. Backend:
-  `TradingRoutes/Service/Repository`, `models/Trading.scala`. Live on main
-  (migration 015 run). `TradingDbSuite` is an opt-in DB test (set `TRADING_IT_DB_URL`).
-  The older `trade_listings`/`trade_offers` tables are unrelated and unused.
-  Bulk listing: `PUT …/list/bulk` / `POST …/list/remove` (≤2000 per request;
-  the web sends 500 at a time). Quantities are capped to what's owned.
-- **Excel export by set:** uncommitted in the `tcg-excel` worktree
-  (`web/src/lib/xlsxExport.ts`, `CollectionPage.tsx`, `package.json`).
-- **TCGTracking PriceService rewrite:** uncommitted in
-  `.claude/worktrees/m1-tcgtracking-openapi` (+ tests, `docs/agent-reports/`).
-  Overlaps the per-print pricing code — merge with care.
+- **Shop** (`/shop/<slug>`, My Shop at `/shop/requests`) — the one place to
+  sell and trade. The owner's rules: prices follow the market (no fixed or %
+  prices), trades welcome, a trade offer must be even or better for the
+  seller (a little extra cards/cash, never less). Buyers need no account;
+  requests carry a "TRADE OFFER" list in the message. Backend: `ShopRoutes`,
+  `ShopRepository`, `models/Shop.scala` (migrations 018–020). Shop links get
+  Open Graph previews from `web/ogTags.mjs` (served by `server.mjs`).
+- **Card offers** (from the retired share-link trading, migration 015) — read,
+  accept/decline, message only, in My Shop → Offers (`TradingRoutes/Service/
+  Repository`, `components/OfferInbox`). No new offers are created. The older
+  `trade_listings`/`trade_offers` tables are unrelated and unused.
+- **Excel export by set** and the **TCGTracking PriceService rewrite** were
+  uncommitted worktrees; they now only exist in the 2026-10-29 backup (see
+  Current state).
 
 ## Known issues & next steps
 
 Tracked in `BUGS.md`. Highest-value next items:
-1. **BUG-023** — Bulk Add print picker (Phase 3).
-2. Land or drop the Excel export and the PriceService rewrite worktrees.
-3. **BUG-013** — shared design system.
-4. **BUG-018** — TCGplayer last-sold pricing.
+1. Verify migration 019 in production, then merge `feat/3d-room` (cleanup +
+   shop + 3D room) and check both Railway services; try the room on a real
+   phone and with the owner's full collection.
+2. Decide the three kept fix branches (see Current state).
+3. **BUG-023** — Bulk Add print picker (Phase 3).
+4. Restore or drop the Excel export / PriceService rewrite from the backup.
+5. **BUG-013** — shared design system.
+6. **BUG-018** — TCGplayer last-sold pricing.

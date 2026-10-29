@@ -7,7 +7,7 @@ IDs sequential and never reuse a number.
 **Status:** `OPEN` · `IN PROGRESS` · `FIXED` · `WONTFIX` · `NEEDS REPRO`
 **Severity:** `S1` blocker/crash · `S2` correctness · `S3` minor/UX · `S4` hygiene/docs · `ENH` enhancement
 
-_Last updated: 2026-10-16._
+_Last updated: 2026-10-29._
 
 ---
 
@@ -50,6 +50,9 @@ _Last updated: 2026-10-16._
 | 033 | S3 | FIXED | Catalog | "Code Card" products (online redemption codes) were imported as cards in TCGTracking sets. Import skips them; 34 unowned rows deleted in production (0d6edfa). |
 | 034 | S2 | FIXED | Trade list | Cards could only be listed one at a time (unusable with thousands of cards), trade tiles looked unlike the rest of the site, and the Artist sort didn't show the artist. Bulk list/remove (Select all, every copy / extras only / 1 of each, make-an-offer or % of market), OwnedCardTile everywhere on trade + share pages, artist on trade card views (53a4f98). |
 | 035 | S2 | FIXED (branch `feat/3d-room`) | 3D room | Prototype room bugs found porting it to the site: drei `<Html>` React-19 unmount errors and its overlay catching canvas taps (display cards unclickable), cabinet glass blocking taps, broken phone status chip, camera too far on tall screens, phone-landscape overlaps, raw box types as labels, TCGplayer art blank in WebGL (no CORS → `/card-art` relay). See docs/agent-reports/room3d-landing. |
+| 036 | S2 | FIXED (branch `feat/3d-room`) | Shop | Two overlapping trade flows (share-link Trade page + Shop) and the live shop said "Sales only · no trades", against the owner's rules (trades welcome, no % offers, offers even-or-better). Merged into one shop + My Shop inbox; old `/trade` and `/s/<slug>` links redirect. |
+| 037 | S3 | FIXED (branch `feat/3d-room`) | Offers | Offer rows in the inbox ignored their own layout (`.page-tracker button` won on specificity: one non-wrapping line spilling into the detail panel), and My Shop was capped at 760px on desktop. |
+| 038 | S4 | FIXED (branch `feat/3d-room`) | Hygiene | ~3,800 lines of dead code (unused pages, Shelf API, never-wired trade/reputation models, template tests), ~500 unused CSS selectors, stale docs and 27 abandoned worktrees / 36 branches. Backed up first; see HANDOFF "Repo cleanup". |
 
 ---
 
@@ -256,3 +259,20 @@ Migration 020 (shop profile) manually applied and verified in production before
 code push. Backend 56 passed / 5 skipped; frontend build and changed-file lint,
 4 Open Graph tests and 6 browser scenarios passed. Evidence in
 docs/agent-reports/shop-inviting-20261025. Photos remain a separate branch.
+
+## Cleanup, Shop merge (2026-10-29)
+
+Audit of the repo before merging the 3D room (BUG-036..038). Everything is on
+branch `feat/3d-room` (cleanup → shop merge → room), not yet on `main`.
+- The shop branches (`feature/shop-branding`, `feature/shop-photos`) were
+  replayed onto main. Their layout and trade rules won over main's later
+  storefront, which had reintroduced "Sales only"; main's shop name/bio and
+  `?set=` filter were kept. The set-grouped storefront and its CardBrowser
+  mode were dropped.
+- Needs migration 019 (`shop_photos`) verified in production before deploy.
+- Backend 66 passed / 1 skipped with all DB suites against a local Postgres
+  (schema + migrations 010-020); `web/tests/shop-browser.mjs` 11/11. Evidence:
+  docs/agent-reports/cleanup-20261029.
+- Still open for a decision: GitHub branches
+  `fix/auto-allocation-protection-mismatch` (real duplicate-row bug, not on
+  main), `feature/unsorted-holding-box`, `fix/bulk-add-first-edition-sticky-toggle`.

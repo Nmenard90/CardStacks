@@ -3,9 +3,9 @@
 A full-stack trading card collection tracker — Pokémon (English and
 Japanese) first, other TCGs ready to switch on. Log the physical cards you
 own — by condition, print, and quantity — organize them into virtual binders
-and physical storage boxes that mirror your real shelves, value the
-collection from live market prices, and trade with other collectors through
-a share link.
+and physical storage boxes that mirror your real shelves, walk through them
+in a 3D collector's room, value the collection from live market prices, and
+sell or trade through a public shop page.
 
 > **Stack:** React 19 + TypeScript (Vite) frontend · Scala 3 + ZIO 2 + Doobie +
 > PostgreSQL backend · Supabase Auth · deployed on Railway.
@@ -26,7 +26,12 @@ lacks (Trainer Kits, Battle Academy, newest sets…) and every other game from
 per condition and per print from TCGTracking, falling back to Cardmarket's
 public price guide when TCGplayer has no sales — never estimates.
 
-- **Spaces** — a personal collection room with three areas: physical Storage
+- **The Room** (the home page) — your real binders, card boxes and display
+  cases as furniture in a 3D collector's room, on desktop and phones. Tap the
+  bookcase, box shelf or cabinet to open them; a binder opens as a book, a box
+  as a card rolodex. A short illustrated guide shows first-time visitors how
+  it works.
+- **Spaces** — the same collection as an editable list, with three areas: physical Storage
   (boxes and shelf units modeled on real-world formats, auto-filed set boxes
   that can be arranged by release date), a Binder Library, and a Display
   Gallery for showcase pieces.
@@ -35,9 +40,12 @@ public price guide when TCGplayer has no sales — never estimates.
 - **Add Cards** quickly when sorting through a physical pile.
 - **Track ownership** by condition (NM / LP / MP / HP / DMG), print (Normal,
   Reverse Holo, Poké Ball…) and quantity, with automatic valuation.
-- **Trade & Sell** — mark cards for trade (one at a time or thousands in
-  bulk), share one link, and receive offers of cash and/or cards with a
-  message thread per offer.
+- **Shop** — switch on a public page (`/shop/<name>`) that shows your cards
+  at today's market prices. Anyone can pick cards and send a buy or trade
+  request without an account (trade offers are searched from the catalog and
+  must cover the cards picked; a little cash can top them up). Requests,
+  older offers and the shop's settings live in **My Shop**. Optional
+  front/back photos per card, taken with an in-app camera guide.
 - **Trade Analyzer** — compare the value of cards given vs. received.
 - **Convention Mode** — quick on-the-floor price reporting.
 - **CSV import / export** of your collection.
@@ -49,7 +57,7 @@ never sees or stores a password, and there is no way to browse or discover
 other users' accounts from the app. A "Try the demo" button on the login
 screen starts a Supabase anonymous session instead, so anyone can look
 around without creating an account; demo accounts (and their data) are
-purged 24 hours after creation. Demo accounts can't trade.
+purged 24 hours after creation. Demo accounts can't open a shop.
 
 ---
 
@@ -57,10 +65,11 @@ purged 24 hours after creation. Demo accounts can't trade.
 
 | Area | What it does |
 |------|--------------|
+| Room (home) | 3D room drawn from your real binders, boxes and display cases; open them in place, fill an empty binder pocket, and jump to Add Cards / Shop / Explore from the furniture |
 | Spaces | Physical Storage, Binder Library, and Display Gallery for one collector's room, backed by real box/shelf presets; set boxes auto-filed and arranged by release date |
 | Explore | Browse by set, global name/number search, per-condition and per-print prices |
 | Add Cards | High-volume entry with live search-as-you-type and quick-add by number |
-| Trade & Sell | Trade list (bulk select, % of market pricing), share link (optionally the whole collection), offers + message threads |
+| Shop | Public page at market prices, buy and trade requests (no account needed), seller photos; My Shop inbox with Requests / Offers / Settings |
 | Trade Analyzer | Side-by-side give/get value comparison with a fairness verdict |
 | Convention Mode | Fast price lookups for use at events |
 | Import / Export | CSV round-trip of your collection |
@@ -180,12 +189,16 @@ instead.
 tcg/
 ├── web/              # React + TypeScript + Vite frontend
 │   └── src/
-│       ├── pages/        # SpacesLivePage (home), CollectionPage (Explore), BulkAddPage,
-│       │                 # BinderViewPage, TradePage, SharePage, AnalyzerPage, ConventionModePage
-│       ├── components/   # CardTile, OwnedCardTile, CardThumb, CardBrowser, HeaderNav, ...
-│       ├── api/          # One file per backend area (cards, collection, trading, ...)
-│       ├── lib/          # conditions (price math), game, cardSort, trading, csv, ...
+│       ├── pages/        # RoomPage (home), SpacesLivePage, CollectionPage (Explore), BulkAddPage,
+│       │                 # BinderViewPage, ShopPage, ShopRequestsPage (My Shop), AnalyzerPage,
+│       │                 # ConventionModePage, LegalPage
+│       ├── room3d/       # The 3D room (React Three Fiber): scene, furniture, data → room state
+│       ├── components/   # CardTile, OwnedCardTile, ShopCardTile, CardThumb, OfferInbox, HeaderNav, ...
+│       ├── api/          # One file per backend area (cards, collection, shop, trading, ...)
+│       ├── lib/          # conditions (price math), game, cardSort, csv, ...
 │       └── styles/       # Per-page CSS
+│   ├── tests/            # Browser tests (room, shop) and the room's live smoke test
+│   ├── server.mjs        # Production static server (+ Open Graph tags, card-art relay)
 ├── poketracker-v2/   # Scala 3 + ZIO backend (Dockerized)
 │   ├── src/main/scala/com/poketracker/
 │   │   ├── models/       # Plain data shapes (what a "Card" or "User" IS)
@@ -207,7 +220,7 @@ tcg/
 ## API
 
 Base path: `/api`. User scoping is by `userId` in the path. Every endpoint
-below except the catalog, share-page and rip-verdict routes requires an
+below except the catalog, public shop and rip-verdict routes requires an
 `Authorization: Bearer <supabase access token>` header — see
 **Authentication**. Most routes also take `?game=<id>` (default `pokemon`).
 
@@ -251,12 +264,6 @@ below except the catalog, share-page and rip-verdict routes requires an
 | POST | `/api/spaces/:userId/binders/:binderId/slots/:slotIndex/place` | Put a copy in a binder slot |
 | POST / DELETE | `/api/spaces/:userId/allocations[/:id]` | Assign / remove copies |
 
-**Shelf**
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/shelf/:userId` | Merged, ordered list of boxes + binders |
-| PUT | `/api/shelf/:userId/reorder` | Write a whole new order |
-
 **Binders**
 | Method | Path | Description |
 |--------|------|-------------|
@@ -277,17 +284,22 @@ below except the catalog, share-page and rip-verdict routes requires an
 | POST | `/api/storage/:userId/assign` | Bulk-assign cards to a drawer |
 | DELETE | `/api/storage/:userId/assign/:cardId` | Unassign a card |
 
-**Trading**
+**Shop**
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/share/:slug` | Public share page data (no auth) |
-| GET / PUT | `/api/trading/:userId/share` | Own share settings (creates the link) / update them |
-| POST | `/api/trading/:userId/share/regenerate` | New link; the old one stops working |
-| GET / PUT | `/api/trading/:userId/list` | Own trade list / add or update one card |
-| PUT | `/api/trading/:userId/list/bulk` | List many cards at once (capped to what's owned) |
-| POST | `/api/trading/:userId/list/remove` | Remove many at once |
-| DELETE | `/api/trading/:userId/list/:itemId` | Remove one |
-| GET / POST | `/api/trading/:userId/offers` | Offers made and received / make an offer |
+| GET | `/api/shop/:slug` | Public shop: cards at market prices, seller name/bio, which photos exist (no auth) |
+| POST | `/api/shop/:slug/requests` | Buyer sends a buy/trade request or a question (no auth) |
+| GET | `/api/shop/:slug/photo/:cardId/:side?cond=` | A seller photo, JPEG (no auth) |
+| GET | `/api/shop/from-share/:shareSlug` | Which shop an old `/s/<slug>` share link now leads to (no auth) |
+| GET / PUT | `/api/collection/:userId/shop-settings` | On/off, link name, shop name, bio, Messenger link |
+| GET | `/api/collection/:userId/shop-requests` | The seller's request inbox |
+| POST | `/api/collection/:userId/shop-requests/:id` | Mark a request new / answered / done |
+| PUT / DELETE | `/api/collection/:userId/shop-photos/:cardId/:side?cond=` | Upload (JPEG body) / remove a seller photo |
+
+**Offers** (older card offers, answered from My Shop → Offers; new ones come in as shop requests)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/trading/:userId/offers` | Offers made and received |
 | GET | `/api/trading/:userId/offers/:offerId` | One offer + thread (marks it read) |
 | PUT | `/api/trading/:userId/offers/:offerId/status` | Accept / decline / withdraw / complete / cancel |
 | POST | `/api/trading/:userId/offers/:offerId/messages` | Post to the thread |
@@ -371,14 +383,28 @@ sbt assembly
 
 ```bash
 cd poketracker-v2
-sbt test            # pure-logic suites
+sbt test                 # pure-logic suites
 cd ../web
-npx tsc -b          # typecheck (the production build runs this too)
+npx tsc -b               # typecheck (the production build runs this too)
 npx eslint .
+npm run test:room        # 3D room data/layout + card-art relay + CSS scoping unit tests
+npm run test:og          # shop link previews (Open Graph tags)
 ```
 
-`TradingDbSuite` runs against a real database only when
-`TRADING_IT_DB_URL` is set.
+**Database suites** (`TradingDbSuite`, `ShopProfileDbSuite`,
+`CollectionRemovalSuite`, parts of `MultiGameSuite`) run only when
+`TRADING_IT_DB_URL` / `SHOP_PROFILE_IT_DB_URL` / `COLLECTION_IT_DB_URL` point
+at a throwaway local Postgres (`jdbc:postgresql://127.0.0.1:<port>/postgres`)
+that has `schema.sql` and every `migration_*.sql` applied. Never point them at
+production.
+
+**Browser tests** (Playwright or playwright-core, mocked API — nothing real is
+changed): start a dev server with
+`VITE_SUPABASE_URL=https://qa.supabase.co VITE_SUPABASE_ANON_KEY=qa`, then
+`node web/tests/room-browser.mjs` (port 5179, or `ROOM_TEST_ORIGIN`) and
+`node web/tests/shop-browser.mjs` (port 5178, or `SHOP_TEST_ORIGIN`).
+`PLAYWRIGHT_MODULE` / `PLAYWRIGHT_CHROMIUM_EXECUTABLE` point at an install
+if Playwright isn't resolvable from `web/`.
 
 ---
 
@@ -410,6 +436,7 @@ Tracked in [`BUGS.md`](./BUGS.md); summary:
 - TCGplayer "last sold" pricing, broken out by condition (BUG-018).
 - Export scope picker (BUG-014) and a shared design system (BUG-013).
 - A Rip Tracker page (the backend endpoints exist).
+- Estimate a card's condition automatically from the shop's seller photos.
 - TCGplayer's catch-all promo groups (Blister Exclusives…) and Japanese
   One Piece aren't imported yet.
 
