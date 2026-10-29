@@ -175,8 +175,27 @@ tcg/
 
 ## Current state (2026-10-29)
 
-Branch `feat/3d-room` (worktree `.worktrees/room3d`) holds four commits on
-top of `main` (plus a docs commit), **NOT merged/live yet**:
+**LIVE in production.** `main` was fast-forwarded from `650949c` to `a65a2d3`
+on 2026-10-29 (owner-approved) and both Railway services deployed
+successfully: `tcg` (website, cardstacks.up.railway.app) and
+`hospitable-courtesy` (backend). A follow-up copy/docs commit (login-page
+wording, this section) was pushed after it. To roll back the release, `main`
+would go back to `650949c` (a force-push: ask the owner first); the database
+needs no rollback (the release only relied on tables that already existed).
+
+**Production checks after deploy (2026-10-29):** both services started clean
+(backend "Database connection pool ready" → "Server started"). Smoke test
+(server/API 7/7; desktop and phone: login, "Try the demo", room guide, 3D room
+and its three areas, Explore on a released set with art, Add Cards, Spaces,
+My Shop, `/trade` → My Shop, "Page not found", old `/s/` links, unknown shop,
+no page errors) passed. `web/tests/site-audit.mjs` against production: 44 page
+views, 7 with findings, all expected (404s for made-up shop names; inline
+footer links). Room frame rate in a GPU Chrome at phone size (390×844 @3x,
+touch): 49–57 fps, 44 fps with 4× CPU throttle. Note: headless Chromium here
+renders WebGL in software (~1 fps), so 3D screenshots time out there; judge
+3D performance in a GPU browser (chrome-devtools MCP), not headless.
+
+What the release contains (branch `feat/3d-room`, now merged):
 
 1. **Cleanup** (`chore/cleanup-20261029`) — removed dead pages/components
    (OwnedPage, ShelfPage, duplicate CollectionPage, CollectionShelf,
@@ -243,13 +262,31 @@ preview (`collection-integrated`), a collection overview
 with `git apply <name>.diff` and `tar -xzf <name>.untracked.tgz` in a fresh
 worktree of its branch from `all-refs.bundle`.
 
-GitHub branches kept for a decision: `fix/auto-allocation-protection-mismatch`
-(auto-filed copies saved with NULL protection → duplicate rows; not on main;
-its second commit is a one-off cleanup query), `feature/unsorted-holding-box`
-(file new cards into one Unsorted box instead of one per set — a behaviour
-change), `fix/bulk-add-first-edition-sticky-toggle` (probably superseded by
-main's 1st-Edition set list; check before deleting). `feature/shop-branding`
-and `feature/shop-photos` can be deleted once the branch above is merged.
+GitHub branches kept for a decision (the owner said not to delete or merge
+any yet): `fix/auto-allocation-protection-mismatch` (auto-filed copies saved
+with NULL protection → duplicate rows; not on main; its second commit is a
+one-off cleanup query), `feature/unsorted-holding-box` (file new cards into
+one Unsorted box instead of one per set — a behaviour change),
+`fix/bulk-add-first-edition-sticky-toggle` (probably superseded by main's
+1st-Edition set list; check before deleting). `feature/shop-branding` and
+`feature/shop-photos` are fully contained in the release and can be deleted
+when the owner agrees. Local branch `feat/3d-room` = `main` at `a65a2d3`.
+
+**Known issues (not blocking):**
+- The first time an area of the room is opened on a slow phone there is a
+  one-off stall (~0.6 s at 4× CPU throttle); afterwards areas open at ~55 fps.
+- `eslint`: 2 errors in `SpacesLivePage.tsx` that predate the release
+  (`setState` in an effect, a ref read during render).
+- The main JS chunk is over Vite's 500 kB warning (three.js is already split
+  out and lazy-loaded with the room).
+- Explore's "Missing" count is what TCGTracking lists for a new set, which can
+  be less than the printed set total shown beside it.
+- Login screen: "Create an account" sits on its own line, left-aligned under
+  "New here?" (pre-existing layout; for the UX audit).
+
+**Pending / next:** the owner wants a comprehensive UX audit and an
+interactive Pokémon card condition guide, on its own feature branch, not
+deployed until the owner reviews it. Branch decisions above.
 
 ## Earlier state (2026-10-25)
 

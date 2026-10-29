@@ -263,7 +263,7 @@ docs/agent-reports/shop-inviting-20261025. Photos remain a separate branch.
 ## Cleanup, Shop merge (2026-10-29)
 
 Audit of the repo before merging the 3D room (BUG-036..038). Everything is on
-branch `feat/3d-room` (cleanup → shop merge → room), not yet on `main`.
+branch `feat/3d-room` (cleanup → shop merge → room); live on `main` since 2026-10-29 (`a65a2d3`).
 - The shop branches (`feature/shop-branding`, `feature/shop-photos`) were
   replayed onto main. Their layout and trade rules won over main's later
   storefront, which had reintroduced "Sales only"; main's shop name/bio and
@@ -281,7 +281,7 @@ branch `feat/3d-room` (cleanup → shop merge → room), not yet on `main`.
 
 From the owner's report and `web/tests/site-audit.mjs` run against production
 and the branch. All fixed on `feat/3d-room`; report and screenshots:
-docs/agent-reports/site-audit-20261029.
+docs/agent-reports/site-audit-20261029. Live since 2026-10-29 (`a65a2d3`).
 - **BUG-039** Room: a tap on a binder/box/display card from across the room
   opened it without zooming in; on a phone the items were too small to read or
   hit, and the desk chair hid the box shelf (a tap there went to Add Cards).

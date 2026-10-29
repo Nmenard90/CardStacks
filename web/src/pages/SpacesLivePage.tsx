@@ -316,11 +316,11 @@ export function SpacesLivePage() {
 
   // Spaces is a main page anyone can bookmark, so it has to gate on
   // login itself rather than redirecting, or a logged-out visitor lands on
-  // a permanent "Building your collection room…" screen with no way in.
+  // a permanent "Setting up your Spaces…" screen with no way in.
   if (!user) return <main className="page-tracker spaces-concept"><LoginScreen /></main>
 
   if (loading) {
-    return <main className="page-tracker spaces-concept"><div className="spaces-live-status">Building your collection room…</div></main>
+    return <main className="page-tracker spaces-concept"><div className="spaces-live-status">Setting up your Spaces…</div></main>
   }
 
   return (

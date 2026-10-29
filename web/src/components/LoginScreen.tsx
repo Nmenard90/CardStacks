@@ -35,18 +35,18 @@ function GoogleIcon() {
   )
 }
 
-const SPACE_AREAS = [
+const ROOM_AREAS = [
   {
-    title: 'Storage',
-    body: "Real boxes on real shelf units — pick a preset like an 800-count long box or a 5-row monster box, stack it, and every card you assign lives in an actual drawer position.",
+    title: 'Card boxes',
+    body: 'Your boxes stand on a shelf, from 800-count long boxes to 5-row monster boxes. Tap the shelf to walk over, then a box to flip through it card by card.',
   },
   {
-    title: 'Binder Library',
-    body: "Arrange owned cards into virtual binder pages by pocket size (4/9/12), the same way you'd flip through a physical binder.",
+    title: 'Binders',
+    body: "Your binders fill the bookcase. Open one and turn its pages, 4, 9 or 12 pockets at a time, the same way you'd flip through the real thing.",
   },
   {
-    title: 'Display Gallery',
-    body: 'Showcase your favorites in a wall case, a lit cabinet, or a single-card pedestal — built for the cards you want to look at, not just store.',
+    title: 'Display cabinet',
+    body: 'Your favorite cards on show behind glass. Tap one to bring it up close with its condition and price.',
   },
 ]
 
@@ -145,12 +145,13 @@ export function LoginScreen() {
         </p>
 
         <div className="auth-explainer">
-          <h2>How Spaces work</h2>
+          <h2>Your collection room</h2>
           <p className="auth-explainer-lede">
-            Spaces is your collection room — every collector gets one, with three areas:
+            Sign in and you walk into a 3D room holding your real collection, with three areas
+            (prefer lists? Spaces shows the same collection as lists to organize):
           </p>
           <div className="auth-explainer-grid">
-            {SPACE_AREAS.map(area => (
+            {ROOM_AREAS.map(area => (
               <div className="auth-explainer-card" key={area.title}>
                 <h3>{area.title}</h3>
                 <p>{area.body}</p>
