@@ -1,6 +1,6 @@
 /**
  * UserService — business logic for user accounts: profile provisioning,
- * lookup, updates, reputation.
+ * lookup, updates.
  *
  * HOW IT WORKS
  *   Passwords and identity live entirely in Supabase Auth — this service
@@ -41,12 +41,6 @@ trait UserService:
 
   /** City-level only, never an exact address. */
   def updateLocation(userId: String, location: String): Task[Unit]
-
-  /** Recalculates and persists reputation. Called after a trade rating is submitted. */
-  def refreshReputation(userId: String): Task[Int]
-
-  /** True once a user has 3+ reports — the warning-badge threshold. */
-  def getReputationStatus(userId: String): Task[Boolean]
 
 object UserService:
 
@@ -115,16 +109,6 @@ object UserService:
       ZIO.when(location.trim.isEmpty)(
         ZIO.fail(new IllegalArgumentException("Location cannot be empty"))
       ) *> repo.updateLocation(userId, location.trim)
-
-    def refreshReputation(userId: String): Task[Int] =
-      for
-        // TODO: placeholder — real scoring math lands once trades feed into it.
-        score <- repo.countReportsAgainst(userId).flatMap(_ => ZIO.succeed(0))
-        _     <- repo.updateReputation(userId, score)
-      yield score
-
-    def getReputationStatus(userId: String): Task[Boolean] =
-      repo.countReportsAgainst(userId).map(_ >= 3)
 
   val layer: ZLayer[UserRepository, Nothing, UserService] =
     ZLayer.fromFunction(new Live(_))

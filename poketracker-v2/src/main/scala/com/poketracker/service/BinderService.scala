@@ -6,17 +6,15 @@
  *   Thin rules layer over BinderRepository: validates slot index range,
  *   rejects blank names, and builds new Binder objects client-side so a
  *   create doesn't need a round-trip read to know what it just saved.
- *   createBinder/deleteBinder also keep ShelfRepository's ordering table
- *   in sync.
  *
  * USED BY: BinderRoutes
- * DEPENDS ON: BinderRepository, ShelfRepository
+ * DEPENDS ON: BinderRepository
  */
 
 package com.poketracker.service
 
 import com.poketracker.models.*
-import com.poketracker.repository.{BinderRepository, ShelfRepository}
+import com.poketracker.repository.BinderRepository
 import zio.*
 import java.time.Instant
 import java.util.UUID
@@ -55,7 +53,7 @@ object BinderService:
   // Sanity cap, not a real limit — a 9-pocket binder with 100 pages is 900 slots.
   private val MaxSlots = 2000
 
-  final class Live(repo: BinderRepository, shelf: ShelfRepository) extends BinderService:
+  final class Live(repo: BinderRepository) extends BinderService:
 
     def getBinders(userId: String, game: String): Task[List[Binder]] =
       repo.findByUser(userId, game)
@@ -78,7 +76,7 @@ object BinderService:
         createdAt  = Instant.now(),
         updatedAt  = Instant.now()
       )
-      repo.create(binder, game) *> shelf.ensureExists(userId, "binder", binder.id) *> ZIO.succeed(binder)
+      repo.create(binder, game) *> ZIO.succeed(binder)
 
     def placeCard(userId: String, binderId: String, slotIndex: Int, card: Card): Task[Unit] =
       ZIO.when(slotIndex < 0 || slotIndex >= MaxSlots)(
@@ -116,7 +114,7 @@ object BinderService:
       repo.updatePocketSize(userId, id, pocketSize)
 
     def deleteBinder(userId: String, id: String): Task[Unit] =
-      repo.delete(userId, id) *> shelf.remove(userId, "binder", id)
+      repo.delete(userId, id)
 
-  val layer: ZLayer[BinderRepository & ShelfRepository, Nothing, BinderService] =
-    ZLayer.fromFunction(new Live(_, _))
+  val layer: ZLayer[BinderRepository, Nothing, BinderService] =
+    ZLayer.fromFunction(new Live(_))

@@ -201,64 +201,6 @@ export interface Binder {
   updatedAt: string
 }
 
-// ─── Shelf ───────────────────────────────────────────────────────────────────
-// Unifies storage boxes and binders into one ordered list — see api/shelf.ts.
-
-/** A binder's cover info only, no slots — all a shelf tile needs. */
-export interface BinderSummary {
-  id: string
-  userId: string
-  name: string
-  pocketSize: PocketSize
-  coverImage?: string
-  createdAt: string
-  updatedAt: string
-}
-
-export type ShelfEntry =
-  | { kind: 'box'; position: number; box: StorageBox }
-  | { kind: 'binder'; position: number; binder: BinderSummary }
-
-// ─── Trades ──────────────────────────────────────────────────────────────────
-
-export type TradeStatus = 'Open' | 'Pending' | 'Completed' | 'Cancelled'
-export type OfferStatus = 'Pending' | 'Accepted' | 'Declined' | 'Withdrawn'
-export type RatingValue = 'Positive' | 'Neutral' | 'Negative'
-
-/** A lightweight card snapshot for display/valuation inside a trade — not the full Card. */
-export interface TradeCard {
-  cardId: string
-  cardName: string
-  imageUrl: string
-  condition: string
-  price?: number
-}
-
-export interface TradeListing {
-  id: string
-  userId: string
-  game: string             // which card game, e.g. "pokemon" — trades aren't Pokémon-only
-  offering: TradeCard[]
-  wants?: TradeCard[]       // unset means "make me an offer," not "wants nothing"
-  cashOk: boolean
-  location: string
-  description?: string
-  status: TradeStatus
-  createdAt: string
-  updatedAt: string
-}
-
-export interface TradeOffer {
-  id: string
-  listingId: string
-  fromUserId: string
-  cards: TradeCard[]
-  cashAmount?: number
-  message?: string
-  status: OfferStatus
-  createdAt: string
-}
-
 // ─── Convention Mode ─────────────────────────────────────────────────────────
 
 export type PaymentType = 'cash' | 'card' | 'trade' | 'trade_credit' | 'unknown'

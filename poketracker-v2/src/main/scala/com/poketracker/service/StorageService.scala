@@ -6,16 +6,15 @@
  *   Thin rules layer over StorageRepository. Most methods are direct
  *   pass-throughs; the one with real logic is assignCards, which flags
  *   (but never blocks) when a set is being split across drawers.
- *   createBox/deleteBox also keep ShelfRepository's ordering table in sync.
  *
  * USED BY: StorageRoutes
- * DEPENDS ON: StorageRepository, ShelfRepository
+ * DEPENDS ON: StorageRepository
  */
 
 package com.poketracker.service
 
 import com.poketracker.models.*
-import com.poketracker.repository.{ShelfRepository, StorageRepository}
+import com.poketracker.repository.StorageRepository
 import zio.*
 
 trait StorageService:
@@ -58,7 +57,7 @@ object StorageService:
       val verb   = if overlap == 1 then "is" else "are"
       Some(s"$overlap other card$plural from the same set(s) $verb already in a different drawer.")
 
-  final class Live(repo: StorageRepository, shelf: ShelfRepository) extends StorageService:
+  final class Live(repo: StorageRepository) extends StorageService:
 
     def getBoxes(userId: String, game: String): Task[List[StorageBox]] = repo.findBoxesByUser(userId, game)
 
@@ -67,7 +66,6 @@ object StorageService:
         _      <- ZIO.when(name.trim.isEmpty)(ZIO.fail(new IllegalArgumentException("Box name cannot be empty")))
         _      <- ZIO.when(capacity < 0)(ZIO.fail(new IllegalArgumentException("Capacity cannot be negative")))
         box    <- repo.createBox(userId, name.trim, kind, boxType, capacity, color, game)
-        _      <- shelf.ensureExists(userId, "box", box.id)
         drawer <- ZIO.when(kind == "display_case")(repo.createDrawer(userId, box.id, "Display"))
       yield box.copy(drawers = drawer.toList)
 
@@ -77,7 +75,7 @@ object StorageService:
 
     def reorderBox(userId: String, id: String, position: Int): Task[Unit] = repo.reorderBox(userId, id, position)
     def deleteBox(userId: String, id: String): Task[Unit] =
-      repo.deleteBox(userId, id) *> shelf.remove(userId, "box", id)
+      repo.deleteBox(userId, id)
 
     def createDrawer(userId: String, boxId: String, name: String): Task[StorageDrawer] =
       ZIO.when(name.trim.isEmpty)(ZIO.fail(new IllegalArgumentException("Drawer name cannot be empty")))
@@ -107,5 +105,5 @@ object StorageService:
 
     def unassignCard(userId: String, cardId: String): Task[Unit] = repo.unassignCard(userId, cardId)
 
-  val layer: ZLayer[StorageRepository & ShelfRepository, Nothing, StorageService] =
-    ZLayer.fromFunction(new Live(_, _))
+  val layer: ZLayer[StorageRepository, Nothing, StorageService] =
+    ZLayer.fromFunction(new Live(_))

@@ -42,7 +42,6 @@ object Main extends ZIOAppDefault:
                        RipTrackerRepository.layer ++
                        StorageRepository.layer ++
                        RoomRepository.layer ++
-                       ShelfRepository.layer ++
                        TradingRepository.layer ++
                        GameRepository.layer)
 
@@ -65,15 +64,11 @@ object Main extends ZIOAppDefault:
         // services above (not just their repositories), so it can't join the batch.
         ripLayer    = (repoLayer ++ coreServices) >>> RipTrackerService.layer
 
-        // Same reason as ripLayer: ShelfService reads through the already-built
-        // StorageService/BinderService rather than their raw repositories.
-        shelfLayer  = (repoLayer ++ coreServices) >>> ShelfService.layer
-
         // Routes read buyer requests directly; nothing else depends on this, so it
         // sits outside repoLayer/coreServices.
         shopRepoLayer = ZLayer.succeed(transactor) >>> ShopRepository.layer
 
-        appLayer    = coreServices ++ ripLayer ++ shelfLayer ++ shopRepoLayer ++ SupabaseJwtVerifier.layer
+        appLayer    = coreServices ++ ripLayer ++ shopRepoLayer ++ SupabaseJwtVerifier.layer
 
         // Public: no Supabase session required (catalog browsing, health check,
         // and the read-only rip-or-hold calculation). Catalog refresh/admin
@@ -92,7 +87,6 @@ object Main extends ZIOAppDefault:
                            UserRoutes.routes ++
                            BinderRoutes.routes ++
                            StorageRoutes.routes ++
-                           ShelfRoutes.routes ++
                            RoomRoutes.routes ++
                            RipRoutes.sessionRoutes ++
                            TradingRoutes.routes ++

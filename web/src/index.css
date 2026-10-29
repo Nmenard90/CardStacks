@@ -5,7 +5,6 @@
  * legible and uncluttered for adults. */
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Baloo+2:wght@500;600;700;800&family=Bangers&family=Nunito:wght@400;500;600;700;800&display=swap');
 @import './styles/tracker.css';
-@import './styles/shelf.css';
 @import './styles/binder.css';
 @import './styles/analyzer.css';
 @import './styles/convention.css';

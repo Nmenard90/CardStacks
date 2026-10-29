@@ -32,7 +32,6 @@ trait UserRepository:
   def findAll: Task[List[User]]
 
   def create(user: User): Task[Unit]
-  def updateReputation(userId: String, reputation: Int): Task[Unit]
   def updateLocation(userId: String, location: String): Task[Unit]
 
   /** Called once an anonymous demo session links a real email/password —
@@ -43,9 +42,6 @@ trait UserRepository:
    *  collection/binders/storage) created before the given instant. Returns
    *  the number of rows removed. */
   def deleteExpiredAnonymous(before: Instant): Task[Int]
-
-  /** 3+ triggers a warning badge on the user's profile/listings. */
-  def countReportsAgainst(userId: String): Task[Int]
 
 object UserRepository:
 
@@ -105,12 +101,6 @@ object UserRepository:
       """
         .update.run.void.transact(xa)
 
-    def updateReputation(userId: String, reputation: Int): Task[Unit] =
-      sql"""
-        UPDATE users SET reputation = $reputation WHERE id = $userId
-      """
-        .update.run.void.transact(xa)
-
     def updateLocation(userId: String, location: String): Task[Unit] =
       sql"""
         UPDATE users SET location = $location WHERE id = $userId
@@ -128,14 +118,6 @@ object UserRepository:
         DELETE FROM users WHERE is_anonymous = true AND created_at < $before
       """
         .update.run.transact(xa)
-
-    def countReportsAgainst(userId: String): Task[Int] =
-      sql"""
-        SELECT COUNT(*) FROM user_reports WHERE reported_user_id = $userId
-      """
-        .query[Int]
-        .unique
-        .transact(xa)
 
   val layer: ZLayer[Transactor[Task], Nothing, UserRepository] =
     ZLayer.fromFunction(new Live(_))

@@ -1,20 +1,25 @@
-files/node_modules/
-files/card-data/
-files/package-lock.json
-package-lock.json
 # web/ commits its lockfile: without it every Railway build re-resolved
 # dependencies from scratch and broke on an npm install crash (2026-10-15).
+package-lock.json
 !web/package-lock.json
+
+# Local worktrees (one per task; see AGENTS.md) and Claude Code's own
+.worktrees/
+.claude/
 
 # Applied patch files from the Claude workflow — never commit these
 *.patch
-# Local Foreman runtime
-.foreman/
-tcg-agent-worktrees/
-*.foreman.log
-.turbo/
 
-# Scala/Metals/Bloop IDE build-server caches (legacy poketracker-v2 tooling)
+# Scala/Metals/Bloop IDE build-server caches
 .metals/
 .bloop/
+.bsp/
 target/
+poketracker-v2/project/metals.sbt
+
+# Windows: "> nul" from a POSIX shell creates a real file named nul
+nul
+
+# Editor settings stay per-machine
+.vscode/
+.idea/
