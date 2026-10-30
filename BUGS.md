@@ -318,3 +318,7 @@ docs/agent-reports/site-audit-20261029. Live since 2026-10-29 (`a65a2d3`).
   owner's 2560-wide window: the slow-device fallback had lowered the canvas
   resolution for good and turned off edge smoothing. Now only moving frames
   are drawn smaller; still views are full resolution with edge smoothing.
+  The owner then found it still slow to sharpen: the camera's easing tail
+  counted as moving for ~1 s. Fixed (camera snaps the last mm; only visible
+  glides are drawn small), and every frame got cheaper (Lambert room
+  material, no bump maps: 107 → 48 ms per sharp frame on the CPU).

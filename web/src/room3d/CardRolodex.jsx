@@ -66,7 +66,7 @@ function RolodexCard({ index, scrollRef, card, selected, front, hasSelection, on
       onClick={(event) => { event.stopPropagation(); if (event.delta < 6) onSelect(card); }}
     >
       <CardSlab width={CARD_W} height={CARD_H} depth={0.018} radius={0.022} smoothness={3} castShadow>
-        <meshStandardMaterial
+        <roomMaterial
           map={texture}
           roughness={0.28}
           metalness={0.08}

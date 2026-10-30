@@ -12,7 +12,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const hex = (color) => (color ? color.getHexString() : '');
 
-/** Everything that changes how a standard material looks, as a string. Equal keys mean interchangeable materials. */
+/** Everything that changes how a room material looks, as a string. Equal keys mean interchangeable materials. */
 export const materialKey = (m) => [m.type, hex(m.color), hex(m.emissive), m.emissiveIntensity, m.roughness, m.metalness, m.map?.uuid, m.bumpMap?.uuid, m.bumpScale, m.side, m.vertexColors, m.envMapIntensity].join('|');
 
 /** Hands out one shared material per distinct look. */
@@ -30,7 +30,7 @@ export class MaterialPool {
 const mergeable = (o) => {
   if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh) return false;
   const m = o.material;
-  if (Array.isArray(m) || !m.isMeshStandardMaterial || m.transparent) return false;
+  if (Array.isArray(m) || !m.isRoomMaterial || m.transparent) return false;
   const a = o.geometry.attributes;
   return Boolean(a.position && a.normal && a.uv);
 };

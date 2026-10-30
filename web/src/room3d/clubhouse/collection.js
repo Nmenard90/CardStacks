@@ -13,6 +13,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { THREE, M, at, rbox, cyl, ball, glass, glow, disposeTree, makeStyle } from './kit.js';
 import { MaterialPool, mergeStatic } from './merge.js';
+import { RoomMaterial } from '../look/simpleMaterial.js';
 
 // ── card boxes ────────────────────────────────────────────────────────────
 const BOX = { L: 0.62, W: 0.125, bodyH: 0.16, lidH: 0.055, overlap: 0.035 }; // a 15 × 3 × 4 in box at 0.0415 m per inch
@@ -34,10 +35,10 @@ export function makeCardBoxParts(theme) {
     lids.push(slab(BOX.W, BOX.lidH, BOX.L, 0.012, x, bottom + BOX.bodyH - BOX.overlap + BOX.lidH / 2 - LID_ORIGIN, FRONT_Z));
   }
   const parts = {
-    boxBody: { geometry: mergeGeometries(bodies, false), material: new THREE.MeshStandardMaterial({ color: C.cream, roughness: 0.62 }) },
-    boxLid: { geometry: mergeGeometries(lids, false), material: new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.55 }) },
-    boxPlate: { geometry: slab(0.54, 0.135, 0.012, 0.004, 0, 0, -0.018), material: new THREE.MeshStandardMaterial({ color: '#F6EEDB', roughness: 0.6 }) },
-    boxHandle: { geometry: slab(0.2, 0.014, 0.014, 0.005, 0, 0, 0), material: new THREE.MeshStandardMaterial({ color: C.amber, metalness: 0.6, roughness: 0.35 }) },
+    boxBody: { geometry: mergeGeometries(bodies, false), material: new RoomMaterial({ color: C.cream, roughness: 0.62 }) },
+    boxLid: { geometry: mergeGeometries(lids, false), material: new RoomMaterial({ color: '#ffffff', roughness: 0.55 }) },
+    boxPlate: { geometry: slab(0.54, 0.135, 0.012, 0.004, 0, 0, -0.018), material: new RoomMaterial({ color: '#F6EEDB', roughness: 0.6 }) },
+    boxHandle: { geometry: slab(0.2, 0.014, 0.014, 0.005, 0, 0, 0), material: new RoomMaterial({ color: C.amber, metalness: 0.6, roughness: 0.35 }) },
   };
   bodies.forEach((g) => g.dispose()); lids.forEach((g) => g.dispose());
   const spec = { labelZ: -0.357, labelW: 0.5, labelH: 0.115, labelDy: BASE_Y + 0.09, handleDy: BASE_Y + 0.02 }; // plate on the body front, just above the shelf
