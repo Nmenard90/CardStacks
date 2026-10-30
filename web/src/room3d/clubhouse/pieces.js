@@ -8,6 +8,7 @@
 import {
   THREE, M, at, rbox, cyl, ball, torus, capsule, glow, glass, canvasTexture, rrectPath, rng, card, cardTexture, labelTexture, paintNoise, weave,
 } from './kit.js';
+import { RoomMaterial } from '../look/simpleMaterial.js';
 
 // ── textures drawn from the theme ─────────────────────────────────────────
 function printTex(C, seed) {
@@ -57,16 +58,16 @@ function desk(S) {
   const y0 = 0.77;
   // open binder with card pages
   g.add(at(rbox(0.66, 0.02, 0.48, 0.01, lac(C.teal)), -0.4, y0 + 0.01, 0.02));
-  const pages = M(new THREE.PlaneGeometry(0.6, 0.42), new THREE.MeshStandardMaterial({ map: pagesTex(C, [3, 8, 14, 19, 22, 27, 31, 5, 11, 16, 20, 25]), roughness: 0.5 }), { cast: false }); pages.rotation.x = -Math.PI / 2; pages.position.set(-0.4, y0 + 0.022, 0.02); g.add(pages);
+  const pages = M(new THREE.PlaneGeometry(0.6, 0.42), new RoomMaterial({ map: pagesTex(C, [3, 8, 14, 19, 22, 27, 31, 5, 11, 16, 20, 25]), roughness: 0.5 }), { cast: false }); pages.rotation.x = -Math.PI / 2; pages.position.set(-0.4, y0 + 0.022, 0.02); g.add(pages);
   // sleeves and deck boxes
-  [0, 1, 2].forEach((k) => g.add(at(rbox(0.1, 0.012, 0.14, 0.004, new THREE.MeshStandardMaterial({ color: ['#F3E7D0', '#CFE9E1', '#F5D8B0'][k], roughness: 0.3, transparent: true, opacity: 0.85 })), 0.04, y0 + 0.008 + k * 0.014, 0.17)));
+  [0, 1, 2].forEach((k) => g.add(at(rbox(0.1, 0.012, 0.14, 0.004, new RoomMaterial({ color: ['#F3E7D0', '#CFE9E1', '#F5D8B0'][k], roughness: 0.3, transparent: true, opacity: 0.85 })), 0.04, y0 + 0.008 + k * 0.014, 0.17)));
   [[C.coral, 0.2], [C.teal, 0.29], [C.amber, 0.38]].forEach(([c, x]) => g.add(at(rbox(0.07, 0.1, 0.095, 0.012, lac(c)), x, y0 + 0.05, 0.12)));
   g.add(at(rbox(0.07, 0.1, 0.095, 0.012, lac(C.mint)), 0.245, y0 + 0.15, 0.12));
   // desk lamp, a visible light source
   const lamp = new THREE.Group(); lamp.position.set(0.68, y0, -0.2);
   lamp.add(at(cyl(0.09, 0.1, 0.03, lac(C.ink)), 0, 0.015, 0)); const a1 = cyl(0.008, 0.008, 0.42, lac(C.ink), 12); a1.position.set(0.05, 0.22, 0); a1.rotation.z = -0.35; lamp.add(a1);
   const a2 = cyl(0.008, 0.008, 0.4, lac(C.ink), 12); a2.position.set(-0.04, 0.5, 0); a2.rotation.z = 0.9; lamp.add(a2);
-  const head = cyl(0.04, 0.1, 0.12, new THREE.MeshStandardMaterial({ color: C.coral, emissive: C.amber, emissiveIntensity: night ? 1.6 : 0.5, roughness: 0.5 }), 24); head.position.set(-0.16, 0.6, 0); head.rotation.z = 0.5; lamp.add(head);
+  const head = cyl(0.04, 0.1, 0.12, new RoomMaterial({ color: C.coral, emissive: C.amber, emissiveIntensity: night ? 1.6 : 0.5, roughness: 0.5 }), 24); head.position.set(-0.16, 0.6, 0); head.rotation.z = 0.5; lamp.add(head);
   if (S.lights) { const dl = new THREE.PointLight('#ffb15e', night ? 2.2 : 0.35, 2.4, 2); dl.position.set(-0.2, 0.55, 0); lamp.add(dl); }
   g.add(lamp);
   // mug, pen cup, notepad, loupe
@@ -85,7 +86,7 @@ function desk(S) {
   const back = rbox(0.5, 0.5, 0.06, 0.03, fab(C.teal)); back.position.set(0, 0.74, -0.22); back.rotation.x = 0.08; chair.add(back);
   [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => chair.add(at(cyl(0.02, 0.016, 0.44, oak(C.oakDark), 12), sx * 0.21, 0.22, sz * 0.2))); g.add(chair);
   const rugT = canvasTexture(256, 256, (c, W) => { for (let i = 0; i < 6; i++) { c.fillStyle = i % 2 ? C.cream : C.teal; c.beginPath(); c.arc(W / 2, W / 2, W / 2 - i * 20, 0, 7); c.fill(); } });
-  const rug = M(new THREE.CircleGeometry(0.62, 40), new THREE.MeshStandardMaterial({ map: rugT, roughness: 1, bumpMap: weave(), bumpScale: 1.2 }), { cast: false }); rug.rotation.x = -Math.PI / 2; rug.position.set(-0.4, 0.01, 0.6); g.add(rug);
+  const rug = M(new THREE.CircleGeometry(0.62, 40), new RoomMaterial({ map: rugT, roughness: 1, bumpMap: weave(), bumpScale: 1.2 }), { cast: false }); rug.rotation.x = -Math.PI / 2; rug.position.set(-0.4, 0.01, 0.6); g.add(rug);
   return g;
 }
 
@@ -93,8 +94,8 @@ function pinboard(S) {
   const { C, oak, lac } = S;
   const g = new THREE.Group();
   g.add(at(rbox(1.7, 0.98, 0.05, 0.02, oak(C.oakDark)), 0, 0, 0));
-  const cork = M(new THREE.PlaneGeometry(1.6, 0.88), new THREE.MeshStandardMaterial({ map: corkTex(), roughness: 0.95 }), { cast: false }); cork.position.z = 0.027; g.add(cork);
-  const sheet = (map, w, h, x, y, rot, c) => { const m = M(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map, roughness: 0.6 }), { cast: false }); m.position.set(x, y, 0.034); m.rotation.z = rot; g.add(m); g.add(at(ball(0.014, lac(c), 10), x, y + h / 2 - 0.02, 0.045)); };
+  const cork = M(new THREE.PlaneGeometry(1.6, 0.88), new RoomMaterial({ map: corkTex(), roughness: 0.95 }), { cast: false }); cork.position.z = 0.027; g.add(cork);
+  const sheet = (map, w, h, x, y, rot, c) => { const m = M(new THREE.PlaneGeometry(w, h), new RoomMaterial({ map, roughness: 0.6 }), { cast: false }); m.position.set(x, y, 0.034); m.rotation.z = rot; g.add(m); g.add(at(ball(0.014, lac(c), 10), x, y + h / 2 - 0.02, 0.045)); };
   sheet(cardTexture(5), 0.24, 0.34, -0.62, 0.12, 0.05, C.coral); sheet(cardTexture(11), 0.24, 0.34, -0.33, 0.16, -0.04, C.mint); sheet(cardTexture(17), 0.24, 0.34, 0.5, 0.08, 0.06, C.amber);
   sheet(printTex(C, 2), 0.34, 0.42, 0.1, 0.06, -0.03, C.teal);
   [[-0.28, -0.22, 0.08, '#F5E3A0'], [0.34, -0.26, -0.06, '#CDEBDD'], [-0.62, -0.26, -0.05, '#F5E3A0'], [0.64, -0.22, 0.07, '#F4D1C2']].forEach(([x, y, r, col]) => sheet(noteTex(col), 0.16, 0.16, x, y, r, C.coral));
@@ -122,7 +123,7 @@ function drawerCart(S) {
   g.add(at(rbox(0.5, 0.7, 0.5, 0.025, oak()), 0, 0.42, 0));
   [['Sleeves', C.teal], ['Deck Boxes', C.coral], ['Dice', C.amber]].forEach(([name, col], i) => {
     g.add(at(rbox(0.44, 0.19, 0.02, 0.01, lac(col)), 0, 0.2 + i * 0.21, 0.255));
-    const plate = M(new THREE.PlaneGeometry(0.28, 0.07), new THREE.MeshStandardMaterial({ map: labelTexture(name, C.cream, C.ink, 256, 80), roughness: 0.6 }), { cast: false }); plate.position.set(0, 0.2 + i * 0.21, 0.267); g.add(plate);
+    const plate = M(new THREE.PlaneGeometry(0.28, 0.07), new RoomMaterial({ map: labelTexture(name, C.cream, C.ink, 256, 80), roughness: 0.6 }), { cast: false }); plate.position.set(0, 0.2 + i * 0.21, 0.267); g.add(plate);
   });
   [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => g.add(at(ball(0.035, lac(C.ink), 10), sx * 0.2, 0.04, sz * 0.2)));
   g.add(at(rbox(0.3, 0.02, 0.22, 0.008, oak(C.oakDark)), 0, 0.78, 0)); [0, 1].forEach((k) => g.add(at(rbox(0.08, 0.06, 0.1, 0.01, lac([C.mint, C.coral][k])), -0.07 + k * 0.1, 0.82, 0)));
@@ -139,7 +140,7 @@ function sofa(S) {
   [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => g.add(at(cyl(0.035, 0.025, 0.12, oak(C.oakDark), 10), sx * 0.95, 0.06, sz * 0.38)));
   [[-0.62, C.cream, 0.15, 0.2], [-0.2, C.teal, -0.12, -0.12], [0.62, C.amber, -0.1, 0.18]].forEach(([x, col, rz, ry]) => { const p = rbox(0.42, 0.4, 0.13, 0.07, fab(col)); p.position.set(x, 0.78, -0.02); p.rotation.set(-0.15, ry, rz); g.add(p); });
   const throwTex = stripeTex('#EDE0C4', C.teal); throwTex.wrapS = throwTex.wrapT = THREE.RepeatWrapping;
-  const blanket = new THREE.MeshStandardMaterial({ map: throwTex, roughness: 1 });
+  const blanket = new RoomMaterial({ map: throwTex, roughness: 1 });
   g.add(at(rbox(0.3, 0.035, 0.62, 0.014, blanket), 0.99, 0.815, 0.1)); g.add(at(rbox(0.035, 0.52, 0.62, 0.014, blanket), 1.14, 0.56, 0.1));
   return g;
 }
@@ -177,7 +178,7 @@ function coffeeTable(S) {
 function rug(S, props) {
   const { C } = S; const w = props.w ?? 2.6; const d = props.d ?? 3.0;
   const g = new THREE.Group();
-  const plane = M(new THREE.PlaneGeometry(w, d), new THREE.MeshStandardMaterial({ map: rugTex(C, w, d), roughness: 1, transparent: true }), { cast: false });
+  const plane = M(new THREE.PlaneGeometry(w, d), new RoomMaterial({ map: rugTex(C, w, d), roughness: 1, transparent: true }), { cast: false });
   plane.rotation.x = -Math.PI / 2; plane.position.y = 0.012; g.add(plane);
   return g;
 }
@@ -198,7 +199,7 @@ function floorCushions(S) {
 function floorLamp(S) {
   const { C, lac, night } = S; const g = new THREE.Group();
   g.add(at(cyl(0.16, 0.18, 0.03, lac(C.ink), 24), 0, 0.015, 0)); g.add(at(cyl(0.012, 0.012, 1.5, lac(C.ink), 8), 0, 0.78, 0));
-  const shade = cyl(0.2, 0.26, 0.34, new THREE.MeshStandardMaterial({ color: C.cream, emissive: C.amber, emissiveIntensity: night ? 1.8 : 0.45, roughness: 0.85 }), 32); shade.position.y = 1.66; g.add(shade);
+  const shade = cyl(0.2, 0.26, 0.34, new RoomMaterial({ color: C.cream, emissive: C.amber, emissiveIntensity: night ? 1.8 : 0.45, roughness: 0.85 }), 32); shade.position.y = 1.66; g.add(shade);
   if (S.lights) { const l = new THREE.PointLight('#ffc477', night ? 8 : 3.2, 5, 1.7); l.position.set(0.1, 1.6, 0); g.add(l); }
   return g;
 }
@@ -237,13 +238,13 @@ function frame(S, props) {
   const [kind, n] = String(props.art ?? 'print:1').split(':'); const seed = Number(n) || 1;
   const g = new THREE.Group();
   g.add(at(rbox(w, h, 0.05, 0.015, oak(C.oakDark)), 0, 0, 0)); g.add(at(rbox(w - 0.08, h - 0.08, 0.02, 0.01, lac(C.cream)), 0, 0, 0.02));
-  const art = M(new THREE.PlaneGeometry(w - 0.2, h - 0.22), new THREE.MeshStandardMaterial({ map: kind === 'card' ? cardTexture(seed) : printTex(C, seed), roughness: 0.5 }), { cast: false }); art.position.z = 0.032; g.add(art);
+  const art = M(new THREE.PlaneGeometry(w - 0.2, h - 0.22), new RoomMaterial({ map: kind === 'card' ? cardTexture(seed) : printTex(C, seed), roughness: 0.5 }), { cast: false }); art.position.z = 0.032; g.add(art);
   return g;
 }
 
 function clock(S) {
   const { C, oak } = S; const g = new THREE.Group();
-  const face = M(new THREE.CircleGeometry(0.22, 36), new THREE.MeshStandardMaterial({ map: clockTex(C), roughness: 0.6 }), { cast: false }); face.position.z = 0.02; g.add(face); g.add(torus(0.23, 0.028, oak(C.oakDark), Math.PI * 2, 36));
+  const face = M(new THREE.CircleGeometry(0.22, 36), new RoomMaterial({ map: clockTex(C), roughness: 0.6 }), { cast: false }); face.position.z = 0.02; g.add(face); g.add(torus(0.23, 0.028, oak(C.oakDark), Math.PI * 2, 36));
   return g;
 }
 
@@ -265,7 +266,7 @@ function slippers(S) {
 
 function basket(S) {
   const { C, lac, fab } = S; const g = new THREE.Group();
-  g.add(at(cyl(0.2, 0.17, 0.3, new THREE.MeshStandardMaterial({ color: '#C99C62', roughness: 0.95, bumpMap: weave(), bumpScale: 2 }), 28), 0, 0.15, 0));
+  g.add(at(cyl(0.2, 0.17, 0.3, new RoomMaterial({ color: '#C99C62', roughness: 0.95, bumpMap: weave(), bumpScale: 2 }), 28), 0, 0.15, 0));
   const rim = at(torus(0.2, 0.014, lac(C.oakDark), Math.PI * 2, 28), 0, 0.3, 0); rim.rotation.x = Math.PI / 2; g.add(rim);
   const blanket = at(rbox(0.3, 0.1, 0.22, 0.04, fab(C.teal)), 0, 0.33, 0); blanket.rotation.y = 0.4; g.add(blanket);
   return g;
@@ -275,7 +276,7 @@ function basket(S) {
 /** A sleeping dog, curled up on his side: black back and ears, tan cheeks, brows and legs, white chest with black flecks. */
 function sleepingDog() {
   const g = new THREE.Group();
-  const fur = (c, r = 0.85) => new THREE.MeshStandardMaterial({ color: c, roughness: r, bumpMap: paintNoise(), bumpScale: 0.5 });
+  const fur = (c, r = 0.85) => new RoomMaterial({ color: c, roughness: r, bumpMap: paintNoise(), bumpScale: 0.5 });
   const BLACK = fur('#17120f'); const TAN = fur('#a4622f'); const WHITE = fur('#f1ebe0'); const NOSE = fur('#0c0a09', 0.35);
   const ell = (rx, ry, rz, m, x, y, z, seg = 20) => { const e = ball(1, m, seg); e.scale.set(rx, ry, rz); e.position.set(x, y, z); return e; };
   g.add(ell(0.3, 0.16, 0.2, BLACK, 0, 0.18, 0));
@@ -319,7 +320,7 @@ const nameplateTexture = (label) => canvasTexture(512, 160, (c, W, H) => {
 
 function dogBed(S, props) {
   const { C, oak, lac, fab } = S; const name = String(props.name ?? 'GRATON').slice(0, 12).toUpperCase(); const g = new THREE.Group();
-  const bedMat = new THREE.MeshStandardMaterial({ color: C.bed, roughness: 0.95, bumpMap: weave(), bumpScale: 1.4 });
+  const bedMat = new RoomMaterial({ color: C.bed, roughness: 0.95, bumpMap: weave(), bumpScale: 1.4 });
   g.add(at(cyl(0.6, 0.6, 0.05, fab('#E8D9B8'), 44), 0, 0.025, 0));
   const pillow = ball(1, fab(C.bedCushion), 32); pillow.scale.set(0.48, 0.07, 0.48); pillow.position.set(0, 0.08, 0); g.add(pillow);
   const rim = torus(0.53, 0.075, bedMat, Math.PI * 2, 44); rim.rotation.x = Math.PI / 2; rim.position.y = 0.085; g.add(rim);
@@ -327,17 +328,17 @@ function dogBed(S, props) {
   const plateAngle = 0.5; // where on the rim it sits, measured from the bed's front (+z) toward +x
   const plate = new THREE.Group(); plate.position.set(Math.sin(plateAngle) * 0.535, 0.162, Math.cos(plateAngle) * 0.535); plate.rotation.set(-0.95, plateAngle, 0, 'YXZ'); // leans back on the rim's top, like a placard
   plate.add(at(rbox(0.25, 0.085, 0.014, 0.006, oak(C.oakDark)), 0, 0, 0));
-  const face = M(new THREE.PlaneGeometry(0.235, 0.0725), new THREE.MeshStandardMaterial({ map: nameplateTexture(name), roughness: 0.55 }), { cast: false }); face.position.z = 0.0075; plate.add(face); g.add(plate);
+  const face = M(new THREE.PlaneGeometry(0.235, 0.0725), new RoomMaterial({ map: nameplateTexture(name), roughness: 0.55 }), { cast: false }); face.position.z = 0.0075; plate.add(face); g.add(plate);
   const bowl = new THREE.Group(); bowl.position.set(0.8, 0, 0.5); bowl.rotation.y = -2.56;
   const band = canvasTexture(1024, 256, (c, W, H) => {
     c.fillStyle = C.teal; c.fillRect(0, 0, W, H); c.fillStyle = '#E8D9B8'; c.fillRect(0, H * 0.3, W, H * 0.42);
     c.fillStyle = C.ink; c.font = "800 120px 'Nunito', system-ui, sans-serif"; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(name, W / 2, H * 0.52);
     [W / 2 - 280, W / 2 + 280].forEach((x) => { c.beginPath(); c.ellipse(x, H * 0.57, 20, 16, 0, 0, 7); c.fill(); [[-22, -20], [-8, -32], [8, -32], [22, -20]].forEach(([dx, dy]) => { c.beginPath(); c.ellipse(x + dx, H * 0.57 + dy + 8, 6, 8, 0, 0, 7); c.fill(); }); });
   });
-  bowl.add(at(M(new THREE.CylinderGeometry(0.11, 0.085, 0.06, 36, 1, true), new THREE.MeshStandardMaterial({ map: band, roughness: 0.5, side: THREE.DoubleSide })), 0, 0.03, 0));
+  bowl.add(at(M(new THREE.CylinderGeometry(0.11, 0.085, 0.06, 36, 1, true), new RoomMaterial({ map: band, roughness: 0.5, side: THREE.DoubleSide })), 0, 0.03, 0));
   bowl.add(at(cyl(0.085, 0.085, 0.006, lac(C.teal), 36), 0, 0.003, 0));
-  bowl.add(at(cyl(0.1, 0.1, 0.004, new THREE.MeshStandardMaterial({ color: '#8fd0e0', roughness: 0.12 }), 36), 0, 0.045, 0)); g.add(bowl);
-  g.add(at(ball(0.035, new THREE.MeshStandardMaterial({ color: '#C9D94A', roughness: 0.9 }), 16), 0.7, 0.035, -0.5));
+  bowl.add(at(cyl(0.1, 0.1, 0.004, new RoomMaterial({ color: '#8fd0e0', roughness: 0.12 }), 36), 0, 0.045, 0)); g.add(bowl);
+  g.add(at(ball(0.035, new RoomMaterial({ color: '#C9D94A', roughness: 0.9 }), 16), 0.7, 0.035, -0.5));
   const bone = capsule(0.014, 0.1, lac(C.cream)); bone.position.set(0.95, 0.025, -0.35); bone.rotation.set(0, 0.6, Math.PI / 2); g.add(bone);
   return g;
 }

@@ -2,7 +2,7 @@
  * holoFoil.js — a rainbow foil shimmer for holographic cards.
  *
  * `isHoloRarity` decides which cards get it (by the card's own rarity text, so plain "Rare" cards stay matte).
- * `applyHoloFoil` patches a MeshStandardMaterial in place: a rainbow that shifts with the viewing angle, plus a slow diagonal
+ * `applyHoloFoil` patches a card's material (look/simpleMaterial.js) in place: a rainbow that shifts with the viewing angle, plus a slow diagonal
  * glint, both limited to the artwork window. It adds no textures, no draw calls and no extra meshes.
  */
 
@@ -14,7 +14,7 @@ const HOLO_WORDS = /holo|reverse|ultra|secret|illustration|special|hyper|rainbow
 export const isHoloRarity = (rarity) => typeof rarity === 'string' && HOLO_WORDS.test(rarity);
 
 /**
- * @param {import('three').MeshStandardMaterial} material
+ * @param {import('three').Material} material
  * @returns {{ uTime: { value: number }, uStrength: { value: number } }} uniforms the caller can drive each frame
  */
 export function applyHoloFoil(material) {
@@ -49,7 +49,7 @@ const REDUCED_MOTION = typeof window !== 'undefined' ? window.matchMedia?.('(pre
  * @param {string|null|undefined} rarity
  * @param {boolean} enabled false leaves the material untouched (the original nook)
  * @returns {{ materialRef: import('react').MutableRefObject<any>, drive: (elapsed: number, delta: number, strength: number) => void }}
- *   put `materialRef` on the card's meshStandardMaterial and call `drive` every frame; the glint holds still under reduced motion
+ *   put `materialRef` on the card's roomMaterial and call `drive` every frame; the glint holds still under reduced motion
  */
 export function useHoloFoil(rarity, enabled) {
   const materialRef = useRef(null);

@@ -219,11 +219,23 @@ renders WebGL in software (~1 fps), so 3D screenshots time out there; judge
   stretched to the canvas, and the room is redrawn at full resolution the
   moment it stops — so it is never blurry while still (the first version
   lowered the canvas resolution permanently and turned edge smoothing off;
-  the owner found it "very pixelated", so both were reverted). Also: no
-  point lights in any tier, one shadow-casting light (PCF, not soft), no
-  environment map (no visible difference, ~20% of pixel cost), physical
-  materials → standard (`look/simpleMaterial.js`), and the lighting no
-  longer rebuilds drei's environment cube on every hover. Measured on the owner's
+  the owner found it "very pixelated", so both were reverted). Only visible
+  camera glides (>3 mm or 0.0015 rad a frame) are drawn small; the camera
+  snaps the last millimetre so it sharpens at once. The low-res target is
+  flagged `isXRRenderTarget` (half float, output colour space) so it reuses
+  the screen's shader programs — an ordinary target compiled a second
+  program per material on the first glide (0.7 s hitch). Also: no point
+  lights in any tier, one shadow-casting light (PCF, not soft), no
+  environment map (no visible difference, ~20% of pixel cost), every
+  material is `RoomMaterial` (`look/simpleMaterial.js`: Lambert that accepts
+  and ignores roughness/metalness/bump maps; `<roomMaterial>` in JSX), and
+  the lighting no longer rebuilds drei's environment cube on every hover.
+  A full-size frame on the CPU renderer at 2209×1010 with 121 boxes: 107 ms
+  → 48 ms. Dev builds expose `window.__roomRender` (set `.scale` to force
+  low-res frames). Note: one full `room-browser.mjs` run started while Vite
+  was still rebuilding an edited file produced black screenshots; two clean
+  reruns had none — scan screenshots for large black areas after visual
+  changes, the checks don't look at colours. Measured on the owner's
   PC with Chrome's CPU renderer (WARP): idle went from ~10 fps of constant
   redraw with 3 s hover freezes to zero frames; moving is ~25 fps at
   2560×1271, 30–45 fps at 1600×900, ~60 fps at phone size. To reproduce:

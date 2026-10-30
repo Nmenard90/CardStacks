@@ -11,14 +11,14 @@
  */
 import { useEffect, useMemo } from 'react';
 import { useGLTF } from '@react-three/drei';
-import { asStandard } from '../look/simpleMaterial.js';
+import { toRoomMaterial } from '../look/simpleMaterial.js';
 import { tuneForLook } from '../look/looks.js';
 import { CLUBHOUSE, THEME } from '../clubhouse/config.js';
 import { makeCardBoxParts } from '../clubhouse/collection.js';
 
 /** Same material tuning as Room.jsx's usePreparedModel, so the new furniture lights identically. */
 function tuned(material) {
-  const m = material.isMeshPhysicalMaterial ? asStandard(material) : material.clone(); // see look/simpleMaterial.js
+  const m = material.isMeshStandardMaterial ? toRoomMaterial(material) : material.clone(); // see look/simpleMaterial.js
   m.envMapIntensity = m.name === 'Satin brass' ? 1.6 : 1.05;
   if (m.name === 'Warm walnut') m.roughness = 0.4;
   if (m.name === 'Satin brass') { m.metalness = 0.72; m.roughness = 0.28; }

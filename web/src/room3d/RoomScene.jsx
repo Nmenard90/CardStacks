@@ -25,12 +25,13 @@
  */
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { Canvas, extend, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import CardRolodex from './CardRolodex.jsx';
 import BinderBook from './room/BinderBook.jsx';
 import { freeRect } from './room/freeRect.js';
 import RenderOnChange from './room/RenderOnChange.jsx';
+import { RoomMaterial } from './look/simpleMaterial.js';
 import { pageCount, pocketsPerPage } from './room/binderLayout.js';
 import { BinderBar, PickerBar } from './ViewBars.jsx';
 import ItemPanel from './ItemPanel.jsx';
@@ -41,6 +42,8 @@ import { CANVAS, DEFAULT_CAM, HOTSPOTS as ZONES } from './clubhouse/config.js';
 import { ROOM } from './clubhouse/layout.js';
 import './styles.css';
 import './clubhouse/site-ui.css';
+
+extend({ RoomMaterial }); // <roomMaterial> in the room's JSX (look/simpleMaterial.js)
 
 const EMPTY_ROUTE = { focus: null, binderId: null, binderCardId: null, boxId: null, displayId: null };
 const SITE_ZONES = new Set(['storage', 'binders', 'display']); // the room areas; 'explore' is the site's Explore page
@@ -112,6 +115,7 @@ const REF_ASPECT = 1.55; // the authored room/zone views fit the screen width at
 const ZONE_SHARE = 0.6; // about how much of an authored zone view's width its furniture takes up
 const ZONE_FILL = 0.9; // share of the free screen area a zone's binders, boxes or display cards fill
 const MIN_ZONE_DISTANCE = 1.2; // metres; a zone with one small item doesn't push the camera into the shelf
+const ARRIVED_M = 0.001; // the camera is where it's going once this close
 const ZONE_SUBJECT = { binders: 'ShelfUnit_binders', storage: 'ShelfUnit_boxes', display: 'DisplayCabinet' }; // scene names (ShelfUnit.jsx, Room.jsx)
 const ROOM_CENTRE = new THREE.Vector3(0, 1.5, 0);
 const scratch = { p: new THREE.Vector3(), n: new THREE.Vector3(), q: new THREE.Quaternion(), box: new THREE.Box3(), size: new THREE.Vector3() };
@@ -244,7 +248,11 @@ function FixedCameraRig({ focus, reducedMotion, inspectSeed = null }) {
     offset.current.x += (want.x - offset.current.x) * ease; offset.current.y += (want.y - offset.current.y) * ease;
     if (Math.abs(offset.current.x) > 0.5 || Math.abs(offset.current.y) > 0.5) camera.setViewOffset(size.width, size.height, offset.current.x, offset.current.y, size.width, size.height);
     else if (camera.view?.enabled) camera.clearViewOffset();
-    camera.position.lerp(pos, ease); currentLook.current.lerp(look, ease); camera.lookAt(currentLook.current);
+    // The easing would creep through its last millimetre for another second, too little to see but enough to keep the
+    // room drawing; arrive instead (a millimetre is under a pixel from any view).
+    if (camera.position.distanceTo(pos) < ARRIVED_M && currentLook.current.distanceTo(look) < ARRIVED_M) { camera.position.copy(pos); currentLook.current.copy(look); }
+    else { camera.position.lerp(pos, ease); currentLook.current.lerp(look, ease); }
+    camera.lookAt(currentLook.current);
   });
   return null;
 }

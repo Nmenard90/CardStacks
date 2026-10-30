@@ -6,6 +6,7 @@
  */
 import { THREE, M, at, rbox, cyl, ball, glass, canvasTexture, rng, rrShape } from './kit.js';
 import { ROOM } from './layout.js';
+import { RoomMaterial } from '../look/simpleMaterial.js';
 
 /** Wood-plank floor drawn in neutral wood tones; the theme's floor colour tints it. */
 let FLOOR;
@@ -57,14 +58,14 @@ function wallMesh(w, h, d, hole, map) {
   const s = rrShape(w, h, 0.02);
   if (hole) { const [hx, hy, hw, hh] = hole; const p = new THREE.Path(); p.moveTo(hx - hw / 2, hy - hh / 2); p.lineTo(hx + hw / 2, hy - hh / 2); p.lineTo(hx + hw / 2, hy + hh / 2); p.lineTo(hx - hw / 2, hy + hh / 2); p.closePath(); s.holes.push(p); }
   const g = new THREE.ExtrudeGeometry(s, { depth: d, bevelEnabled: false }); g.translate(0, 0, -d / 2);
-  return M(g, new THREE.MeshStandardMaterial({ map, roughness: 0.9 }));
+  return M(g, new RoomMaterial({ map, roughness: 0.9 }));
 }
 
 export function buildShell(S) {
   const { C, oak, lac, night } = S;
   const g = new THREE.Group(); const { h } = ROOM;
-  const slab = rbox(9.4, 0.3, 7.4, 0.06, new THREE.MeshStandardMaterial({ color: '#8E7250', roughness: 0.55 })); slab.position.set(0, -0.15, 0); g.add(slab);
-  const floor = M(new THREE.PlaneGeometry(ROOM.w, ROOM.d), new THREE.MeshStandardMaterial({ map: floorTexture(), color: C.floor, roughness: 0.5 }), { cast: false }); floor.rotation.x = -Math.PI / 2; floor.position.y = 0.003; g.add(floor);
+  const slab = rbox(9.4, 0.3, 7.4, 0.06, new RoomMaterial({ color: '#8E7250', roughness: 0.55 })); slab.position.set(0, -0.15, 0); g.add(slab);
+  const floor = M(new THREE.PlaneGeometry(ROOM.w, ROOM.d), new RoomMaterial({ map: floorTexture(), color: C.floor, roughness: 0.5 }), { cast: false }); floor.rotation.x = -Math.PI / 2; floor.position.y = 0.003; g.add(floor);
   const back = wallMesh(ROOM.w, h, 0.2, null, wallTexture(C, ROOM.w, h)); back.position.set(0, h / 2, ROOM.z0 - 0.1); g.add(back);
   const left = wallMesh(ROOM.d, h, 0.2, [-0.1, 0.15, 1.5, 1.6], wallTexture(C, ROOM.d, h)); left.rotation.y = Math.PI / 2; left.position.set(ROOM.x0 - 0.1, h / 2, 0); g.add(left);
 
@@ -90,7 +91,7 @@ export function buildShell(S) {
     const geo = new THREE.PlaneGeometry(0.62, 2.8, 36, 1); const p = geo.attributes.position;
     for (let i = 0; i < p.count; i++) p.setZ(i, Math.sin((p.getX(i) / 0.62) * Math.PI * 6) * 0.035);
     geo.computeVertexNormals();
-    const cur = M(geo, new THREE.MeshStandardMaterial({ color: C.curtain, roughness: 0.95, side: THREE.DoubleSide })); cur.rotation.y = Math.PI / 2; cur.position.set(-4.36, 1.78, 0.1 + s * 1.02); g.add(cur);
+    const cur = M(geo, new RoomMaterial({ color: C.curtain, roughness: 0.95, side: THREE.DoubleSide })); cur.rotation.y = Math.PI / 2; cur.position.set(-4.36, 1.78, 0.1 + s * 1.02); g.add(cur);
   });
 
   // a small cactus on the window sill

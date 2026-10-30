@@ -9,7 +9,7 @@ import DynamicShelving from './room/DynamicShelving.jsx';
 import { look, tuneForLook } from './look/looks.js';
 import { makeLamplightFloor, makeLamplightWall } from './look/lamplightTextures.js';
 import LightPools from './look/LightPools.jsx';
-import { asStandard } from './look/simpleMaterial.js';
+import { toRoomMaterial } from './look/simpleMaterial.js';
 import { CLUBHOUSE, QUALITY, THEME } from './clubhouse/config.js';
 import { VITRINE, buildVitrine } from './clubhouse/collection.js';
 import { useHoloFoil } from './room/holoFoil.js';
@@ -51,16 +51,16 @@ function RoomShell() {
   return (
     <group>
       <RoundedBox args={[ROOM.width, ROOM.floor, ROOM.depth]} radius={0.045} smoothness={3} position={[0, -ROOM.floor / 2, 0]} receiveShadow>
-        <meshStandardMaterial map={textures.floor} bumpMap={textures.floorBump} bumpScale={shell.floor.bumpScale} roughness={shell.floor.roughness} />
+        <roomMaterial map={textures.floor} bumpMap={textures.floorBump} bumpScale={shell.floor.bumpScale} roughness={shell.floor.roughness} />
       </RoundedBox>
 
       <mesh position={[0, ROOM.height / 2, BACK_Z]} receiveShadow castShadow>
         <boxGeometry args={[ROOM.width, ROOM.height, ROOM.wall]} />
-        <meshStandardMaterial map={textures.back} bumpMap={textures.back} bumpScale={shell.wall.back.bumpScale} roughness={shell.wall.back.roughness} />
+        <roomMaterial map={textures.back} bumpMap={textures.back} bumpScale={shell.wall.back.bumpScale} roughness={shell.wall.back.roughness} />
       </mesh>
       <mesh position={[LEFT_X, ROOM.height / 2, 0]} receiveShadow castShadow>
         <boxGeometry args={[ROOM.wall, ROOM.height, ROOM.depth]} />
-        <meshStandardMaterial map={textures.left} bumpMap={textures.left} bumpScale={shell.wall.left.bumpScale} roughness={shell.wall.left.roughness} />
+        <roomMaterial map={textures.left} bumpMap={textures.left} bumpScale={shell.wall.left.bumpScale} roughness={shell.wall.left.roughness} />
       </mesh>
 
       {shell.inlay && textures.inlay && (
@@ -72,31 +72,31 @@ function RoomShell() {
       {look.name === 'lamplight' && <LightPools />}
 
       <RoundedBox args={[ROOM.width - ROOM.wall, 0.25, 0.13]} radius={0.025} smoothness={3} position={[0, 0.125, INNER_BACK_Z + 0.065]} receiveShadow castShadow>
-        <meshStandardMaterial color={shell.baseboard} roughness={0.48} />
+        <roomMaterial color={shell.baseboard} roughness={0.48} />
       </RoundedBox>
       <RoundedBox args={[0.13, 0.25, ROOM.depth - ROOM.wall]} radius={0.025} smoothness={3} position={[INNER_LEFT_X + 0.065, 0.125, 0.065]} receiveShadow castShadow>
-        <meshStandardMaterial color={shell.baseboard} roughness={0.48} />
+        <roomMaterial color={shell.baseboard} roughness={0.48} />
       </RoundedBox>
       <RoundedBox args={[0.16, ROOM.height - 0.26, 0.16]} radius={0.025} smoothness={3} position={[INNER_LEFT_X + 0.08, ROOM.height / 2, INNER_BACK_Z + 0.08]} receiveShadow castShadow>
-        <meshStandardMaterial color={shell.column} roughness={0.74} />
+        <roomMaterial color={shell.column} roughness={0.74} />
       </RoundedBox>
 
       <RoundedBox args={[ROOM.width - ROOM.wall, 0.22, 0.12]} radius={0.025} smoothness={3} position={[0, ROOM.height - 0.11, INNER_BACK_Z + 0.06]} receiveShadow>
-        <meshStandardMaterial color={shell.crown[0]} roughness={0.75} />
+        <roomMaterial color={shell.crown[0]} roughness={0.75} />
       </RoundedBox>
       <RoundedBox args={[0.12, 0.22, ROOM.depth - ROOM.wall]} radius={0.025} smoothness={3} position={[INNER_LEFT_X + 0.06, ROOM.height - 0.11, 0.06]} receiveShadow>
-        <meshStandardMaterial color={shell.crown[1]} roughness={0.75} />
+        <roomMaterial color={shell.crown[1]} roughness={0.75} />
       </RoundedBox>
 
       {/* A small room marker gives the space a designed identity without competing with the collection. */}
       <group position={[-3.895, 3.42, -1.35]} rotation={[0, Math.PI / 2, 0]}>
         <RoundedBox args={[0.92, 0.34, 0.055]} radius={0.055} smoothness={4} castShadow>
-          <meshStandardMaterial color={shell.sign.body} roughness={0.42} metalness={0.08} />
+          <roomMaterial color={shell.sign.body} roughness={0.42} metalness={0.08} />
         </RoundedBox>
         {[[-0.27, shell.sign.dots[0]], [0, shell.sign.dots[1]], [0.27, shell.sign.dots[2]]].map(([x, color]) => (
           <mesh key={x} position={[x, 0, 0.035]}>
             <circleGeometry args={[0.055, 24]} />
-            <meshStandardMaterial color={color} roughness={0.45} />
+            <roomMaterial color={color} roughness={0.45} />
           </mesh>
         ))}
       </group>
@@ -140,7 +140,7 @@ function usePreparedModel(url) {
             // actual card receives the click.
             object.raycast = () => null;
           }
-          object.material = asStandard(object.material); // no transmission or clearcoat: see look/simpleMaterial.js
+          object.material = toRoomMaterial(object.material); // the room's one cheap material: see look/simpleMaterial.js
           tuneForLook(object.material);
           object.material.needsUpdate = true;
         }
@@ -323,12 +323,12 @@ function HoloCard({ position, rotation = [0, Math.PI, 0], seed = 0, card, active
       onPointerOut={() => onPointerOut && onPointerOut()}
     >
       <CardSlab width={0.48} height={0.68} depth={0.045} radius={0.028} smoothness={4} castShadow>
-        <meshStandardMaterial ref={materialRef} map={texture} emissiveMap={texture} emissive="#fff6df" emissiveIntensity={selected ? 0.22 : 0.08} roughness={0.22} metalness={0.24} />
+        <roomMaterial ref={materialRef} map={texture} emissiveMap={texture} emissive="#fff6df" emissiveIntensity={selected ? 0.22 : 0.08} roughness={0.22} metalness={0.24} />
       </CardSlab>
       {!(CLUBHOUSE && selected) && (
         <mesh position={[0, -0.37, -0.07]} rotation={[0.25, 0, 0]} castShadow>
           <boxGeometry args={[0.34, 0.035, 0.25]} />
-          <meshStandardMaterial color="#c9a560" roughness={0.34} metalness={0.5} />
+          <roomMaterial color="#c9a560" roughness={0.34} metalness={0.5} />
         </mesh>
       )}
       {active && (

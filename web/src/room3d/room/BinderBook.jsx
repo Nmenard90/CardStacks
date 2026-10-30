@@ -79,7 +79,7 @@ function PocketCard({ card, position, hidden, onSelect }) {
       onClick={(e) => { e.stopPropagation(); if (e.delta < 6) onSelect(card); }}
     >
       <CardSlab width={POCKET_W} height={POCKET_H} depth={0.012} radius={0.014} smoothness={2} castShadow>
-        <meshStandardMaterial ref={materialRef} map={texture} roughness={0.3} metalness={0.04} />
+        <roomMaterial ref={materialRef} map={texture} roughness={0.3} metalness={0.04} />
       </CardSlab>
     </group>
   );
@@ -98,7 +98,7 @@ function FocusedCard({ card, onClose, lift }) {
   return (
     <group ref={ref} scale={0.5} position={[0, lift, 0.9]} onClick={(e) => { e.stopPropagation(); onClose(); }}>
       <CardSlab width={POCKET_W * 2.1} height={POCKET_H * 2.1} depth={0.02} radius={0.03} smoothness={3} castShadow>
-        <meshStandardMaterial ref={materialRef} map={texture} roughness={0.28} metalness={0.06} />
+        <roomMaterial ref={materialRef} map={texture} roughness={0.28} metalness={0.06} />
       </CardSlab>
     </group>
   );
@@ -197,7 +197,7 @@ export default function BinderBook({ active, binder, page, onPage, selectedCardI
   return (
     <group ref={groupRef}>
       <RoundedBox args={[bookW + 0.14, ph + 0.14, 0.07]} radius={0.04} smoothness={3} position={[0, 0, -0.05]} castShadow receiveShadow>
-        <meshStandardMaterial color={binder.accent ?? '#8a5a34'} roughness={0.55} metalness={0.05} />
+        <roomMaterial color={binder.accent ?? '#8a5a34'} roughness={0.55} metalness={0.05} />
       </RoundedBox>
       <group ref={contentRef}>
         {pages.map((p, k) => {
@@ -206,7 +206,7 @@ export default function BinderBook({ active, binder, page, onPage, selectedCardI
             <group key={p} position={[x, 0, 0]}>
               <mesh position={[0, 0, 0]} receiveShadow>
                 <planeGeometry args={[pw, ph]} />
-                <meshStandardMaterial color="#f7f0de" roughness={0.9} />
+                <roomMaterial color="#f7f0de" roughness={0.9} />
               </mesh>
               {Array.from({ length: per }, (_, i) => {
                 const slot = p * per + i;
