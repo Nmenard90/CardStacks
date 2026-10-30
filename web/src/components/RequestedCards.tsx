@@ -17,6 +17,7 @@ import { getCardLocations, type CardLocation } from '../api/rooms'
 import type { ShopRequestItem } from '../api/shop'
 import { condPrice } from '../lib/conditions'
 import type { OwnedCard } from '../types'
+import type { usePreview } from './CardPreview'
 import { CardThumb } from './CardThumb'
 
 /** Pockets per binder page, by pocket size (same grids as the binder page and the 3D room). */
@@ -40,8 +41,9 @@ const ICON: Record<CardLocation['kind'], string> = { box: '📦', binder: '📒'
 /**
  * @param items   the request's cards
  * @param userId  the seller (the signed-in owner)
+ * @param preview the page's zoom (usePreview): hovering or tapping a card's picture shows it big
  */
-export function RequestedCards({ items, userId }: { items: ShopRequestItem[]; userId: string }) {
+export function RequestedCards({ items, userId, preview }: { items: ShopRequestItem[]; userId: string; preview?: ReturnType<typeof usePreview> }) {
   const { data: owned = [] } = useQuery({ queryKey: ['owned', userId], queryFn: () => getOwnedCards(userId), enabled: !!userId })
   const { data: sets = [] } = useQuery({ queryKey: ['sets'], queryFn: getSets })
   const ids = [...new Set(items.map(i => i.cardId))].sort()
@@ -64,7 +66,7 @@ export function RequestedCards({ items, userId }: { items: ShopRequestItem[]; us
     here.sort((a, b) => Number(b.condition?.split(' ')[0] === cond) - Number(a.condition?.split(' ')[0] === cond))
     return (
       <li key={n} className="req-card">
-        {card ? <CardThumb card={card} showPrice={false} className="req-card__thumb" /> : <div className="thumb-placeholder req-card__thumb">🃏</div>}
+        {card ? <CardThumb card={card} showPrice={false} preview={preview} className="req-card__thumb" /> : <div className="thumb-placeholder req-card__thumb">🃏</div>}
         <div className="req-card__body">
           <div className="req-card__title"><b>{item.qty}× {item.name}</b> <span>#{item.number}</span></div>
           <div className="req-card__meta">

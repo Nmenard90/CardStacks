@@ -6,7 +6,7 @@
  * treatment; everywhere else (Trade Analyzer, binder/convention pickers,
  * the Spaces box-open view) showed a flat, unpriced thumbnail instead.
  *
- * USED BY: CardTile, SpacesLivePage, AnalyzerPage, BinderViewPage, ConventionModePage
+ * USED BY: CardTile, OwnedCardTile, ShopCardTile, RequestedCards, SpacesLivePage, AnalyzerPage, ConventionModePage
  */
 
 import { useState } from 'react'
@@ -60,14 +60,17 @@ export function CardThumb({ card, variant, preview, onClick, showPrice = true, c
   const holo = isHolo(card.rarity)
   const show = () => preview?.show(card.images.large || card.images.small, { holo, price })
   const hide = () => preview?.hide()
+  // Hover is a mouse thing. On a touch screen the zoom covers the picture as soon as a tap opens it, and the phone's
+  // stand-in mouse then "leaves" the picture, which would close it again at once; a tap opens it and a tap closes it.
+  const byMouse = (act: () => void) => (e: React.PointerEvent) => { if (e.pointerType === 'mouse') act() }
 
   return (
     <div className={'thumb-wrap' + (holo ? ' holo' : '') + (className ? ' ' + className : '')}>
       <img
         className="thumb" src={card.images.small} alt={card.name} loading="lazy"
         tabIndex={preview ? 0 : undefined}
-        onMouseEnter={show}
-        onMouseLeave={hide}
+        onPointerEnter={byMouse(show)}
+        onPointerLeave={byMouse(hide)}
         onFocus={preview ? show : undefined}
         onBlur={preview ? hide : undefined}
         onClick={onClick ?? show}

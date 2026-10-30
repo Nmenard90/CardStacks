@@ -249,6 +249,14 @@ try {
     for (const want of ['2× Owned Mid', '#2', 'Great Encounters', '$5.00 each ($10.00)', 'Bulk Box 3 › Main · 2× NM', 'Trade Binder · page 3, pocket 5'])
       assert(midText.includes(want), `missing "${want}" in: ${midText}`)
     assert.equal(await mid.locator('img.thumb').count(), 1, 'the card picture is shown')
+    // Hovering (tapping on a phone) the picture shows it big, for checking the card while pulling it.
+    if (width === 390) await mid.locator('img.thumb').tap(); else await mid.locator('img.thumb').hover()
+    await page.locator('.card-preview-wrap.visible').waitFor({ state: 'attached' }) // open (its picture loads from the internet)
+    assert.equal(await page.locator('.card-preview-img').getAttribute('src'), 'https://images.pokemontcg.io/dp4/1_hires.png')
+    await page.waitForTimeout(600) // still open after the opening tap's click; a later tap closes it
+    assert.equal(await page.locator('.card-preview-wrap.visible').count(), 1)
+    if (width === 390) await page.locator('.card-preview-overlay').tap(); else await page.mouse.move(0, 0)
+    await page.locator('.card-preview-wrap.visible').waitFor({ state: 'detached' })
     const gone = (await page.locator('.req-card', { hasText: 'Greavard' }).innerText()).replace(/\s+/g, ' ')
     assert.match(gone, /No longer in your collection/); assert.match(gone, /Not in a box, binder or display case yet/)
     assert.equal(state.locationIds, 'me1-65,owned-1')

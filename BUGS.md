@@ -318,3 +318,9 @@ docs/agent-reports/site-audit-20261029. Live since 2026-10-29 (`a65a2d3`).
   owner's 2560-wide window: the slow-device fallback had lowered the canvas
   resolution for good and turned off edge smoothing. Now only moving frames
   are drawn smaller; still views are full resolution with edge smoothing.
+- **BUG-050** My Shop's request cards had no zoom: their pictures were drawn
+  without the page's preview, so hovering did nothing while pulling cards.
+  Wired in (2026-10-30). Also fixed for every card zoom on phones: a tap opened
+  the zoom and the same tap (its click and the stand-in mouse "leaving" the
+  picture) closed it at once. Hover now opens/closes it only for a real mouse,
+  and the zoom ignores the opening tap's click.

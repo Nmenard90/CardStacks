@@ -12,7 +12,7 @@
  *   /trade and its ?offer= links redirect here (App.tsx).
  *
  * USED BY: App.tsx (route "/shop/requests"), HeaderNav ("Shop")
- * DEPENDS ON: api/shop, api/trading, components/OfferInbox
+ * DEPENDS ON: api/shop, api/trading, components/OfferInbox, components/RequestedCards, components/CardPreview
  */
 
 import { useState } from 'react'
@@ -27,6 +27,7 @@ import { HeaderNav } from '../components/HeaderNav'
 import { LoginScreen } from '../components/LoginScreen'
 import { OfferInbox } from '../components/OfferInbox'
 import { RequestedCards } from '../components/RequestedCards'
+import { usePreview } from '../components/CardPreview'
 import { contactUrl, facebookSearchUrl } from '../lib/contact'
 import { useUser } from '../context/UserContext'
 
@@ -130,6 +131,7 @@ export function ShopRequestsPage() {
   const qc = useQueryClient()
   const [params, setParams] = useSearchParams()
   const [filter, setFilter] = useState<ShopRequestStatus | 'all'>('new')
+  const preview = usePreview() // hover a requested card's picture to see it big while pulling it
 
   const { data: requests = [], isLoading, isError } = useQuery({
     queryKey: ['shop-requests', userId],
@@ -219,7 +221,7 @@ export function ShopRequestsPage() {
                     <span className="shop-sub">{new Date(r.createdAt).toLocaleString()}</span>
                   </div>
                   <BuyerContact name={r.buyerName} contact={r.buyerContact} />
-                  {r.items.length > 0 && <RequestedCards items={r.items} userId={userId} />}
+                  {r.items.length > 0 && <RequestedCards items={r.items} userId={userId} preview={preview} />}
                   {r.message && <p className="shop-req-msg">{r.message}</p>}
                   <div className="shop-sheet-btns">
                     {r.status !== 'answered' && <button type="button" className="shop-btn shop-btn-ghost" onClick={() => mark(r, 'answered')}>Mark answered</button>}
@@ -232,6 +234,7 @@ export function ShopRequestsPage() {
           </>}
         </main>
       </div>
+      {preview.overlay}
     </div>
   )
 }
