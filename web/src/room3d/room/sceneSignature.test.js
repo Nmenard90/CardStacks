@@ -49,6 +49,21 @@ test('hiding or adding an object changes the shape', () => {
   assert.notEqual(sceneSignature(scene).shape, before);
 });
 
+test('programs change with new or rebuilt materials and lights, not with moves or colours', () => {
+  const { scene, card } = room();
+  const before = sceneSignature(scene).programs;
+  card.position.y += 0.5; card.material.color.set('#00ff00');
+  assert.equal(sceneSignature(scene).programs, before);
+  card.material.needsUpdate = true; // e.g. its first picture arrived (rebuilds the program)
+  const rebuilt = sceneSignature(scene).programs;
+  assert.notEqual(rebuilt, before);
+  scene.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshLambertMaterial()));
+  const added = sceneSignature(scene).programs;
+  assert.notEqual(added, rebuilt);
+  scene.add(new THREE.DirectionalLight());
+  assert.notEqual(sceneSignature(scene).programs, added);
+});
+
 test('moves too small to see do not count, so an easing camera comes to rest', () => {
   const { scene, card } = room();
   const before = sceneSignature(scene);

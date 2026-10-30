@@ -337,3 +337,10 @@ docs/agent-reports/site-audit-20261029. Live since 2026-10-29 (`a65a2d3`).
   Saved per card in the request's items JSON (`pulled`, `askedCondition`) via
   POST /api/collection/:userId/shop-requests/:id/items/:index; no migration.
   Changing a condition there does not change the collection.
+- **BUG-052** (2026-10-30) The room was slow to load and lagged while the
+  how-to guide was open. The site sent ~5 MB of scripts and 3D models
+  uncompressed, the room's shaders froze the page ~1.4 s while being built,
+  and the guide's looping animations made Chrome redraw the whole screen 60
+  times a second (most of a CPU core without graphics acceleration). Fixed on
+  `fix/room-lite`: compressed responses, shaders built in the background, the
+  guide's loops stepped 15×/s. See HANDOFF "Room made light enough…".

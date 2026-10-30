@@ -10,6 +10,9 @@
  * HOW IT WORKS
  *   Whether it is open lives in useRoomGuide.ts (a per-browser "seen" flag). The illustrations are inline SVG animated with CSS (guide.css), so they cost no
  *   downloads, and stand still under prefers-reduced-motion. Esc closes the guide before the room sees the key.
+ *   The looping animations are paused and moved on LOOP_FPS times a second from a timer: a running CSS animation makes
+ *   the browser redraw the whole screen every display frame, and where 3D is drawn on the processor (no graphics
+ *   acceleration) that alone took most of a CPU core and made the page lag behind the guide.
  *
  * IMPORTS EXPLAINED
  *   guide.css — the overlay, the illustrations and their animations (scoped under .room3d by vite.config.ts)
@@ -19,6 +22,9 @@
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import './guide.css'
+
+/** How often the illustrations' looping animations move on (frames a second); smooth enough for a tap and a ripple. */
+const LOOP_FPS = 15
 
 /** A fingertip with a ripple — the "tap here" mark the illustrations share. */
 const Tap = ({ className }: { className: string }) => (
@@ -139,7 +145,19 @@ const STEPS: Step[] = [
 export function RoomGuide({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [step, setStep] = useState(0)
   const primary = useRef<HTMLButtonElement>(null)
+  const art = useRef<HTMLDivElement>(null)
   const opener = useRef<Element | null>(null) // what had focus before, so closing hands it back
+
+  // The step's looping animations, moved on LOOP_FPS times a second instead of every display frame (see HOW IT WORKS).
+  useEffect(() => {
+    const root = art.current
+    if (!open || !root?.getAnimations) return
+    const loops = root.getAnimations({ subtree: true }).filter(a => a.effect?.getTiming().iterations === Infinity)
+    for (const a of loops) a.pause()
+    const tick = 1000 / LOOP_FPS
+    const timer = window.setInterval(() => { for (const a of loops) a.currentTime = (Number(a.currentTime) || 0) + tick }, tick)
+    return () => window.clearInterval(timer)
+  }, [open, step])
 
   const close = useCallback(() => {
     setStep(0); onClose()
@@ -168,7 +186,7 @@ export function RoomGuide({ open, onClose }: { open: boolean; onClose: () => voi
         <div className="room-guide" role="dialog" aria-modal="true" aria-labelledby="room-guide-title">
           <div className="room-guide__card">
             <button type="button" className="room-guide__skip" onClick={close}>Skip</button>
-            <div className="room-guide__art" key={step}>{current.art}</div>
+            <div className="room-guide__art" key={step} ref={art}>{current.art}</div>
             <p className="room-guide__count">Step {step + 1} of {STEPS.length}</p>
             <h2 id="room-guide-title">{current.title}</h2>
             <p className="room-guide__text">{current.text}</p>

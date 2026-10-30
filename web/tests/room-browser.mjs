@@ -82,7 +82,9 @@ const sets = [{ id: 'base1', name: 'Base', series: 'Base', printedTotal: 102, to
 
 // ─── Harness ───────────────────────────────────────────────────────────────
 const browser = await chromium.launch({
-  headless: true, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
+  // ROOM_TEST_ANGLE=d3d11-warp (full Chromium on Windows) draws like Chrome without graphics acceleration there,
+  // including shaders built in the background (RenderOnChange.jsx); SwiftShader builds them the blocking way.
+  headless: true, args: [`--use-angle=${process.env.ROOM_TEST_ANGLE ?? 'swiftshader'}`, '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
   ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}),
 })
 const results = []

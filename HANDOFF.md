@@ -241,6 +241,19 @@ renders WebGL in software (~1 fps), so 3D screenshots time out there; judge
   2560×1271, 30–45 fps at 1600×900, ~60 fps at phone size. To reproduce:
   launch full Chromium with `--use-angle=d3d11-warp` against the room test
   fixtures (as in `web/tests/room-browser.mjs`).
+  2026-10-30, same branch (owner: "super slow to load and laggy as hell when
+  the tutorial thing pops up"): (1) `web/server.mjs` now sends JS/CSS/GLB
+  brotli/gzip-compressed (built once at startup with node:zlib; 5.0 MB →
+  1.0 MB); (2) RenderOnChange builds new shader programs in the background
+  where `KHR_parallel_shader_compile` exists (Chrome's WARP renderer, most
+  phones; not SwiftShader) and holds the frame until they're ready — the
+  ~1.4 s load freeze is now ≤0.7 s (the rest is ANGLE finishing programs at
+  first draw); `sceneSignature().programs` says when to; (3) the guide's
+  looping CSS animations are paused and stepped 15×/s from a timer
+  (RoomGuide.tsx) — running ones made Chrome redraw the whole screen 60×/s,
+  ~2 s of CPU per 4 s on WARP; now ~0.3 s over the room alone. First visit
+  on WARP, 8 Mbps: room drawn 10.4 s → 3.7 s. `ROOM_TEST_ANGLE=d3d11-warp`
+  runs room-browser.mjs on that renderer (69/69 both).
 - *My Shop requests didn't say what or where the cards were*, and contacts
   often just said "Facebook". New `GET /api/spaces/:userId/card-locations`
   (reads existing tables; no migration); `components/RequestedCards.tsx`

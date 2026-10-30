@@ -18,6 +18,13 @@
  *   stretched to fill the canvas. Everything else, including the last of a glide, is drawn at full resolution. So the
  *   room is never blurry when you look at it, only while the view is sweeping; a fast device always draws at full size.
  *
+ * SHADERS BUILT IN THE BACKGROUND
+ *   Each kind of material needs a shader program, built the first time it is drawn. Built on the processor (no graphics
+ *   acceleration) the room's programs froze the page for ~1.4 s while it loaded. Where the browser can build them in
+ *   the background (KHR_parallel_shader_compile: Chrome's Windows processor renderer and most phones), new programs are
+ *   started without waiting and the frame is held, the last picture staying on screen, until they are ready; the page
+ *   keeps responding meanwhile. Elsewhere they are built when drawn, as before.
+ *
  * USED BY: RoomScene.jsx (inside the Canvas; it takes over drawing from react-three-fiber)
  * DEPENDS ON: @react-three/fiber, three, room/sceneSignature.js
  */
@@ -83,9 +90,11 @@ export default function RenderOnChange() {
   const get = useThree((state) => state.get);
   const gl = useThree((state) => state.gl);
   const lowRes = useLowResPass(gl);
+  const parallel = useMemo(() => gl.extensions.has('KHR_parallel_shader_compile'), [gl]); // see SHADERS BUILT IN THE BACKGROUND
   const run = useRef({ awake: true, drawn: 0, sharp: false, still: 0, shape: 0, shadowsDirty: true, lastMove: 0, slow: [], scale: 1, at: new THREE.Vector3(), facing: new THREE.Quaternion() });
 
   useEffect(() => () => lowRes?.dispose(), [lowRes]);
+  useEffect(() => () => clearTimeout(run.current.poll), []);
   useEffect(() => { if (import.meta.env.DEV) window.__roomRender = run.current; }, []); // tests and measurements read and set this
   useEffect(() => {
     gl.shadowMap.autoUpdate = false; // drawn when the room comes to rest (below)
@@ -121,7 +130,7 @@ export default function RenderOnChange() {
   useFrame((state) => {
     const r = run.current;
     const now = performance.now();
-    const { shape, look } = sceneSignature(state.scene);
+    const { shape, look, programs } = sceneSignature(state.scene);
     const view = viewSignature(look, state.camera, [state.size.width, state.size.height, state.viewport.dpr]);
     const camera = state.camera;
     const moving = camera.position.distanceTo(r.at) > GLIDE_M || camera.quaternion.angleTo(r.facing) > GLIDE_RAD; // the view is sweeping
@@ -144,6 +153,15 @@ export default function RenderOnChange() {
         }
       }
       r.lastMove = now;
+    }
+
+    // Something new to draw may need programs not built yet: start them all in the background and hold this frame
+    // until they're ready, checking every 15 ms (see SHADERS BUILT IN THE BACKGROUND).
+    if (parallel && programs !== r.programs) {
+      if (r.compilingFor !== programs) { r.waiting = [...state.gl.compile(state.scene, state.camera)]; r.compilingFor = programs; }
+      r.waiting = r.waiting.filter((m) => !state.gl.properties.get(m).currentProgram?.isReady());
+      if (r.waiting.length) { clearTimeout(r.poll); r.poll = setTimeout(state.invalidate, 15); return; }
+      r.programs = programs;
     }
 
     if (moving && r.scale < 1 && lowRes) {

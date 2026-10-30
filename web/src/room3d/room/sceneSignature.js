@@ -24,12 +24,14 @@ function mixMaterial(h, m) {
 
 /**
  * PURPOSE: Signatures of what the scene contains: `shape` changes when anything visible moves, appears or disappears;
- *          `look` also changes when anything's colour, opacity or picture does.
+ *          `look` also changes when anything's colour, opacity or picture does; `programs` changes only when something
+ *          may need a shader program not built yet (a new material, a material changed in a way that rebuilds its
+ *          program, a light added or removed), not when things move.
  * @param {import('three').Object3D} root  the scene
- * @return {{ shape: number, look: number }}
+ * @return {{ shape: number, look: number, programs: number }}
  */
 export function sceneSignature(root) {
-  let h = 17; let looks = 17; let count = 0;
+  let h = 17; let looks = 17; let programs = 17; let count = 0;
   root.traverseVisible((o) => {
     count += 1;
     const { position: p, quaternion: q, scale: s } = o;
@@ -38,12 +40,13 @@ export function sceneSignature(root) {
     h = mix(mix(mix(h, s.x), s.y), s.z);
     if (o.geometry) h = mix(h, o.geometry.id);
     if (o.isInstancedMesh) { h = mix(mix(h, o.count), o.instanceMatrix.version); looks = mix(looks, o.instanceColor?.version ?? -1); }
+    if (o.isLight) programs = mix(mix(programs, o.id), o.castShadow ? 1 : 0);
     const m = o.material;
-    if (Array.isArray(m)) for (const one of m) looks = mixMaterial(looks, one);
-    else if (m) looks = mixMaterial(looks, m);
+    if (Array.isArray(m)) for (const one of m) { looks = mixMaterial(looks, one); programs = mix(mix(programs, one.id), one.version); }
+    else if (m) { looks = mixMaterial(looks, m); programs = mix(mix(mix(programs, m.id), m.version), o.isInstancedMesh ? 1 : 0); }
   });
   const shape = mix(h, count);
-  return { shape, look: mix(shape, looks) };
+  return { shape, look: mix(shape, looks), programs };
 }
 
 /**
