@@ -1,19 +1,18 @@
 /**
- * graphics.ts — can this browser draw the 3D room at a usable speed?
+ * graphics.ts — can this browser draw 3D, and does it use the graphics card to do it?
  *
  * PURPOSE
- *   The room needs the graphics card. A browser can still offer WebGL without one: Chrome falls back to drawing 3D on
- *   the processor ("Microsoft Basic Render Driver", SwiftShader, llvmpipe) when graphics acceleration is turned off,
- *   the GPU driver is blocklisted or crashed, or on remote desktops and virtual machines. There the room runs at about
- *   one frame a second and the whole tab freezes, so the landing page checks first and offers Spaces instead.
+ *   The room needs WebGL. Browsers can offer it without a graphics card: Chrome draws 3D on the processor ("Microsoft
+ *   Basic Render Driver", SwiftShader, llvmpipe) when graphics acceleration is turned off, the GPU driver is
+ *   blocklisted or crashed, or on remote desktops and virtual machines. The room runs there too; it skips edge
+ *   smoothing (RoomScene.jsx), which costs about a fifth of every frame on the processor and almost nothing on a card.
  *
  * HOW IT WORKS
  *   One probe per page load (each probe creates a GL context, and browsers cap how many exist): the renderer's name
  *   (WEBGL_debug_renderer_info) is matched against known software rasterizers, and a context requested with
  *   failIfMajorPerformanceCaveat, which browsers refuse when they would have to draw in software.
- *   A visitor can still choose to open the room ("Open the 3D room anyway"), remembered in localStorage.
  *
- * USED BY: pages/RoomPage.tsx
+ * USED BY: pages/RoomPage.tsx (no WebGL at all → Spaces link), room3d/RoomScene.jsx
  */
 
 /** What the probe found. `software` = WebGL works but without the graphics card. */
@@ -25,9 +24,6 @@ export interface GraphicsProbe {
 
 /** Renderer names of WebGL drawn on the processor rather than the graphics card. */
 const SOFTWARE_RENDERERS = /swiftshader|basic render driver|llvmpipe|softpipe|software rasterizer|software adapter|mesa offscreen/i
-
-/** The localStorage key that records "open the 3D room even without graphics acceleration". */
-export const ALLOW_SLOW_3D_KEY = 'cardstacks.room.allowSoftware'
 
 /**
  * PURPOSE: True when a WebGL renderer name belongs to a software rasterizer.
@@ -61,14 +57,4 @@ export function probeGraphics(): GraphicsProbe {
   }
   probed = result
   return result
-}
-
-/** PURPOSE: Whether this visitor chose to open the room even though their browser draws 3D in software. */
-export function allowsSlow3D(): boolean {
-  try { return localStorage.getItem(ALLOW_SLOW_3D_KEY) === '1' } catch { return false }
-}
-
-/** PURPOSE: Remembers that this visitor wants the room even without graphics acceleration. */
-export function allowSlow3D(): void {
-  try { localStorage.setItem(ALLOW_SLOW_3D_KEY, '1') } catch { /* private mode: the choice lasts until reload */ }
 }

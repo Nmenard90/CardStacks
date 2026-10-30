@@ -15,12 +15,12 @@
  * DEPENDS ON: context/UserContext, components/HeaderNav, components/LoginScreen, room3d/RoomScene, room3d/RoomGuide,
  *   room3d/useRoomGuide
  */
-import { Component, lazy, Suspense, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { Component, lazy, Suspense, useLayoutEffect, useRef, type ReactNode, type RefObject } from 'react'
 import { Link } from 'react-router-dom'
 import { HeaderNav } from '../components/HeaderNav'
 import { LoginScreen } from '../components/LoginScreen'
 import { useUser } from '../context/UserContext'
-import { allowSlow3D, allowsSlow3D, probeGraphics } from '../room3d/graphics'
+import { probeGraphics } from '../room3d/graphics'
 import { RoomGuide } from '../room3d/RoomGuide'
 import { useRoomGuide } from '../room3d/useRoomGuide'
 import '../styles/room-page.css'
@@ -34,29 +34,6 @@ function RoomUnavailable({ reason }: { reason: string }) {
       <h2>The 3D room can't open here</h2>
       <p>{reason}</p>
       <Link to="/spaces" className="room-page__fallback-link">Open your collection in Spaces →</Link>
-    </div>
-  )
-}
-
-/**
- * Shown instead of the room when the browser would draw 3D without the graphics card (graphics.ts): the room would
- * freeze the tab there. Spaces has the same collection; the room can still be opened on purpose.
- */
-function RoomNeedsGraphicsCard({ onOpenAnyway }: { onOpenAnyway: () => void }) {
-  return (
-    <div className="room-page__fallback" role="alert">
-      <h2>Your browser isn't using your graphics card</h2>
-      <p>
-        It's drawing 3D on the processor instead, so the 3D room would be very slow or freeze. Your whole collection
-        is in Spaces, which works fine here.
-      </p>
-      <Link to="/spaces" className="room-page__fallback-link">Open your collection in Spaces →</Link>
-      <p className="room-page__fallback-help">
-        To use the 3D room, turn on <b>Use graphics acceleration when available</b> in your browser's settings
-        (Chrome: Settings → System) and restart the browser. If it's already on, updating your graphics driver usually
-        fixes it.
-      </p>
-      <button type="button" className="room-page__fallback-anyway" onClick={onOpenAnyway}>Open the 3D room anyway</button>
     </div>
   )
 }
@@ -93,7 +70,6 @@ function useBottomNavHeight(page: RefObject<HTMLElement | null>) {
 export function RoomPage() {
   const { user, loading } = useUser()
   const [guideOpen, showGuide, hideGuide] = useRoomGuide()
-  const [openAnyway, setOpenAnyway] = useState(allowsSlow3D)
   const page = useRef<HTMLElement>(null)
   useBottomNavHeight(page)
 
@@ -113,8 +89,6 @@ export function RoomPage() {
       <div className="room3d ui-site">
         {!probeGraphics().webgl ? (
           <RoomUnavailable reason="This browser has 3D graphics (WebGL) turned off or unavailable." />
-        ) : probeGraphics().software && !openAnyway ? (
-          <RoomNeedsGraphicsCard onOpenAnyway={() => { allowSlow3D(); setOpenAnyway(true) }} />
         ) : (
           <RoomErrorBoundary>
             <Suspense fallback={<div className="room-page__loading" role="status"><span className="room-page__spinner" aria-hidden="true" />Building your room…</div>}>
@@ -122,7 +96,7 @@ export function RoomPage() {
             </Suspense>
           </RoomErrorBoundary>
         )}
-        <RoomGuide open={guideOpen && (!probeGraphics().software || openAnyway)} onClose={hideGuide} />
+        <RoomGuide open={guideOpen} onClose={hideGuide} />
       </div>
     </main>
   )

@@ -204,7 +204,27 @@ renders WebGL in software (~1 fps), so 3D screenshots time out there; judge
   (localStorage `cardstacks.room.allowSoftware`; tests set it, since headless
   Chromium is SwiftShader). Also: ~2.4M-pixel cap per frame, the cabinet's
   point lights off on phones, and drei `PerformanceMonitor` lowering
-  resolution then shadows when slow.
+  resolution then shadows when slow. **Superseded the same day** (owner: the
+  room must run on any computer or phone, no notice, no separate mode): see
+  the next entry.
+- *Room made light enough to run without a graphics card* (branch
+  `fix/room-lite`). The notice and "open anyway" are gone; the room always
+  opens. The Canvas runs `frameloop="demand"`: `room/RenderOnChange.jsx`
+  draws only while something changes (a cheap per-frame signature of the
+  scene, `room/sceneSignature.js`, plus pointer/key/wheel events), draws the
+  shadow map once each time the room comes to rest after something moved,
+  and lowers the pixel ratio in one step if frames stay slow (kept in
+  RoomScene state: R3F resets the `dpr` prop on every re-render otherwise).
+  Also: no point lights in any tier, one shadow-casting light (PCF, not
+  soft), no environment map (no visible difference, ~20% of pixel cost),
+  physical materials → standard (`look/simpleMaterial.js`), edge smoothing
+  off only where WebGL is software (`graphics.ts`), and the lighting no longer
+  rebuilds drei's environment cube on every hover. Measured on the owner's
+  PC with Chrome's CPU renderer (WARP): idle went from ~10 fps of constant
+  redraw with 3 s hover freezes to zero frames; moving is ~25 fps at
+  2560×1271, 30–45 fps at 1600×900, ~60 fps at phone size. To reproduce:
+  launch full Chromium with `--use-angle=d3d11-warp` against the room test
+  fixtures (as in `web/tests/room-browser.mjs`).
 - *My Shop requests didn't say what or where the cards were*, and contacts
   often just said "Facebook". New `GET /api/spaces/:userId/card-locations`
   (reads existing tables; no migration); `components/RequestedCards.tsx`

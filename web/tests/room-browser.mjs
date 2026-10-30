@@ -98,24 +98,21 @@ const check = async (name, fn) => {
   }
 }
 
-async function setup({ width, height, touch = false, guideSeen = true, reducedMotion = 'reduce', allowSoftware3D = true }) {
+async function setup({ width, height, touch = false, guideSeen = true, reducedMotion = 'reduce' }) {
   const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, hasTouch: touch, isMobile: touch, reducedMotion })
-  await context.addInitScript(({ user, guideSeen, allowSoftware3D }) => {
+  await context.addInitScript(({ user, guideSeen }) => {
     if (location.protocol === 'about:') return // the blank first document has no storage
     const encode = value => btoa(JSON.stringify(value)).replaceAll('=', '').replaceAll('+', '-').replaceAll('/', '_')
     const expires = Math.floor(Date.now() / 1000) + 3600
     const token = `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({ sub: user.id, exp: expires, aud: 'authenticated', role: 'authenticated' })}.cWE`
     localStorage.setItem('sb-qa-auth-token', JSON.stringify({ access_token: token, refresh_token: 'qa-refresh', expires_at: expires, expires_in: 3600, token_type: 'bearer', user }))
     if (guideSeen) localStorage.setItem('cardstacks.roomGuide.v1', '1')
-    // This headless Chromium draws WebGL in software (SwiftShader), where the site offers Spaces instead of the room
-    // (graphics.ts). The room's own checks open it anyway, as a visitor can.
-    if (allowSoftware3D) localStorage.setItem('cardstacks.room.allowSoftware', '1')
     // A short trail of navigation and pointer events, printed when a check fails.
     window.__trail = []
     const note = (text) => { window.__trail.push(`${Math.round(performance.now())} ${text}`); if (window.__trail.length > 40) window.__trail.shift() }
     for (const k of ['pushState', 'replaceState']) { const f = history[k].bind(history); history[k] = (st, t, u) => { note(`${k} ${u}`); return f(st, t, u) } }
     for (const t of ['pointerdown', 'pointerup', 'pointercancel', 'click']) window.addEventListener(t, (e) => note(`${t} ${e.pointerType ?? ''} ${Math.round(e.clientX)},${Math.round(e.clientY)} on ${e.target?.tagName}`), true)
-  }, { user, guideSeen, allowSoftware3D })
+  }, { user, guideSeen })
   const state = { writes: [], requests: [], slots: structuredClone(binderSlots) }
   await context.route('https://qa.supabase.co/**', route => route.fulfill({ json: user }))
   await context.route(url => url.pathname.startsWith('/api/'), async route => {
@@ -330,21 +327,24 @@ if (!only) {
     await context.close()
   }
   {
-    // A browser drawing 3D without the graphics card (this headless Chromium uses SwiftShader) would freeze in the room.
-    const { context, page, errors } = await setup({ width: 1440, height: 900, guideSeen: false, allowSoftware3D: false })
-    await check('without graphics acceleration: Spaces is offered instead of a frozen room, and the room opens on request', async () => {
+    // This headless Chromium draws 3D on the processor (SwiftShader), like a browser with graphics acceleration off: the
+    // room must open there, and draw nothing while nothing moves (RenderOnChange) so the computer isn't tied up.
+    const { context, page, errors } = await setup({ width: 1440, height: 900 })
+    await check('without graphics acceleration: the room opens, and draws nothing while it is still', async () => {
       await page.goto(origin + '/', { waitUntil: 'domcontentloaded' })
-      await page.getByRole('heading', { name: "Your browser isn't using your graphics card" }).waitFor({ timeout: 20000 })
-      assert.equal(await page.locator('.room3d canvas').count(), 0, 'the room must not start drawing')
-      assert.equal(await page.getByRole('dialog').count(), 0, 'no room guide over the notice')
-      assert.equal(await page.getByRole('link', { name: /Open your collection in Spaces/ }).getAttribute('href'), '/spaces')
-      await shot(page, 'software-graphics-notice')
-      await page.getByRole('button', { name: 'Open the 3D room anyway' }).click()
       await roomReady(page)
-      assert.equal(await page.evaluate(() => localStorage.getItem('cardstacks.room.allowSoftware')), '1', 'the choice is remembered')
-      await page.reload({ waitUntil: 'domcontentloaded' }); await roomReady(page)
+      await page.waitForTimeout(3000) // pictures finish loading and the shadows are drawn once
+      const frames = await page.evaluate(() => new Promise((resolve) => {
+        const { gl } = window.__nook3d; const before = gl.info.render.frame
+        setTimeout(() => resolve(gl.info.render.frame - before), 2000)
+      }))
+      assert.equal(frames, 0, `the room drew ${frames} frames in 2 s with nothing moving`)
+      await page.getByRole('button', { name: /Card boxes/ }).click()
+      await page.waitForFunction(() => window.__nook3d.gl.info.render.frame > 0)
+      await settle(page)
+      assert.match(await hash(page), /#\/storage$/, 'the camera still moves on request')
     })
-    await check('no page errors with the graphics notice', async () => assert.deepEqual(errors, []))
+    await check('no page errors without graphics acceleration', async () => assert.deepEqual(errors, []))
     await context.close()
   }
   {

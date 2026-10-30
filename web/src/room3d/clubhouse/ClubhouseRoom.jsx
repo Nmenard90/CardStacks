@@ -8,10 +8,8 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { Environment, Lightformer } from '@react-three/drei';
 import { DisplayCabinet } from '../Room.jsx';
 import DynamicShelving from '../room/DynamicShelving.jsx';
-import { ThrottledShadows } from '../look/SceneLights.jsx';
 import { THREE, canvasTexture, disposeTree, makeStyle } from './kit.js';
 import { INTERACTIVE, buildPiece } from './pieces.js';
 import { MaterialPool, mergeStatic } from './merge.js';
@@ -57,21 +55,21 @@ function useReducedMotion() {
 /** The layout piece (if any) under a pointer event, found by walking up from the mesh that was hit. */
 const pieceTypeOf = (event) => { let o = event.object; while (o && !o.userData?.pieceType) o = o.parent; return o?.userData?.pieceType ?? null; };
 
-/** Afternoon light: a warm key from the front right, sun through the window on the left, and a soft sky and floor bounce. */
+/**
+ * Afternoon light: a warm key from the front right, sun through the window on the left, and a soft sky and floor bounce.
+ * Only the key light casts shadows (each shadow-casting light is another shadow map read for every pixel), and the
+ * shadow map is drawn only when something in the room moves (room/RenderOnChange.jsx). No environment map: at the
+ * strength it was used it made no visible difference, and sampling it was a fifth of the cost of every pixel.
+ */
 function ClubhouseLights({ night }) {
   const size = CANVAS.shadowMapSize;
   return (
     <>
-      <ThrottledShadows />
       <hemisphereLight args={night ? ['#9fd3e6', '#ffd9a0', 0.5] : ['#fff4e2', '#d9b98a', 0.42]} />
       <directionalLight position={[5.5, 9, 6.5]} intensity={night ? 0.9 : 1.55} color={night ? '#ffd8a4' : '#ffd9a6'} castShadow
         shadow-mapSize-width={size} shadow-mapSize-height={size} shadow-camera-left={-9} shadow-camera-right={9} shadow-camera-top={8} shadow-camera-bottom={-6} shadow-camera-far={30} shadow-bias={-0.0006} shadow-normalBias={0.08} />
       <directionalLight position={[-6, 4, 4]} intensity={night ? 0.3 : 0.28} color={night ? '#7fc7cc' : '#a9c9cc'} />
-      {!night && <directionalLight position={[-9, 4.2, 0.1]} intensity={2.6} color="#ffcf8a" castShadow shadow-mapSize-width={size} shadow-mapSize-height={size} shadow-camera-left={-5} shadow-camera-right={5} shadow-camera-top={5} shadow-camera-bottom={-5} shadow-camera-far={20} shadow-normalBias={0.05} />}
-      <Environment resolution={QUALITY.envResolution} environmentIntensity={0.3}>
-        <Lightformer intensity={1.2} color="#fff1d1" position={[0, 8, 5]} scale={[8, 8, 1]} />
-        <Lightformer intensity={0.6} color="#ffc98c" position={[-5, 3, 3]} scale={[3, 4, 1]} rotation-y={Math.PI / 2} />
-      </Environment>
+      {!night && <directionalLight position={[-9, 4.2, 0.1]} intensity={2.6} color="#ffcf8a" />}
     </>
   );
 }
@@ -84,7 +82,7 @@ export default function ClubhouseRoom({
   selectedCard, hoveredCard, setHoveredCard, onSelectCard,
   displayCards = [], activeZone, onRoute,
 }) {
-  const style = useMemo(() => makeStyle(theme, { lights: QUALITY.tier !== 'mobile' }), [theme]);
+  const style = useMemo(() => makeStyle(theme, { lights: QUALITY.pointLights > 0 }), [theme]);
   const room = useMemo(() => {
     const root = new THREE.Group(); const statics = new THREE.Group(); const pool = new MaterialPool();
     root.name = 'ClubhouseRoom';

@@ -310,3 +310,7 @@ docs/agent-reports/site-audit-20261029. Live since 2026-10-29 (`a65a2d3`).
   picture, price or where the card is kept) and buyer contacts like
   "Facebook". Now shows card details and locations, links, a Facebook search
   fallback, and the form requires a Facebook profile/Messenger link.
+- **BUG-048** BUG-046's fix only told the owner to turn on graphics
+  acceleration; the room still had to run without it. The room now draws
+  only when something changes, with cheaper lights, shadows and materials
+  (see HANDOFF "Room made light enough…"); it opens everywhere WebGL exists.

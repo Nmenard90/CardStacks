@@ -36,7 +36,7 @@ export const CANVAS = {
   dpr: cappedDpr,
   toneMapping: THREE.NeutralToneMapping,
   exposure: 0.88,
-  shadowType: THREE.PCFSoftShadowMap,
+  shadowType: THREE.PCFShadowMap, // the soft variant samples the map several more times per pixel
   shadowMapSize: QUALITY.shadowMapSize,
 };
 

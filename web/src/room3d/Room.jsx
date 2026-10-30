@@ -9,6 +9,7 @@ import DynamicShelving from './room/DynamicShelving.jsx';
 import { look, tuneForLook } from './look/looks.js';
 import { makeLamplightFloor, makeLamplightWall } from './look/lamplightTextures.js';
 import LightPools from './look/LightPools.jsx';
+import { asStandard } from './look/simpleMaterial.js';
 import { CLUBHOUSE, QUALITY, THEME } from './clubhouse/config.js';
 import { VITRINE, buildVitrine } from './clubhouse/collection.js';
 import { useHoloFoil } from './room/holoFoil.js';
@@ -139,6 +140,7 @@ function usePreparedModel(url) {
             // actual card receives the click.
             object.raycast = () => null;
           }
+          object.material = asStandard(object.material); // no transmission or clearcoat: see look/simpleMaterial.js
           tuneForLook(object.material);
           object.material.needsUpdate = true;
         }
@@ -463,7 +465,7 @@ export function DisplayCabinet({ displayCards, selectedCard, hoveredCard, setHov
       position={anchor?.position ?? [2.65, 0, -2.54]}
       rotation={anchor?.rotation ?? [0, Math.PI, 0]}
     >
-      {/* Every point light adds to the cost of every lit pixel in the room, so phones (QUALITY.pointLights = 0) go without. */}
+      {/* Every point light adds to the cost of every lit pixel in the room, so no quality tier has them (look/quality.js). */}
       {QUALITY.pointLights > 0 && <>
         <pointLight position={[0, lightY[0], -0.15]} color="#ffe8b1" intensity={0.85} distance={1.5} decay={2} />
         <pointLight position={[0, lightY[1], -0.15]} color="#ffe8b1" intensity={0.62} distance={1.35} decay={2} />

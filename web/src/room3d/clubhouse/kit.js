@@ -34,7 +34,7 @@ export const ball = (r, material, seg = 16) => M(new THREE.SphereGeometry(r, seg
 export const torus = (R, r, material, arc = Math.PI * 2, seg = 40) => M(new THREE.TorusGeometry(R, r, 8, Math.min(seg, 28), arc), material);
 export const capsule = (r, len, material) => M(new THREE.CapsuleGeometry(r, len, 6, 16), material);
 export const glow = (color, intensity = 1.2) => new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: intensity, roughness: 0.4 });
-export const glass = (color = '#dff7f4', opacity = 0.16) => new THREE.MeshPhysicalMaterial({ color, roughness: 0.05, metalness: 0, transparent: true, opacity, depthWrite: false, envMapIntensity: 1.4 });
+export const glass = (color = '#dff7f4', opacity = 0.16) => new THREE.MeshStandardMaterial({ color, roughness: 0.05, metalness: 0, transparent: true, opacity, depthWrite: false, envMapIntensity: 1.4 });
 
 export function rrShape(w, h, r) {
   const s = new THREE.Shape(); const x = -w / 2; const y = -h / 2;
@@ -95,7 +95,7 @@ export function cardTexture(seed) {
 }
 export const CARD_W = 0.36; export const CARD_H = 0.5;
 export function card(seed, { w = CARD_W, h = CARD_H } = {}) {
-  return rbox(w, h, 0.014, 0.014, new THREE.MeshPhysicalMaterial({ map: cardTexture(seed), roughness: 0.3, clearcoat: 0.6, clearcoatRoughness: 0.25 }), 3);
+  return rbox(w, h, 0.014, 0.014, new THREE.MeshStandardMaterial({ map: cardTexture(seed), roughness: 0.22 }), 3);
 }
 /** A small canvas label (pill) used on drawers. */
 export function labelTexture(text, bg, fg, w = 256, h = 96) {
