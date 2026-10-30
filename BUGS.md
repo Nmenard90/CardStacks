@@ -324,3 +324,12 @@ docs/agent-reports/site-audit-20261029. Live since 2026-10-29 (`a65a2d3`).
   the zoom and the same tap (its click and the stand-in mouse "leaving" the
   picture) closed it at once. Hover now opens/closes it only for a real mouse,
   and the zoom ignores the opening tap's click.
+- **BUG-051** (ENH, 2026-10-30) Pulling a shop request's cards meant revisiting
+  sets (cards listed in the buyer's order), no card count, no total when
+  prices were missing, and no way to mark cards found or fix a condition.
+  Each request is now a pull list: count, found and total up top, cards
+  grouped by set (oldest first, card-number order), a Find/Found button and
+  NM-DMG buttons per card (the price follows; the buyer's pick is shown).
+  Saved per card in the request's items JSON (`pulled`, `askedCondition`) via
+  POST /api/collection/:userId/shop-requests/:id/items/:index; no migration.
+  Changing a condition there does not change the collection.

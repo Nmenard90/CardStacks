@@ -26,6 +26,8 @@
  *     PUT  /api/collection/:userId/shop-settings           — body {slug, enabled, messengerUrl}
  *     GET  /api/collection/:userId/shop-requests           — inbox, newest first
  *     POST /api/collection/:userId/shop-requests/:id       — body {"status": "new|answered|done"}
+ *     POST /api/collection/:userId/shop-requests/:id/items/:index — body {"pulled"?: bool, "condition"?: "LP"}; the
+ *          pull list: mark a card found, or set its real condition (the buyer's pick is kept as askedCondition)
  */
 
 package com.poketracker.api
@@ -86,8 +88,27 @@ object ShopRoutes:
     else if bio.length > 1000 then Left("Bio must be 1000 characters or fewer.")
     else Right(ShopSettings(slug, in.enabled, url, name, bio))
 
+  private val conditions = Set("NM", "LP", "MP", "HP", "DMG")
+
+  /**
+   * The seller's pull-list change to one requested card; Left = message for them. A new condition replaces only the
+   * grade at the front ("NM 1st Edition" -> "LP 1st Edition"); the buyer's pick is remembered the first time it
+   * changes and forgotten when the seller sets it back.
+   */
+  private[poketracker] def applyItemChange(item: ShopRequestItem, change: ShopRequestItemChange): Either[String, ShopRequestItem] =
+    change.condition.map(_.trim) match
+      case Some(c) if !conditions(c) => Left("Condition must be NM, LP, MP, HP or DMG.")
+      case grade =>
+        val condition = grade.fold(item.condition)(g => g + item.condition.dropWhile(_ != ' '))
+        val asked     = item.askedCondition.getOrElse(item.condition)
+        Right(item.copy(
+          condition      = condition,
+          pulled         = change.pulled.orElse(item.pulled),
+          askedCondition = if condition == asked then None else Some(asked)
+        ))
+
   /** Trims and length-caps the untrusted buyer request; Left = message for the buyer. */
-  private def validateRequest(in: ShopRequestInput): Either[String, ShopRequestInput] =
+  private[poketracker] def validateRequest(in: ShopRequestInput): Either[String, ShopRequestInput] =
     val name    = in.buyerName.trim
     val contact = in.buyerContact.trim
     val message = in.message.trim
@@ -98,7 +119,7 @@ object ShopRoutes:
     else if in.items.exists(i => i.qty < 1 || i.qty > 99 || i.cardId.length > 64 || i.name.length > 120 ||
                                  i.number.length > 20 || i.condition.length > 20)
                                                  then Left("One of the cards in your request looks wrong. Please refresh and try again.")
-    else Right(ShopRequestInput(name, contact, message, in.items))
+    else Right(ShopRequestInput(name, contact, message, in.items.map(_.copy(pulled = None, askedCondition = None))))
 
   val publicRoutes: Routes[CollectionService & ShopRepository, Nothing] = Routes(
 
@@ -215,5 +236,17 @@ object ShopRoutes:
           _      <- ZIO.serviceWithZIO[ShopRepository](_.setStatus(userId, id, parsed.status))
         yield Response.json("""{"ok": true}""")
         ).catchAll(e => ZIO.succeed(Response.badRequest(e.getMessage)))
+    },
+
+    Method.POST / "api" / "collection" / string("userId") / "shop-requests" / string("id") / "items" / int("index") -> handler {
+      (userId: String, id: String, index: Int, req: Request) =>
+        (for
+          body    <- req.body.asString.mapError(_ => "Could not read that.")
+          change  <- ZIO.fromEither(body.fromJson[ShopRequestItemChange]).mapError(_ => "Could not read that.")
+          result  <- ZIO.serviceWithZIO[ShopRepository](_.updateItem(userId, id, index, applyItemChange(_, change)))
+                       .mapError(_ => "Could not save that. Please try again.")
+          updated <- ZIO.fromOption(result).orElseFail("That card is no longer on this request.").flatMap(ZIO.fromEither(_))
+        yield Response.json(updated.toJson)
+        ).catchAll(msg => ZIO.succeed(Response.badRequest(msg)))
     }
   )

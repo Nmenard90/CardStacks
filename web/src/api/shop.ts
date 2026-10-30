@@ -4,6 +4,7 @@
  *            GET|PUT /api/collection/:userId/shop-settings,
  *            GET /api/collection/:userId/shop-requests,
  *            POST /api/collection/:userId/shop-requests/:id (owner only)
+ *            POST /api/collection/:userId/shop-requests/:id/items/:index (owner only; the pull list)
  *            GET /api/shop/:slug/photo/:cardId/:side?cond= (public picture),
  *            PUT|DELETE /api/collection/:userId/shop-photos/:cardId/:side?cond= (owner only)
  * USED BY: ShopPage, ShopRequestsPage
@@ -17,6 +18,10 @@ export interface ShopRequestItem {
   number: string
   condition: string
   qty: number
+  /** Pull list (seller only): found in the boxes. */
+  pulled?: boolean
+  /** Pull list: what the buyer picked, once the seller changed `condition` to the copy's real one. */
+  askedCondition?: string
 }
 
 export interface ShopRequestInput {
@@ -97,3 +102,7 @@ export const getShopRequests = (userId: string) =>
 
 export const setShopRequestStatus = (userId: string, id: string, status: ShopRequestStatus) =>
   api.post(`/api/collection/${userId}/shop-requests/${id}`, { status }).then(r => r.data)
+
+/** Pull list: marks the request's card at `index` found (or not) and/or sets its real condition ("LP"). Returns the saved card. */
+export const updateShopRequestItem = (userId: string, id: string, index: number, change: { pulled?: boolean; condition?: string }) =>
+  api.post<ShopRequestItem>(`/api/collection/${userId}/shop-requests/${id}/items/${index}`, change).then(r => r.data)

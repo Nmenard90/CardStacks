@@ -27,6 +27,9 @@ trait ShopRepository:
   def create(sellerUserId: String, input: ShopRequestInput): Task[ShopRequest]
   def list(sellerUserId: String): Task[List[ShopRequest]]
   def setStatus(sellerUserId: String, id: String, status: String): Task[Unit]
+  /** Changes the request's card at `index` with `change` (Left = message for the seller), in one transaction so two
+   *  quick taps can't undo each other. None when the request isn't this seller's or has no card there. */
+  def updateItem(sellerUserId: String, id: String, index: Int, change: ShopRequestItem => Either[String, ShopRequestItem]): Task[Option[Either[String, ShopRequestItem]]]
   /** Which photos a seller has (no image bytes). */
   def listPhotos(userId: String): Task[List[ShopPhotoRef]]
   /** (jpeg bytes, last-changed epoch millis) for one photo. */
@@ -87,6 +90,22 @@ object ShopRepository:
     def setStatus(sellerUserId: String, id: String, status: String): Task[Unit] =
       sql"UPDATE shop_requests SET status=$status WHERE id=$id AND seller_user_id=$sellerUserId"
         .update.run.transact(xa).unit
+
+    def updateItem(sellerUserId: String, id: String, index: Int, change: ShopRequestItem => Either[String, ShopRequestItem]): Task[Option[Either[String, ShopRequestItem]]] =
+      val run = for
+        json   <- sql"SELECT items::text FROM shop_requests WHERE id=$id AND seller_user_id=$sellerUserId FOR UPDATE".query[String].option
+        items   = json.flatMap(_.fromJson[List[ShopRequestItem]].toOption).getOrElse(Nil)
+        result <- (items.lift(index) match
+          case None       => FC.pure(None)
+          case Some(item) => change(item) match
+            case Left(msg)      => FC.pure(Some(Left(msg)))
+            case Right(updated) =>
+              val next = items.updated(index, updated).toJson
+              sql"UPDATE shop_requests SET items=$next::jsonb WHERE id=$id AND seller_user_id=$sellerUserId"
+                .update.run.map(_ => Some(Right(updated)))
+        ): ConnectionIO[Option[Either[String, ShopRequestItem]]]
+      yield result
+      run.transact(xa)
 
     def listPhotos(userId: String): Task[List[ShopPhotoRef]] =
       sql"SELECT card_id,condition,side,updated_at FROM shop_photos WHERE user_id=$userId ORDER BY card_id,condition,side"

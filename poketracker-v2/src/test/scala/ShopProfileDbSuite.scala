@@ -4,7 +4,8 @@
 package com.poketracker
 
 import cats.syntax.all.*
-import com.poketracker.models.ShopSettings
+import com.poketracker.api.ShopRoutes
+import com.poketracker.models.{ShopRequestInput, ShopRequestItem, ShopRequestItemChange, ShopSettings}
 import com.poketracker.repository.ShopRepository
 import doobie.*
 import doobie.implicits.*
@@ -24,6 +25,7 @@ class ShopProfileDbSuite extends munit.FunSuite:
     require(url.get.startsWith("jdbc:postgresql://127.0.0.1:"), "Use an isolated local database")
   override def afterAll(): Unit = if url.nonEmpty then
     run(sql"DELETE FROM shop_settings WHERE user_id IN ($owner,$other)".update.run.transact(xa).unit)
+    run(sql"DELETE FROM shop_requests WHERE seller_user_id IN ($owner,$other)".update.run.transact(xa).unit)
 
   test("a seller can save a name and multiline bio, and an enabled shop exposes them") {
     val settings = ShopSettings("profile-test", true, "https://m.me/test", "My Pokémon cards", "Hi!\nThese are cards from my collection.")
@@ -60,4 +62,18 @@ class ShopProfileDbSuite extends munit.FunSuite:
     finally
       exec(sql"DELETE FROM shop_settings WHERE user_id = $u")
       exec(sql"DELETE FROM users WHERE id = $u")
+  }
+
+  test("pull list: a seller marks a requested card found and re-grades it; nobody else can") {
+    val cards = List(ShopRequestItem("base1-4", "Charizard", "4", "NM", 1), ShopRequestItem("base1-2", "Blastoise", "2", "LP", 2))
+    val req   = run(repo.create(owner, ShopRequestInput("Ash", "ash@example.test", "", cards)))
+    def change(c: ShopRequestItemChange) = ShopRoutes.applyItemChange(_, c)
+    assertEquals(run(repo.updateItem(owner, req.id, 1, change(ShopRequestItemChange(pulled = Some(true))))), Some(Right(cards(1).copy(pulled = Some(true)))))
+    run(repo.updateItem(owner, req.id, 0, change(ShopRequestItemChange(condition = Some("MP")))))
+    assertEquals(run(repo.list(owner)).find(_.id == req.id).get.items,
+      List(cards(0).copy(condition = "MP", askedCondition = Some("NM")), cards(1).copy(pulled = Some(true))))
+    assertEquals(run(repo.updateItem(other, req.id, 0, change(ShopRequestItemChange(pulled = Some(true))))), None)
+    assertEquals(run(repo.updateItem(owner, req.id, 5, change(ShopRequestItemChange(pulled = Some(true))))), None)
+    assert(run(repo.updateItem(owner, req.id, 0, change(ShopRequestItemChange(condition = Some("Mint"))))).get.isLeft)
+    assertEquals(run(repo.list(owner)).find(_.id == req.id).get.items(0).condition, "MP")
   }

@@ -24,7 +24,7 @@ fs.mkdirSync(report, { recursive: true })
 
 const user = { id: 'qa-owner', supabaseUserId: 'qa-owner', username: 'qa-owner', email: 'qa@example.test', role: 'Collector', reputation: 0, isAnonymous: false, createdAt: new Date().toISOString() }
 const owned = [1, 5, 20].map((price, i) => ({ cardId: `owned-${i}`, conditions: [{ condition: 'NM', quantity: 1 }], selectedCond: 'NM', updatedAt: new Date().toISOString(), card: {
-  id: `owned-${i}`, setId: 'dp4', name: `Owned ${['Low', 'Mid', 'High'][i]}`, number: String(i + 1), prices: { nm: price }, images: { small: 'https://images.pokemontcg.io/dp4/1.png', large: 'https://images.pokemontcg.io/dp4/1_hires.png' },
+  id: `owned-${i}`, setId: 'dp4', name: `Owned ${['Low', 'Mid', 'High'][i]}`, number: String(i + 1), prices: { nm: price, lp: price * 0.8 }, images: { small: 'https://images.pokemontcg.io/dp4/1.png', large: 'https://images.pokemontcg.io/dp4/1_hires.png' },
 } }))
 const unowned = Array.from({ length: 60 }, (_, i) => ({ ...owned[0].card, id: `unowned-${i}`, name: `Unowned ${i}`, prices: { nm: 10000 + i } }))
 // A card a buyer offers in trade, found through the catalog search.
@@ -45,9 +45,9 @@ async function setup({ width = 1440, height = 900, authenticated = false, mode =
     localStorage.setItem('sb-qa-auth-token', JSON.stringify({ access_token: token, refresh_token: 'qa-refresh', expires_at: expires, expires_in: 3600, token_type: 'bearer', user }))
   }, { user })
   const state = {
-    mode, sent: [], statusPuts: [], offers: structuredClone(offers), release: null,
+    mode, sent: [], statusPuts: [], itemPosts: [], offers: structuredClone(offers), release: null,
     settings: { slug: 'nmenard90', enabled: true, messengerUrl: '', displayName: fixture.shop.displayName, bio: fixture.shop.bio },
-    inbox: [{ id: 'r1', sellerUserId: user.id, buyerName: 'Ash', buyerContact: 'ash@example.test', kind: 'buy', status: 'new', createdAt: '2026-10-28T12:00:00Z', items: [{ cardId: 'me1-65', name: 'Greavard', number: '65', condition: 'NM', qty: 1 }, { cardId: 'owned-1', name: 'Owned Mid', number: '2', condition: 'NM', qty: 2 }],
+    inbox: [{ id: 'r1', sellerUserId: user.id, buyerName: 'Ash', buyerContact: 'ash@example.test', kind: 'buy', status: 'new', createdAt: '2026-10-28T12:00:00Z', items: [{ cardId: 'me1-65', name: 'Greavard', number: '65', condition: 'NM', qty: 1 }, { cardId: 'owned-2', name: 'Owned High', number: '3', condition: 'NM', qty: 1 }, { cardId: 'owned-1', name: 'Owned Mid', number: '2', condition: 'NM', qty: 2 }, { cardId: 'owned-0', name: 'Owned Low', number: '1', condition: 'NM', qty: 1 }],
       message: 'TRADE OFFER (cards about $3.00 for cards about $0.05, at today\'s prices):\n- 1× Trade Bait #9 (NM)' }],
   }
   await context.route('https://qa.supabase.co/**', route => route.fulfill({ json: user }))
@@ -81,6 +81,19 @@ async function setup({ width = 1440, height = 900, authenticated = false, mode =
         { cardId: 'owned-1', kind: 'box', container: 'Bulk Box 3', part: 'Main', condition: 'NM', quantity: 2, slotIndex: null, pocketSize: null },
         { cardId: 'owned-1', kind: 'binder', container: 'Trade Binder', part: null, condition: null, quantity: 1, slotIndex: 22, pocketSize: 'Nine' },
       ] })
+    }
+    const pull = p.match(/\/shop-requests\/([^/]+)\/items\/(\d+)$/)
+    if (pull) {
+      // Same rule as the server (ShopRoutes.applyItemChange): the buyer's pick is kept once the condition changes.
+      const change = req.postDataJSON(), item = state.inbox.find(x => x.id === pull[1]).items[Number(pull[2])]
+      state.itemPosts.push({ index: Number(pull[2]), ...change })
+      if (change.pulled !== undefined) item.pulled = change.pulled
+      if (change.condition) {
+        const asked = item.askedCondition ?? item.condition
+        item.condition = change.condition
+        if (item.condition === asked) delete item.askedCondition; else item.askedCondition = asked
+      }
+      return route.fulfill({ json: item })
     }
     if (/\/shop-requests\/[^/]+$/.test(p)) {
       const r = state.inbox.find(x => p.endsWith('/' + x.id)); if (r) r.status = req.postDataJSON().status
@@ -259,7 +272,24 @@ try {
     await page.locator('.card-preview-wrap.visible').waitFor({ state: 'detached' })
     const gone = (await page.locator('.req-card', { hasText: 'Greavard' }).innerText()).replace(/\s+/g, ' ')
     assert.match(gone, /No longer in your collection/); assert.match(gone, /Not in a box, binder or display case yet/)
-    assert.equal(state.locationIds, 'me1-65,owned-1')
+    assert.equal(state.locationIds, 'me1-65,owned-0,owned-1,owned-2')
+    // Pull list: how many cards and the total up top; grouped by set, card number order; Found and condition per card.
+    const summary = page.locator('.req-cards__summary')
+    assert.equal((await summary.innerText()).replace(/\s+/g, ' '), '0 of 5 cards found · Total $31.00 (1 without a price)')
+    assert.deepEqual(await page.locator('.req-set__name').allInnerTexts(), ['Great Encounters · 4', 'No longer in your collection · 1'])
+    assert.deepEqual((await page.locator('.req-set').first().locator('.req-card__title b').allInnerTexts()), ['1× Owned Low', '2× Owned Mid', '1× Owned High'])
+    await mid.getByRole('button', { name: 'Find' }).click()
+    await mid.getByRole('button', { name: 'Found', pressed: true }).waitFor()
+    assert.match(await summary.innerText(), /^2 of 5 cards found/)
+    await mid.getByRole('group', { name: 'Condition of Owned Mid' }).getByRole('button', { name: 'LP' }).click()
+    await mid.getByText('Buyer picked NM').waitFor()
+    assert.match((await mid.locator('.req-card__meta').innerText()).replace(/\s+/g, ' '), /· LP · \$4\.00 each \(\$8\.00\)/)
+    assert.match(await summary.innerText(), /Total \$29\.00/)
+    assert.deepEqual(state.itemPosts, [{ index: 2, pulled: true }, { index: 2, condition: 'LP' }])
+    // Saved: still found and LP after a reload.
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await mid.getByRole('button', { name: 'Found', pressed: true }).waitFor()
+    assert.equal(await mid.getByRole('button', { name: 'LP', pressed: true }).count(), 1)
     // No link from this buyer: a Facebook people search for their name.
     assert.equal(await page.getByRole('link', { name: /Search “Ash” on Facebook/ }).getAttribute('href'), 'https://www.facebook.com/search/people/?q=Ash')
     // Shop nav link carries the new-request count (desktop row or phone tab bar).

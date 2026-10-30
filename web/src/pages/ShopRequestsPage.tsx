@@ -221,7 +221,7 @@ export function ShopRequestsPage() {
                     <span className="shop-sub">{new Date(r.createdAt).toLocaleString()}</span>
                   </div>
                   <BuyerContact name={r.buyerName} contact={r.buyerContact} />
-                  {r.items.length > 0 && <RequestedCards items={r.items} userId={userId} preview={preview} />}
+                  {r.items.length > 0 && <RequestedCards requestId={r.id} items={r.items} userId={userId} preview={preview} />}
                   {r.message && <p className="shop-req-msg">{r.message}</p>}
                   <div className="shop-sheet-btns">
                     {r.status !== 'answered' && <button type="button" className="shop-btn shop-btn-ghost" onClick={() => mark(r, 'answered')}>Mark answered</button>}

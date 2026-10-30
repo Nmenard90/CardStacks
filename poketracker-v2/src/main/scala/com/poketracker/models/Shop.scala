@@ -38,13 +38,17 @@ final case class ShopView(
 object ShopView:
   given JsonEncoder[ShopView] = DeriveJsonEncoder.gen[ShopView]
 
-/** One card a buyer picked on the public shop page. */
+/** One card a buyer picked on the public shop page. The seller's pull list adds the last two (stored in the
+ *  request's items JSON, so no migration): `pulled` once they've found the card, and `askedCondition`, what the
+ *  buyer picked, once the seller changed `condition` to the copy's real one. Both absent on a new request. */
 final case class ShopRequestItem(
-  cardId:    String,
-  name:      String,
-  number:    String,
-  condition: String,
-  qty:       Int
+  cardId:         String,
+  name:           String,
+  number:         String,
+  condition:      String,
+  qty:            Int,
+  pulled:         Option[Boolean] = None,
+  askedCondition: Option[String]  = None
 )
 
 object ShopRequestItem:
@@ -57,6 +61,12 @@ final case class ShopRequestInput(
   message:      String,
   items:        List[ShopRequestItem]
 )
+
+/** The seller's change to one card on their pull list: found or not, and/or its real condition. */
+final case class ShopRequestItemChange(pulled: Option[Boolean] = None, condition: Option[String] = None)
+
+object ShopRequestItemChange:
+  given JsonDecoder[ShopRequestItemChange] = DeriveJsonDecoder.gen[ShopRequestItemChange]
 
 object ShopRequestInput:
   given JsonDecoder[ShopRequestInput] = DeriveJsonDecoder.gen[ShopRequestInput]
