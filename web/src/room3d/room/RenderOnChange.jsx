@@ -1,5 +1,5 @@
 /**
- * RenderOnChange.jsx — draws the room only while something in it is changing.
+ * RenderOnChange.jsx — draws the room only while something in it is changing, always sharp when it is still.
  *
  * PURPOSE
  *   The room is still most of the time. Drawing it 60 times a second anyway keeps a laptop's fan going and a phone
@@ -9,38 +9,75 @@
  *     - when the visitor points, scrolls, taps or types anywhere on the page (hover and drag animations start there),
  *     - when something changes between frames (data arriving, a card picture finishing loading), found by comparing
  *       a cheap signature of the scene every animation frame (sceneSignature.js).
- *   It also draws the shadow map once each time the room comes to rest after something in it moved (not when only a
- *   colour changed, nor when only the camera moved), instead of every few frames, and asks for a lower pixel ratio
- *   (onSlow) if frames keep taking too long while the room is moving.
+ *   Frames in which nothing changed aren't drawn at all. The shadow map is drawn once each time the room comes to rest
+ *   after something in it moved, instead of every few frames.
  *
- * USED BY: RoomScene.jsx (inside the Canvas)
- * DEPENDS ON: @react-three/fiber, room/sceneSignature.js
+ * SHARP WHEN STILL
+ *   A device too slow to draw the room at full size 30 times a second (moving frames averaging over SLOW_FRAME_MS) draws
+ *   the frames in which the camera or furniture is moving smaller, into an off-screen picture stretched to fill the
+ *   canvas. As soon as nothing moves, the room is drawn once more at full resolution. So the room is never blurry when
+ *   you look at it, only for the moment it is in motion; a fast device always draws at full size.
+ *
+ * USED BY: RoomScene.jsx (inside the Canvas; it takes over drawing from react-three-fiber)
+ * DEPENDS ON: @react-three/fiber, three, room/sceneSignature.js
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
+import * as THREE from 'three';
 import { sceneSignature, viewSignature } from './sceneSignature.js';
 
-const SETTLE_FRAMES = 6; // frames with nothing changing before the room stops drawing
+const SETTLE_FRAMES = 6; // frames with nothing changing before the room stops checking
 const TARGET_FRAME_MS = 33; // frame time aimed for while moving (30 frames a second)
-const SLOW_FRAME_MS = 40; // average frame time while moving above which the pixel ratio steps down
-const SLOW_SAMPLE = 8; // frames averaged for that
-const MIN_DPR = 0.5;
+const SLOW_FRAME_MS = 40; // average moving-frame time above which moving frames are drawn smaller
+const SLOW_SAMPLE = 8; // moving frames averaged for that
+const MIN_SCALE = 0.5; // never smaller than half size, even while moving
 const INPUT_EVENTS = ['pointermove', 'pointerdown', 'pointerup', 'wheel', 'keydown', 'touchmove', 'resize'];
 
-/**
- * @param {{ onSlow: (dpr: number) => void }} props  called with a lower pixel ratio to draw at; the Canvas owner keeps
- *   it in its `dpr` prop (react-three-fiber puts the prop's value back on every re-render otherwise)
- */
-export default function RenderOnChange({ onSlow }) {
-  const get = useThree((state) => state.get);
-  const run = useRef({ awake: true, view: 0, shape: 0, still: 0, shadowsDirty: true, lastFrame: 0, slow: [], lastStep: 0 });
+/** The off-screen picture moving frames are drawn into, and a full-screen rectangle that shows it. */
+function useLowResPass(gl) {
+  return useMemo(() => {
+    // Half floats keep the light's full range (the tone mapping happens when it is stretched onto the screen); a
+    // browser that can't draw into them gets ordinary 8-bit colour.
+    const type = gl.extensions.has('EXT_color_buffer_float') || gl.extensions.has('EXT_color_buffer_half_float') ? THREE.HalfFloatType : THREE.UnsignedByteType;
+    const target = new THREE.WebGLRenderTarget(1, 1, { type, depthBuffer: true });
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    // Transparent where the room's background is (cleared to nothing below), so the screen's own background colour
+    // shows there exactly as in a full-size frame.
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ map: target.texture, transparent: true, depthTest: false, depthWrite: false }));
+    const scene = new THREE.Scene(); scene.add(quad);
+    const size = new THREE.Vector2();
+    return {
+      target, scene, camera,
+      draw(room, roomCamera, scale) {
+        gl.getDrawingBufferSize(size);
+        const w = Math.max(1, Math.round(size.x * scale)); const h = Math.max(1, Math.round(size.y * scale));
+        if (target.width !== w || target.height !== h) target.setSize(w, h);
+        const background = room.background;
+        room.background = null;
+        gl.setClearAlpha(0);
+        gl.setRenderTarget(target); gl.clear(); gl.render(room, roomCamera);
+        gl.setRenderTarget(null);
+        room.background = background;
+        scene.background = background; // the screen is cleared to the room's colour, then the picture laid over it
+        gl.render(scene, camera);
+      },
+      dispose() { target.dispose(); quad.geometry.dispose(); quad.material.dispose(); },
+    };
+  }, [gl]);
+}
 
+export default function RenderOnChange() {
+  const get = useThree((state) => state.get);
+  const gl = useThree((state) => state.gl);
+  const lowRes = useLowResPass(gl);
+  const run = useRef({ awake: true, look: 0, camera: 0, drawn: 0, sharp: false, still: 0, shape: 0, shadowsDirty: true, lastMove: 0, slow: [], scale: 1 });
+
+  useEffect(() => () => lowRes.dispose(), [lowRes]);
   useEffect(() => {
-    const { gl } = get();
     gl.shadowMap.autoUpdate = false; // drawn when the room comes to rest (below)
     gl.shadowMap.needsUpdate = true;
     return () => { gl.shadowMap.autoUpdate = true; };
-  }, [get]);
+  }, [gl]);
 
   useEffect(() => {
     const r = run.current;
@@ -56,7 +93,7 @@ export default function RenderOnChange({ onSlow }) {
       raf = requestAnimationFrame(poll);
       if (r.awake) return;
       const { scene, camera, size, viewport } = get();
-      if (viewSignature(sceneSignature(scene).look, camera, [size.width, size.height, viewport.dpr]) !== r.view) wake();
+      if (viewSignature(sceneSignature(scene).look, camera, [size.width, size.height, viewport.dpr]) !== r.drawn) wake();
     };
     raf = requestAnimationFrame(poll);
     for (const type of INPUT_EVENTS) window.addEventListener(type, wake, { passive: true });
@@ -66,32 +103,47 @@ export default function RenderOnChange({ onSlow }) {
     };
   }, [get]);
 
+  // Priority 1: react-three-fiber leaves the drawing to this, after every other per-frame update has run.
   useFrame((state) => {
     const r = run.current;
     const now = performance.now();
     const { shape, look } = sceneSignature(state.scene);
+    const cameraSig = viewSignature(0, state.camera, [state.size.width, state.size.height, state.viewport.dpr]);
     const view = viewSignature(look, state.camera, [state.size.width, state.size.height, state.viewport.dpr]);
-    if (shape !== r.shape) { r.shape = shape; r.shadowsDirty = true; }
-    if (view !== r.view) { r.view = view; r.still = 0; } else r.still += 1;
+    const moving = shape !== r.shape || cameraSig !== r.camera; // something is in motion (not just a colour change)
+    if (shape !== r.shape) r.shadowsDirty = true;
+    r.shape = shape; r.camera = cameraSig;
+    const changed = view !== r.drawn;
+    r.still = changed ? 0 : r.still + 1;
 
-    // Frames drawn back to back while moving: if they keep taking too long, draw fewer pixels, in one step sized from
-    // how slow they are (each change of size costs a stall of its own). Never steps back up, so a struggling device
-    // doesn't flicker between sharpness levels.
-    if (r.still === 0 && now - r.lastFrame < 250) {
-      r.slow.push(now - r.lastFrame);
-      if (r.slow.length > SLOW_SAMPLE) r.slow.shift();
-      const average = r.slow.reduce((sum, ms) => sum + ms, 0) / r.slow.length;
-      if (r.slow.length === SLOW_SAMPLE && average > SLOW_FRAME_MS && state.viewport.dpr > MIN_DPR && now - r.lastStep > 1500) {
-        const scale = Math.min(0.85, Math.sqrt(TARGET_FRAME_MS / average)); // drawing time roughly follows the pixel count
-        onSlow(Math.max(MIN_DPR, state.viewport.dpr * scale));
-        r.lastStep = now; r.slow = [];
+    if (moving) {
+      // Moving frames drawn back to back: if they keep taking too long, draw them smaller, in one step sized from how
+      // slow they are. Never steps back up, so a struggling device doesn't flicker between sharpness levels.
+      if (now - r.lastMove < 250) {
+        r.slow.push(now - r.lastMove);
+        if (r.slow.length > SLOW_SAMPLE) r.slow.shift();
+        const average = r.slow.reduce((sum, ms) => sum + ms, 0) / r.slow.length;
+        if (r.slow.length === SLOW_SAMPLE && average > SLOW_FRAME_MS && r.scale > MIN_SCALE) {
+          r.scale = Math.max(MIN_SCALE, r.scale * Math.min(0.85, Math.sqrt(TARGET_FRAME_MS / average))); // time follows pixel count
+          r.slow = [];
+        }
       }
+      r.lastMove = now;
     }
-    r.lastFrame = now;
 
-    if (r.still < SETTLE_FRAMES) { state.invalidate(); return; }
-    if (r.shadowsDirty) { state.gl.shadowMap.needsUpdate = true; r.shadowsDirty = false; state.invalidate(); return; }
-    r.awake = false;
-  });
+    if (moving && r.scale < 1) {
+      lowRes.draw(state.scene, state.camera, r.scale);
+      r.sharp = false;
+    } else if (changed || !r.sharp || r.shadowsDirty) {
+      // Full size: anything that changed without moving, and the first frame once motion stops (with fresh shadows).
+      if (r.shadowsDirty && !moving) { state.gl.shadowMap.needsUpdate = true; r.shadowsDirty = false; }
+      state.gl.render(state.scene, state.camera);
+      r.sharp = true;
+    }
+    r.drawn = view;
+
+    if (r.still < SETTLE_FRAMES || !r.sharp || r.shadowsDirty) state.invalidate();
+    else r.awake = false;
+  }, 1);
   return null;
 }

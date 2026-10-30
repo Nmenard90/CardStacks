@@ -4,15 +4,15 @@
  * PURPOSE
  *   The room needs WebGL. Browsers can offer it without a graphics card: Chrome draws 3D on the processor ("Microsoft
  *   Basic Render Driver", SwiftShader, llvmpipe) when graphics acceleration is turned off, the GPU driver is
- *   blocklisted or crashed, or on remote desktops and virtual machines. The room runs there too; it skips edge
- *   smoothing (RoomScene.jsx), which costs about a fifth of every frame on the processor and almost nothing on a card.
+ *   blocklisted or crashed, or on remote desktops and virtual machines. The room runs there too: it draws only when
+ *   something changes and adapts to a slow device by itself (room/RenderOnChange.jsx).
  *
  * HOW IT WORKS
  *   One probe per page load (each probe creates a GL context, and browsers cap how many exist): the renderer's name
  *   (WEBGL_debug_renderer_info) is matched against known software rasterizers, and a context requested with
  *   failIfMajorPerformanceCaveat, which browsers refuse when they would have to draw in software.
  *
- * USED BY: pages/RoomPage.tsx (no WebGL at all → Spaces link), room3d/RoomScene.jsx
+ * USED BY: pages/RoomPage.tsx (no WebGL at all → Spaces link)
  */
 
 /** What the probe found. `software` = WebGL works but without the graphics card. */

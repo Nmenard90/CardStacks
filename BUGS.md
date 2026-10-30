@@ -314,3 +314,7 @@ docs/agent-reports/site-audit-20261029. Live since 2026-10-29 (`a65a2d3`).
   acceleration; the room still had to run without it. The room now draws
   only when something changes, with cheaper lights, shadows and materials
   (see HANDOFF "Room made light enough…"); it opens everywhere WebGL exists.
+- **BUG-049** After BUG-048 went live the room looked "very pixelated" on the
+  owner's 2560-wide window: the slow-device fallback had lowered the canvas
+  resolution for good and turned off edge smoothing. Now only moving frames
+  are drawn smaller; still views are full resolution with edge smoothing.

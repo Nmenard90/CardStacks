@@ -31,7 +31,6 @@ import CardRolodex from './CardRolodex.jsx';
 import BinderBook from './room/BinderBook.jsx';
 import { freeRect } from './room/freeRect.js';
 import RenderOnChange from './room/RenderOnChange.jsx';
-import { probeGraphics } from './graphics';
 import { pageCount, pocketsPerPage } from './room/binderLayout.js';
 import { BinderBar, PickerBar } from './ViewBars.jsx';
 import ItemPanel from './ItemPanel.jsx';
@@ -45,9 +44,6 @@ import './clubhouse/site-ui.css';
 
 const EMPTY_ROUTE = { focus: null, binderId: null, binderCardId: null, boxId: null, displayId: null };
 const SITE_ZONES = new Set(['storage', 'binders', 'display']); // the room areas; 'explore' is the site's Explore page
-// Smoothing edges (multisampling) is nearly free on a graphics card and costs about a fifth of every frame when the
-// browser draws on the CPU, where the resolution is often lowered anyway (RenderOnChange).
-const SOFTWARE_3D = probeGraphics().software;
 const TAP = window.matchMedia?.('(pointer: coarse)').matches ? 'Tap' : 'Click'; // the hint's verb for this device
 
 /**
@@ -287,7 +283,6 @@ export default function RoomScene({ userId, onHelp }) {
   const [pick, setPick] = useState(null); // card picker for one binder pocket: { slot, query, cardId, error, busy }
   const [boxUi, setBoxUi] = useState({ drawerId: null, cardId: null }); // which drawer the rolodex shows, and the card chosen in it
   const spread = useSpread(stage);
-  const [dpr, setDpr] = useState(CANVAS.dpr); // lowered by RenderOnChange when this device draws the room too slowly
   const reducedMotion = useReducedMotion();
   const { world, lookup } = room;
   const selectedBinder = useMemo(() => lookup?.binder(route.binderId) ?? null, [lookup, route.binderId]);
@@ -384,7 +379,7 @@ export default function RoomScene({ userId, onHelp }) {
 
   return (
     <div className="room3d-stage" ref={stage}>
-      <Canvas shadows frameloop="demand" dpr={dpr} gl={{ antialias: !SOFTWARE_3D, alpha: false, powerPreference: 'high-performance' }} camera={{ fov: 37, near: 0.1, far: 50, position: DEFAULT_CAM.pos }}
+      <Canvas shadows frameloop="demand" dpr={CANVAS.dpr} gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }} camera={{ fov: 37, near: 0.1, far: 50, position: DEFAULT_CAM.pos }}
         onCreated={({ gl, scene, camera }) => { gl.toneMapping = CANVAS.toneMapping; gl.toneMappingExposure = CANVAS.exposure; gl.shadowMap.type = CANVAS.shadowType; if (import.meta.env.DEV) window.__nook3d = { scene, camera, gl, THREE }; }}
         aria-label="3D collection room">
         <color attach="background" args={[CANVAS.background]} />
@@ -401,7 +396,7 @@ export default function RoomScene({ userId, onHelp }) {
             onSelectCard={(card) => (pick ? setPick((p) => ({ ...p, cardId: card?.id ?? null, error: null })) : setBoxUi((u) => ({ ...u, cardId: card?.id ?? null })))} />
         </Suspense>
         <FixedCameraRig focus={route.focus} reducedMotion={reducedMotion} inspectSeed={selectedDisplayCard?.displayIndex ?? null} />
-        <RenderOnChange onSlow={setDpr} />
+        <RenderOnChange />
       </Canvas>
       {hint && <div className={`hud${selectedBinder || pick ? ' hud--quiet' : ''}`}>{hint}{unplacedItems > 0 && !selected && !route.focus && <><br />{unplacedItems === 1 ? '1 binder or box isn’t' : `${unplacedItems} binders or boxes aren’t`} on a shelf yet — find {unplacedItems === 1 ? 'it' : 'them'} under Unplaced in Binders or Card boxes.</>}</div>}
       <RoomStatus room={room} focused={Boolean(route.focus)} onHelp={onHelp} />

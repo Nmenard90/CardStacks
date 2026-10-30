@@ -213,13 +213,17 @@ renders WebGL in software (~1 fps), so 3D screenshots time out there; judge
   draws only while something changes (a cheap per-frame signature of the
   scene, `room/sceneSignature.js`, plus pointer/key/wheel events), draws the
   shadow map once each time the room comes to rest after something moved,
-  and lowers the pixel ratio in one step if frames stay slow (kept in
-  RoomScene state: R3F resets the `dpr` prop on every re-render otherwise).
-  Also: no point lights in any tier, one shadow-casting light (PCF, not
-  soft), no environment map (no visible difference, ~20% of pixel cost),
-  physical materials → standard (`look/simpleMaterial.js`), edge smoothing
-  off only where WebGL is software (`graphics.ts`), and the lighting no longer
-  rebuilds drei's environment cube on every hover. Measured on the owner's
+  and skips frames in which nothing changed. It draws the scene itself
+  (`useFrame` priority 1): on a slow device, frames in which the camera or
+  furniture *moves* are drawn smaller into an off-screen target and
+  stretched to the canvas, and the room is redrawn at full resolution the
+  moment it stops — so it is never blurry while still (the first version
+  lowered the canvas resolution permanently and turned edge smoothing off;
+  the owner found it "very pixelated", so both were reverted). Also: no
+  point lights in any tier, one shadow-casting light (PCF, not soft), no
+  environment map (no visible difference, ~20% of pixel cost), physical
+  materials → standard (`look/simpleMaterial.js`), and the lighting no
+  longer rebuilds drei's environment cube on every hover. Measured on the owner's
   PC with Chrome's CPU renderer (WARP): idle went from ~10 fps of constant
   redraw with 3 s hover freezes to zero frames; moving is ~25 fps at
   2560×1271, 30–45 fps at 1600×900, ~60 fps at phone size. To reproduce:
