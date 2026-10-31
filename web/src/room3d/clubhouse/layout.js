@@ -21,30 +21,31 @@ const HALF_PI = Math.PI / 2;
  * chair) added to the +z side. `mount: 'wall'` pieces hang at height `y` and use `size` = [width, height] on the wall.
  * `flat` pieces (rugs, cushions) lie on the floor and never collide. `backdrop` wall pieces sit behind others.
  * `locked` pieces are the collection furniture: required, and they cannot be removed.
- * `route` is where the piece leads when the room becomes the site's home page.
+ * `route` is where the piece leads when the room becomes the site's home page; `goes` names that place for the tag shown
+ * beside the pointer (RoomScene.jsx), so a visitor knows before clicking.
  */
 export const PIECE_TYPES = Object.freeze({
-  desk: { label: 'Collector desk', mount: 'floor', footprint: [1.9, 0.7], front: 0.55, route: '/add' },
+  desk: { label: 'Collector desk', mount: 'floor', footprint: [1.9, 0.7], front: 0.55, route: '/add', goes: 'Add cards' },
   drawerCart: { label: 'Drawer cart', mount: 'floor', footprint: [0.5, 0.5] },
   sofa: { label: 'Sofa', mount: 'floor', footprint: [2.2, 0.95] },
-  coffeeTable: { label: 'Coffee table', mount: 'floor', footprint: [1.2, 0.7], route: '/analyzer' },
+  coffeeTable: { label: 'Coffee table', mount: 'floor', footprint: [1.2, 0.7], route: '/analyzer', goes: 'Trade Analyzer' },
   pouf: { label: 'Pouf', mount: 'floor', footprint: [0.64, 0.64], freeRot: true },
   floorLamp: { label: 'Floor lamp', mount: 'floor', footprint: [0.3, 0.3], freeRot: true },
   plant: { label: 'Plant', mount: 'floor', footprint: [0.5, 0.5], scaleFootprint: true, freeRot: true },
-  gameTable: { label: 'Card table', mount: 'floor', footprint: [2.6, 3.0], route: '/convention' },
+  gameTable: { label: 'Card table', mount: 'floor', footprint: [2.6, 3.0], route: '/convention', goes: 'Convention Mode' },
   dogBed: { label: 'Dog bed', mount: 'floor', footprint: [1.1, 1.1], freeRot: true },
   basket: { label: 'Blanket basket', mount: 'floor', footprint: [0.36, 0.36], freeRot: true },
   rug: { label: 'Rug', mount: 'floor', footprint: [2.6, 3.0], flat: true },
   floorCushions: { label: 'Floor cushions', mount: 'floor', footprint: [0.9, 0.9], flat: true },
   slippers: { label: 'Slippers', mount: 'floor', footprint: [0.4, 0.4], flat: true },
-  pinboard: { label: 'Pinboard', mount: 'wall', size: [1.7, 0.98], route: '/shop/requests' },
+  pinboard: { label: 'Pinboard', mount: 'wall', size: [1.7, 0.98], route: '/shop/requests', goes: 'Shop requests' },
   wallShelf: { label: 'Wall shelf', mount: 'wall', size: [1.6, 0.3] },
   frame: { label: 'Framed print', mount: 'wall', size: [0.5, 0.66], sizeFromProps: true },
   clock: { label: 'Wall clock', mount: 'wall', size: [0.5, 0.5] },
   slatPanel: { label: 'Oak slat panel', mount: 'wall', size: [3.6, 3.3], backdrop: true },
-  storageRack: { label: 'Card box shelf', mount: 'floor', footprint: [2.6, 0.8], locked: true, route: '/storage' },
-  binderLibrary: { label: 'Binder bookcase', mount: 'floor', footprint: [3.5, 0.72], locked: true, route: '/binders' },
-  displayCabinet: { label: 'Display cabinet', mount: 'floor', footprint: [1.4, 0.46], locked: true, route: '/display' },
+  storageRack: { label: 'Card box shelf', mount: 'floor', footprint: [2.6, 0.8], locked: true, route: '/storage', goes: 'Your card boxes' },
+  binderLibrary: { label: 'Binder bookcase', mount: 'floor', footprint: [3.5, 0.72], locked: true, route: '/binders', goes: 'Your binders' },
+  displayCabinet: { label: 'Display cabinet', mount: 'floor', footprint: [1.4, 0.46], locked: true, route: '/display', goes: 'Your display cards' },
 });
 
 /** Fixed architecture the layout must work around: the window and its curtains on the left wall. */

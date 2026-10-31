@@ -80,7 +80,7 @@ export default function ClubhouseRoom({
   onSelectBinder, hoveredBinder, selectedBinder, setHoveredBinder,
   onSelectBin, hoveredBin, selectedBin, setHoveredBin,
   selectedCard, hoveredCard, setHoveredCard, onSelectCard,
-  displayCards = [], activeZone, onRoute,
+  displayCards = [], activeZone, onRoute, setHoveredPiece,
 }) {
   const style = useMemo(() => makeStyle(theme, { lights: QUALITY.pointLights > 0 }), [theme]);
   const room = useMemo(() => {
@@ -131,12 +131,15 @@ export default function ClubhouseRoom({
     window.setTimeout(() => setHearts((current) => current.filter((h) => !fresh.includes(h))), (HEART_LIFE + 0.7) * 1000);
   }, [bed, clock, onRoute]);
   const hoverDog = useCallback((event) => { const type = pieceTypeOf(event); if (type === 'dogBed' || (onRoute && PIECE_TYPES[type]?.route)) gl.domElement.style.cursor = 'pointer'; }, [gl, onRoute]);
-  const leaveDog = useCallback(() => { gl.domElement.style.cursor = ''; }, [gl]);
+  const leaveDog = useCallback(() => { gl.domElement.style.cursor = ''; setHoveredPiece?.(null); }, [gl, setHoveredPiece]);
+  // The piece nearest under the pointer, for the tag naming where a click goes (RoomScene.jsx). Every hit along the ray
+  // reports the same first hit, so the floor behind the desk doesn't overwrite it; out events (above) run before moves.
+  const pointPiece = useCallback((event) => setHoveredPiece?.(pieceTypeOf({ object: event.intersections[0]?.object })), [setHoveredPiece]);
 
   return (
     <group>
       <ClubhouseLights night={theme.mode === 'night'} />
-      <primitive object={room} onClick={pet} onPointerOver={hoverDog} onPointerOut={leaveDog} />
+      <primitive object={room} onClick={pet} onPointerOver={hoverDog} onPointerMove={pointPiece} onPointerOut={leaveDog} />
       {hearts.map((h) => <Heart key={h.id} heart={h} reduced={reduced} />)}
       <mesh // the window (see shell.js) is where you explore the catalog: invisible over the glass, a warm glow when pointed at
         position={WINDOW.position} rotation={[0, Math.PI / 2, 0]} renderOrder={5}

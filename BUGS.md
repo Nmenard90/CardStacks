@@ -344,3 +344,7 @@ docs/agent-reports/site-audit-20261029. Live since 2026-10-29 (`a65a2d3`).
   times a second (most of a CPU core without graphics acceleration). Fixed on
   `fix/room-lite`: compressed responses, shaders built in the background, the
   guide's loops stepped 15×/s. See HANDOFF "Room made light enough…".
+- **BUG-053** (2026-10-31) The room was blurry in a browser zoomed below 100%:
+  the canvas never drew at a pixel ratio under 1, so the browser shrank a
+  bigger picture to fit the screen. Fixed on `fix/room-lite` (config.js caps
+  the ratio at `devicePixelRatio`).

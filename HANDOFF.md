@@ -254,6 +254,15 @@ renders WebGL in software (~1 fps), so 3D screenshots time out there; judge
   ~2 s of CPU per 4 s on WARP; now ~0.3 s over the room alone. First visit
   on WARP, 8 Mbps: room drawn 10.4 s → 3.7 s. `ROOM_TEST_ANGLE=d3d11-warp`
   runs room-browser.mjs on that renderer (69/69 both).
+  2026-10-31, same branch (owner: "still really fuzzy also people have no way
+  of knowing where theyre going to go beforehand"): the owner's Chrome is
+  zoomed to 80% (devicePixelRatio 0.8). The canvas pixel ratio's floor was
+  1, so the room was drawn at 2400 px wide and shrunk by the browser to the
+  screen's 1920: blurry, and 56% more pixels to shade. `clubhouse/config.js`
+  now never asks for more than `devicePixelRatio`. And in the room overview
+  a tag beside the mouse names where a click goes ("Collector desk → Add
+  cards"; the names are `goes` in `PIECE_TYPES`, layout.js); mouse only —
+  phones still rely on the area list and the guide.
 - *My Shop requests didn't say what or where the cards were*, and contacts
   often just said "Facebook". New `GET /api/spaces/:userId/card-locations`
   (reads existing tables; no migration); `components/RequestedCards.tsx`

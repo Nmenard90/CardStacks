@@ -25,10 +25,13 @@ export const QUALITY = pickQuality(device);
 /**
  * The most pixels the room draws per frame (about 1920×1250). A big monitor or a zoomed-out page would otherwise ask
  * for 5 million or more, several times the work for no visible gain; the pixel ratio is lowered to stay under it.
+ * Never more pixels than the screen shows, either: on a page zoomed below 100% (a pixel ratio under 1) a canvas drawn
+ * at ratio 1 is shrunk to fit by the browser, which blurs the whole room and costs more to draw.
  */
 const MAX_PIXELS = 2_400_000;
 const pixelCap = Math.sqrt(MAX_PIXELS / Math.max(1, window.innerWidth * window.innerHeight));
-const cappedDpr = [Math.min(QUALITY.dpr[0], pixelCap), Math.max(0.5, Math.min(QUALITY.dpr[1], pixelCap))];
+const screenRatio = window.devicePixelRatio || 1;
+const cappedDpr = [Math.max(0.5, Math.min(QUALITY.dpr[0], screenRatio, pixelCap)), Math.max(0.5, Math.min(QUALITY.dpr[1], pixelCap))];
 
 /** Renderer settings: the room is lit like a bright, warm afternoon, so a neutral tone map keeps the saturated colours from washing out. */
 export const CANVAS = {

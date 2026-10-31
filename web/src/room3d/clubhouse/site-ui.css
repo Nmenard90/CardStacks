@@ -18,13 +18,14 @@
 
 /* ── Panels: one surface language everywhere ─────────────────────────── */
 .ui-site .hud, .ui-site .focus-label, .ui-site .zone-nav, .ui-site .sync-chip, .ui-site .connect-card, .ui-site .zone-picker,
-.ui-site .item-panel, .ui-site .view-bar, .ui-site .route-notice, .ui-site .add-panel {
+.ui-site .item-panel, .ui-site .view-bar, .ui-site .route-notice, .ui-site .add-panel, .ui-site .room-tag {
   color: var(--text); background: var(--surface); border: var(--ink-w) solid var(--ink); border-radius: var(--radius);
   box-shadow: var(--sticker); backdrop-filter: none; font-family: var(--body);
 }
 .ui-site .hud { padding: 0.625rem 1rem; font-size: 0.875rem; line-height: 1.45; border-radius: var(--radius-sm); }
 .ui-site .hud b { color: var(--accent); font-family: var(--head); font-weight: 800; }
 .ui-site .focus-label { padding: 0.5rem 1rem; border-radius: 6.1875rem; font: 800 0.9375rem/1 var(--head); color: var(--accent); }
+.ui-site .room-tag { padding: 0.4375rem 0.875rem; border-radius: 6.1875rem; font: 800 0.875rem/1.2 var(--head); }
 .ui-site .rolodex-label { color: var(--text); background: var(--surface); border: var(--ink-w) solid var(--ink); border-radius: 0.75rem; box-shadow: 3px 3px 0 rgba(0, 0, 0, .35); font: 700 0.8125rem/1.2 var(--body); }
 
 /* ── Buttons: yellow sticker for the main action, surface for the rest ── */

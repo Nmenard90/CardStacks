@@ -39,7 +39,7 @@ import ZoneBrowser from './ZoneBrowser.jsx';
 import { useLiveRoom, usePocketSearch } from './data/useLiveRoom.ts';
 import ClubhouseRoom from './clubhouse/ClubhouseRoom.jsx';
 import { CANVAS, DEFAULT_CAM, HOTSPOTS as ZONES } from './clubhouse/config.js';
-import { ROOM } from './clubhouse/layout.js';
+import { PIECE_TYPES, ROOM } from './clubhouse/layout.js';
 import './styles.css';
 import './clubhouse/site-ui.css';
 
@@ -48,6 +48,15 @@ extend({ RoomMaterial }); // <roomMaterial> in the room's JSX (look/simpleMateri
 const EMPTY_ROUTE = { focus: null, binderId: null, binderCardId: null, boxId: null, displayId: null };
 const SITE_ZONES = new Set(['storage', 'binders', 'display']); // the room areas; 'explore' is the site's Explore page
 const TAP = window.matchMedia?.('(pointer: coarse)').matches ? 'Tap' : 'Click'; // the hint's verb for this device
+
+/** "Collector desk → Add cards": what a click on this piece does, for the tag beside the pointer; null if nothing. */
+const pieceTag = (type) => {
+  if (type === 'dogBed') return 'Dog bed → pet the dog';
+  const spec = PIECE_TYPES[type];
+  return spec?.goes ? `${spec.label} → ${spec.goes}` : null;
+};
+/** The same for the collection furniture and the window, which report themselves as the room area they open. */
+const AREA_TAGS = { storage: pieceTag('storageRack'), binders: pieceTag('binderLibrary'), display: pieceTag('displayCabinet'), explore: 'Window → Explore' };
 
 /**
  * PURPOSE: The room view a URL hash describes.
@@ -287,6 +296,10 @@ export default function RoomScene({ userId, onHelp }) {
   const [hoveredBinder, setHoveredBinder] = useState(null);
   const [hoveredBin, setHoveredBin] = useState(null);
   const [hoveredCard, setHoveredCard] = useState(null);
+  const [hoveredPiece, setHoveredPiece] = useState(null); // furniture type under the pointer (ClubhouseRoom.jsx)
+  // In the room overview, a tag beside the mouse names where a click goes. It follows the pointer by moving the element
+  // directly (no React render per mouse move); touch has no hover, so it shows for a mouse only.
+  const tag = route.focus ? null : (hovered ? AREA_TAGS[hovered] : pieceTag(hoveredPiece)) ?? null;
   const [binderPage, setBinderPage] = useState(0);
   const [pick, setPick] = useState(null); // card picker for one binder pocket: { slot, query, cardId, error, busy }
   const [boxUi, setBoxUi] = useState({ drawerId: null, cardId: null }); // which drawer the rolodex shows, and the card chosen in it
@@ -317,8 +330,27 @@ export default function RoomScene({ userId, onHelp }) {
   }, [room.status, navigate, route, selectedBinder, selectedBox, selectedDisplayCard]);
   useEffect(() => {
     const el = stage.current;
-    if (el) el.style.cursor = hovered || hoveredBinder || hoveredBin || hoveredCard !== null ? 'pointer' : '';
-  }, [hovered, hoveredBinder, hoveredBin, hoveredCard]);
+    if (el) el.style.cursor = hovered || hoveredBinder || hoveredBin || hoveredCard !== null || tag ? 'pointer' : '';
+  }, [hovered, hoveredBinder, hoveredBin, hoveredCard, tag]);
+  const tagEl = useRef(null);
+  const pointer = useRef({ x: -999, y: -999, mouse: false });
+  const placeTag = useCallback(() => {
+    const el = tagEl.current;
+    if (!el) return;
+    const { x, y, mouse } = pointer.current;
+    const left = x + 16 + el.offsetWidth > window.innerWidth - 8 ? x - 12 - el.offsetWidth : x + 16; // flips left at the edge
+    el.style.transform = `translate(${Math.round(left)}px, ${Math.round(y + 18)}px)`;
+    el.style.visibility = mouse ? '' : 'hidden';
+  }, []);
+  useEffect(() => {
+    const el = stage.current;
+    if (!el) return undefined;
+    const move = (event) => { pointer.current = { x: event.clientX, y: event.clientY, mouse: event.pointerType === 'mouse' }; placeTag(); };
+    el.addEventListener('pointermove', move, { passive: true });
+    el.addEventListener('pointerdown', move, { passive: true });
+    return () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerdown', move); };
+  }, [placeTag]);
+  React.useLayoutEffect(() => { if (tag) placeTag(); }, [tag, placeTag]); // placed before it is first painted
 
   // A string is a binder/box id from the furniture; an object is an item from a list.
   const selectBinder = (value) => { const item = typeof value === 'string' ? lookup?.binder(value) : value; if (item) navigate({ focus: 'binders', binderId: String(item.id) }); };
@@ -393,7 +425,7 @@ export default function RoomScene({ userId, onHelp }) {
         <color attach="background" args={[CANVAS.background]} />
         <Suspense fallback={null}>
           <ClubhouseRoom activeZone={route.focus} onSelect={selectZone} hovered={hovered} setHovered={setHovered}
-            zones={world?.zones} onRoute={onRoute}
+            zones={world?.zones} onRoute={onRoute} setHoveredPiece={setHoveredPiece}
             onSelectBinder={selectBinder} hoveredBinder={hoveredBinder} selectedBinder={selectedBinder?.id ?? null} setHoveredBinder={setHoveredBinder}
             onSelectBin={selectBox} hoveredBin={hoveredBin} selectedBin={selectedBox?.id ?? null} setHoveredBin={setHoveredBin}
             displayCards={world?.displayCards ?? []} selectedCard={selectedDisplayCard?.displayIndex ?? null} hoveredCard={hoveredCard} setHoveredCard={setHoveredCard} onSelectCard={selectDisplay} />
@@ -407,6 +439,7 @@ export default function RoomScene({ userId, onHelp }) {
         <RenderOnChange />
       </Canvas>
       {hint && <div className={`hud${selectedBinder || pick ? ' hud--quiet' : ''}`}>{hint}{unplacedItems > 0 && !selected && !route.focus && <><br />{unplacedItems === 1 ? '1 binder or box isn’t' : `${unplacedItems} binders or boxes aren’t`} on a shelf yet — find {unplacedItems === 1 ? 'it' : 'them'} under Unplaced in Binders or Card boxes.</>}</div>}
+      {tag && <div className="room-tag" ref={tagEl} aria-hidden="true">{tag}</div>}
       <RoomStatus room={room} focused={Boolean(route.focus)} onHelp={onHelp} />
       {room.status === 'ready' && !selected && !pick && <button type="button" className={`add-fab${route.focus ? ' add-fab--focus' : ''}${world.meta.isEmpty ? ' add-fab--pulse' : ''}`} onClick={() => routerNavigate('/add')}><span aria-hidden="true">+</span> {world.meta.isEmpty ? 'Add your first cards' : 'Add cards'}</button>}
       {!route.focus && <nav className="zone-nav" aria-label="Room areas"><button type="button" onClick={() => navigate({ focus: 'storage' })}><span>01</span> Card boxes</button><button type="button" onClick={() => navigate({ focus: 'binders' })}><span>02</span> Binders</button><button type="button" onClick={() => navigate({ focus: 'display' })}><span>03</span> Display cabinet</button><button type="button" onClick={() => routerNavigate('/explore')}><span>04</span> Explore</button></nav>}
