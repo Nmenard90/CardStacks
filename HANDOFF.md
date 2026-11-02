@@ -175,6 +175,19 @@ tcg/
 
 ## Current state (2026-10-29)
 
+**Shop sales take cards out of the collection (2026-11-02, branch
+`feature/shop-sale-inventory`, NOT pushed — owner to approve the UI):** in My
+Shop → Requests, "Complete sale" takes only the copies marked found (a card
+asked ×3 can be found 1–3 with −/+) out of the seller's collection, records
+`sold` per card in the request's items JSON (no migration) so it never takes
+twice, and marks the request Done. Per-card "Put back" and "Refund · put all
+back" return them (they file into the set box). Copies come out of the
+auto-filed set box first, then other boxes, the display case, binder pockets
+last; a re-graded card falls back to the condition the buyer picked.
+`CollectionRepository.takeCopiesIO/returnCopiesIO` run inside the shop's
+transaction (`ShopRepository.sell/putBack`). Tests: `ShopSaleDbSuite`
+(SHOP_SALE_IT_DB_URL), `ShopSuite`, `web/tests/shop-browser.mjs`.
+
 **Google sign-in (2026-11-01):** it had stopped working because the Google
 provider was off in Supabase (`gdyviorqobfujfjamxul`) and held a bogus client
 ID. Now set up: Google Cloud project `cardstacks` → Google Auth Platform →

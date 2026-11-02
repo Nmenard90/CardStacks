@@ -95,6 +95,28 @@ class ShopSuite extends munit.FunSuite:
   }
 
   test("a buyer can't send cards already marked found or re-graded") {
-    val sneaky = ShopRequestInput("Ash", "ash@example.test", "", List(card.copy(pulled = Some(true), askedCondition = Some("DMG"))))
+    val sneaky = ShopRequestInput("Ash", "ash@example.test", "", List(card.copy(pulled = Some(true), askedCondition = Some("DMG"), foundQty = Some(1), sold = Some(1))))
     assertEquals(ShopRoutes.validateRequest(sneaky).toOption.get.items, List(card))
+  }
+
+  test("pull list: found some of several, all, or none") {
+    import ShopRoutes.applyItemChange
+    val three = card.copy(qty = 3)
+    val two   = applyItemChange(three, ShopRequestItemChange(foundQty = Some(2))).toOption.get
+    assertEquals((two.pulled, two.foundQty, two.found), (Some(true), Some(2), 2))
+    assertEquals(applyItemChange(two, ShopRequestItemChange(foundQty = Some(3))).toOption.get, three.copy(pulled = Some(true)))
+    assertEquals(applyItemChange(two, ShopRequestItemChange(foundQty = Some(0))).toOption.get, three.copy(pulled = Some(false)))
+    assertEquals(applyItemChange(two, ShopRequestItemChange(pulled = Some(false))).toOption.get.found, 0)
+    assert(applyItemChange(three, ShopRequestItemChange(foundQty = Some(4))).isLeft)
+    assert(applyItemChange(three, ShopRequestItemChange(foundQty = Some(-1))).isLeft)
+  }
+
+  test("a sold card can't be changed on the pull list, and selling and putting back are owner-only") {
+    import ShopRoutes.applyItemChange
+    val sold = card.copy(pulled = Some(true), sold = Some(1))
+    assert(applyItemChange(sold, ShopRequestItemChange(pulled = Some(false))).isLeft)
+    assert(applyItemChange(sold, ShopRequestItemChange(condition = Some("LP"))).isLeft)
+    for path <- List("/api/collection/u1/shop-requests/r1/sell", "/api/collection/u1/shop-requests/r1/put-back") do
+      assert(!AuthGuard.isPublicPath(Method.POST, path))
+      assertEquals(AuthGuard.requiredOwnerUserId(path), Some("u1"))
   }

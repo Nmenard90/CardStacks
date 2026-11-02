@@ -144,3 +144,17 @@
 .req-found span{width:22px;height:22px;border:2px solid currentColor;border-radius:6px;display:grid;place-items:center;font-size:15px;line-height:1}
 .req-found[aria-pressed="true"]{border-color:#22c55e;background:#22c55e;color:#111}
 @media(max-width:600px){.req-card{grid-template-columns:56px 1fr}.req-found{grid-column:1/-1;grid-template-columns:auto auto;justify-content:center;min-height:44px}}
+/* A sale: found-count stepper for several copies, sold cards, and the complete-sale / put-back controls. */
+.req-card__count{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:13.5px}
+.req-step{min-width:32px;min-height:32px;border-radius:8px;border:2px solid var(--muted);background:transparent;color:var(--text);font:inherit;font-weight:800;font-size:16px;cursor:pointer}
+.req-step:disabled,.req-cond:disabled{opacity:.4;cursor:default}
+.req-card--sold{opacity:.7}
+.req-sold{align-self:center;display:grid;justify-items:center;gap:6px;min-width:64px}
+.req-sold__tag{padding:4px 8px;border-radius:8px;background:#22c55e;color:#111;font-weight:800;font-size:13px;white-space:nowrap}
+.req-sold__back{min-height:32px;padding:0 10px;border-radius:8px;border:2px solid var(--muted);background:transparent;color:var(--text);font:inherit;font-weight:700;font-size:12.5px;cursor:pointer}
+.sale{margin:10px 0}
+.sale__btns,.sale__ask{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.sale__ask p{margin:0;flex-basis:100%}
+.sale__hint{font-size:13.5px;color:var(--muted)}
+.sale__note{margin:8px 0 0;font-size:14px;font-weight:700}
+@media(max-width:600px){.req-sold{grid-column:1/-1;grid-template-columns:auto auto;justify-content:center}}

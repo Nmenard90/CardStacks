@@ -26,8 +26,13 @@
  *     PUT  /api/collection/:userId/shop-settings           — body {slug, enabled, messengerUrl}
  *     GET  /api/collection/:userId/shop-requests           — inbox, newest first
  *     POST /api/collection/:userId/shop-requests/:id       — body {"status": "new|answered|done"}
- *     POST /api/collection/:userId/shop-requests/:id/items/:index — body {"pulled"?: bool, "condition"?: "LP"}; the
- *          pull list: mark a card found, or set its real condition (the buyer's pick is kept as askedCondition)
+ *     POST /api/collection/:userId/shop-requests/:id/items/:index — body {"pulled"?: bool, "foundQty"?: 2, "condition"?: "LP"};
+ *          the pull list: mark a card found (or how many of it), or set its real condition (the buyer's pick is kept
+ *          as askedCondition)
+ *     POST /api/collection/:userId/shop-requests/:id/sell  — takes the found cards out of the seller's collection
+ *          (only those, and never twice) and marks the request done; returns {request, taken, short}
+ *     POST /api/collection/:userId/shop-requests/:id/put-back — body {"index"?: 3}; a refund or a sale that fell
+ *          through: puts that card's sold copies (or every card's, without an index) back in the collection
  */
 
 package com.poketracker.api
@@ -43,6 +48,10 @@ object ShopRoutes:
 
   private case class StatusBody(status: String)
   private given JsonDecoder[StatusBody] = DeriveJsonDecoder.gen[StatusBody]
+
+  /** Which card to put back; none = every sold card on the request. */
+  private case class PutBackBody(index: Option[Int])
+  private given JsonDecoder[PutBackBody] = DeriveJsonDecoder.gen[PutBackBody]
 
   private val validStatuses = Set("new", "answered", "done")
 
@@ -97,13 +106,20 @@ object ShopRoutes:
    */
   private[poketracker] def applyItemChange(item: ShopRequestItem, change: ShopRequestItemChange): Either[String, ShopRequestItem] =
     change.condition.map(_.trim) match
+      case _ if item.soldQty > 0 => Left("That card is sold. Put it back first to change it.")
       case Some(c) if !conditions(c) => Left("Condition must be NM, LP, MP, HP or DMG.")
+      case _ if change.foundQty.exists(n => n < 0 || n > item.qty) => Left(s"Found must be between 0 and ${item.qty}.")
       case grade =>
         val condition = grade.fold(item.condition)(g => g + item.condition.dropWhile(_ != ' '))
         val asked     = item.askedCondition.getOrElse(item.condition)
+        // A count says it all (0 = not found, all of them = plain found); found or not alone means all or none.
+        val (pulled, foundQty) = change.foundQty match
+          case Some(n) => (Some(n > 0), Option.when(n > 0 && n < item.qty)(n))
+          case None    => change.pulled.fold((item.pulled, item.foundQty))(p => (Some(p), None))
         Right(item.copy(
           condition      = condition,
-          pulled         = change.pulled.orElse(item.pulled),
+          pulled         = pulled,
+          foundQty       = foundQty,
           askedCondition = if condition == asked then None else Some(asked)
         ))
 
@@ -119,7 +135,7 @@ object ShopRoutes:
     else if in.items.exists(i => i.qty < 1 || i.qty > 99 || i.cardId.length > 64 || i.name.length > 120 ||
                                  i.number.length > 20 || i.condition.length > 20)
                                                  then Left("One of the cards in your request looks wrong. Please refresh and try again.")
-    else Right(ShopRequestInput(name, contact, message, in.items.map(_.copy(pulled = None, askedCondition = None))))
+    else Right(ShopRequestInput(name, contact, message, in.items.map(_.copy(pulled = None, askedCondition = None, foundQty = None, sold = None))))
 
   val publicRoutes: Routes[CollectionService & ShopRepository, Nothing] = Routes(
 
@@ -246,6 +262,27 @@ object ShopRoutes:
           result  <- ZIO.serviceWithZIO[ShopRepository](_.updateItem(userId, id, index, applyItemChange(_, change)))
                        .mapError(_ => "Could not save that. Please try again.")
           updated <- ZIO.fromOption(result).orElseFail("That card is no longer on this request.").flatMap(ZIO.fromEither(_))
+        yield Response.json(updated.toJson)
+        ).catchAll(msg => ZIO.succeed(Response.badRequest(msg)))
+    },
+
+    Method.POST / "api" / "collection" / string("userId") / "shop-requests" / string("id") / "sell" -> handler {
+      (userId: String, id: String, _: Request) =>
+        ZIO.serviceWithZIO[ShopRepository](_.sell(userId, id))
+          .mapError(_ => "Could not finish that sale. Nothing was taken out; please try again.")
+          .flatMap(ZIO.fromOption(_).orElseFail("That request is gone."))
+          .map(result => Response.json(result.toJson))
+          .catchAll(msg => ZIO.succeed(Response.badRequest(msg)))
+    },
+
+    Method.POST / "api" / "collection" / string("userId") / "shop-requests" / string("id") / "put-back" -> handler {
+      (userId: String, id: String, req: Request) =>
+        (for
+          body    <- req.body.asString.mapError(_ => "Could not read that.")
+          which   <- ZIO.fromEither(if body.isBlank then Right(PutBackBody(None)) else body.fromJson[PutBackBody]).mapError(_ => "Could not read that.")
+          result  <- ZIO.serviceWithZIO[ShopRepository](_.putBack(userId, id, which.index))
+                       .mapError(_ => "Could not put that back. Please try again.")
+          updated <- ZIO.fromOption(result).orElseFail("That request is gone.")
         yield Response.json(updated.toJson)
         ).catchAll(msg => ZIO.succeed(Response.badRequest(msg)))
     }

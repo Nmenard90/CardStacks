@@ -19,7 +19,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getSets } from '../api/cards'
 import { getOwnedCards } from '../api/collection'
 import { getCardLocations, type CardLocation } from '../api/rooms'
-import { updateShopRequestItem, type ShopRequest, type ShopRequestItem } from '../api/shop'
+import { foundCount, putBackShopRequest, updateShopRequestItem, type ShopRequest, type ShopRequestItem } from '../api/shop'
+import { afterInventoryChange } from '../lib/shopSale'
 import { CONDS, COND_COLORS, condPrice } from '../lib/conditions'
 import type { OwnedCard } from '../types'
 import type { usePreview } from './CardPreview'
@@ -67,13 +68,17 @@ export function RequestedCards({ requestId, items, userId, preview }: { requestI
   const setInfo = new Map(sets.map(s => [s.id, s]))
 
   /** Shows the change at once (same rule as the server's), then saves it; a failed save reloads the inbox as stored. */
-  const change = async (index: number, edit: { pulled?: boolean; condition?: string }) => {
+  const change = async (index: number, edit: { pulled?: boolean; foundQty?: number; condition?: string }) => {
     const key = ['shop-requests', userId]
     const local = (item: ShopRequestItem): ShopRequestItem => {
-      if (!edit.condition) return { ...item, ...edit }
+      // A count says it all (0 = not found, all = plain found); found or not alone means all or none.
+      const found = edit.foundQty !== undefined
+        ? { pulled: edit.foundQty > 0, foundQty: edit.foundQty > 0 && edit.foundQty < item.qty ? edit.foundQty : undefined }
+        : edit.pulled !== undefined ? { pulled: edit.pulled, foundQty: undefined } : {}
+      if (!edit.condition) return { ...item, ...found }
       const asked = item.askedCondition ?? item.condition
       const condition = edit.condition + item.condition.slice(item.condition.split(' ')[0].length) // keeps " 1st Edition"
-      return { ...item, ...edit, condition, askedCondition: condition === asked ? undefined : asked }
+      return { ...item, ...found, condition, askedCondition: condition === asked ? undefined : asked }
     }
     qc.setQueryData<ShopRequest[]>(key, rs => rs?.map(r => r.id !== requestId ? r : { ...r, items: r.items.map((it, n) => n === index ? local(it) : it) }))
     setError('')
@@ -81,9 +86,17 @@ export function RequestedCards({ requestId, items, userId, preview }: { requestI
     catch { setError("Couldn't save that. Check your connection and try again."); qc.invalidateQueries({ queryKey: key }) }
   }
 
+  /** A refund or a returned card: puts that card's sold copies back in the collection. */
+  const putBack = async (index: number) => {
+    setError('')
+    try { await putBackShopRequest(userId, requestId, index); afterInventoryChange(qc, userId) }
+    catch { setError("Couldn't put that back. Check your connection and try again.") }
+  }
+
   const priceOf = (item: ShopRequestItem) => { const card = byId.get(item.cardId)?.card; return card ? condPrice(card, item.condition) : 0 }
   const count = items.reduce((n, item) => n + item.qty, 0)
-  const found = items.reduce((n, item) => n + (item.pulled ? item.qty : 0), 0)
+  const found = items.reduce((n, item) => n + foundCount(item), 0)
+  const sold = items.reduce((n, item) => n + (item.sold ?? 0), 0)
   const total = items.reduce((sum, item) => sum + priceOf(item) * item.qty, 0)
   const unpriced = items.reduce((n, item) => n + (priceOf(item) > 0 ? 0 : item.qty), 0)
 
@@ -105,8 +118,10 @@ export function RequestedCards({ requestId, items, userId, preview }: { requestI
     // The copies in the requested condition first; a binder pocket with no stored copy has no condition to compare.
     const cond = item.condition.split(' ')[0]
     here.sort((a, b) => Number(b.condition?.split(' ')[0] === cond) - Number(a.condition?.split(' ')[0] === cond))
+    const got = foundCount(item)
+    const soldHere = item.sold ?? 0
     return (
-      <li key={index} className={'req-card' + (item.pulled ? ' req-card--found' : '')}>
+      <li key={index} className={'req-card' + (soldHere > 0 ? ' req-card--sold' : item.pulled ? ' req-card--found' : '')}>
         {card ? <CardThumb card={card} showPrice={false} preview={preview} className="req-card__thumb" /> : <div className="thumb-placeholder req-card__thumb">🃏</div>}
         <div className="req-card__body">
           <div className="req-card__title"><b>{item.qty}× {item.name}</b> <span>#{item.number}</span></div>
@@ -126,15 +141,29 @@ export function RequestedCards({ requestId, items, userId, preview }: { requestI
           </ul>
           <div className="req-card__conds" role="group" aria-label={`Condition of ${item.name}`}>
             {CONDS.map(c => (
-              <button key={c} type="button" className="req-cond" aria-pressed={c === cond} style={{ '--cond': COND_COLORS[c] } as React.CSSProperties}
+              <button key={c} type="button" className="req-cond" aria-pressed={c === cond} disabled={soldHere > 0} style={{ '--cond': COND_COLORS[c] } as React.CSSProperties}
                 onClick={() => { if (c !== cond) change(index, { condition: c }) }}>{c}</button>
             ))}
             {item.askedCondition && <span className="req-card__asked">Buyer picked {item.askedCondition}</span>}
           </div>
+          {item.qty > 1 && soldHere === 0 && (
+            <div className="req-card__count" role="group" aria-label={`How many ${item.name} you found`}>
+              <button type="button" className="req-step" aria-label="One fewer found" disabled={got === 0} onClick={() => change(index, { foundQty: got - 1 })}>−</button>
+              <span><b>{got}</b> of {item.qty} found</span>
+              <button type="button" className="req-step" aria-label="One more found" disabled={got === item.qty} onClick={() => change(index, { foundQty: got + 1 })}>+</button>
+            </div>
+          )}
         </div>
-        <button type="button" className="req-found" aria-pressed={!!item.pulled} onClick={() => change(index, { pulled: !item.pulled })}>
-          <span aria-hidden="true">{item.pulled ? '✓' : ''}</span>{item.pulled ? 'Found' : 'Find'}
-        </button>
+        {soldHere > 0 ? (
+          <div className="req-sold">
+            <span className="req-sold__tag">✓ Sold{item.qty > 1 || soldHere !== got ? ` ${soldHere}` : ''}</span>
+            <button type="button" className="req-sold__back" onClick={() => putBack(index)}>Put back</button>
+          </div>
+        ) : (
+          <button type="button" className="req-found" aria-pressed={!!item.pulled} onClick={() => change(index, { pulled: !item.pulled })}>
+            <span aria-hidden="true">{item.pulled ? '✓' : ''}</span>{item.pulled ? 'Found' : 'Find'}
+          </button>
+        )}
       </li>
     )
   }
@@ -144,6 +173,7 @@ export function RequestedCards({ requestId, items, userId, preview }: { requestI
       <p className="req-cards__summary">
         <b>{found} of {count}</b> card{count === 1 ? '' : 's'} found · Total <b>{money(total)}</b>
         {unpriced > 0 && <span> ({unpriced} without a price)</span>}
+        {sold > 0 && <span> · <b>{sold}</b> sold and taken out of your collection</span>}
       </p>
       {error && <p className="req-cards__error" role="alert">{error}</p>}
       {ordered.map(([setId, rows]) => (

@@ -5,6 +5,7 @@
  */
 package com.poketracker.repository
 
+import cats.syntax.all.*
 import com.poketracker.models.*
 import doobie.*
 import doobie.implicits.*
@@ -30,6 +31,13 @@ trait ShopRepository:
   /** Changes the request's card at `index` with `change` (Left = message for the seller), in one transaction so two
    *  quick taps can't undo each other. None when the request isn't this seller's or has no card there. */
   def updateItem(sellerUserId: String, id: String, index: Int, change: ShopRequestItem => Either[String, ShopRequestItem]): Task[Option[Either[String, ShopRequestItem]]]
+  /** Completes a sale: takes each card's found copies that aren't sold yet out of the seller's collection (only
+   *  those, so a missing card stays, and never twice), records them as sold and marks the request done, all in one
+   *  transaction. None when the request isn't this seller's. */
+  def sell(sellerUserId: String, id: String): Task[Option[SaleResult]]
+  /** A refund or a sale that fell through: puts the sold copies of the card at `index` (every card's, when None)
+   *  back in the seller's collection, in one transaction. None when the request isn't this seller's. */
+  def putBack(sellerUserId: String, id: String, index: Option[Int]): Task[Option[ShopRequest]]
   /** Which photos a seller has (no image bytes). */
   def listPhotos(userId: String): Task[List[ShopPhotoRef]]
   /** (jpeg bytes, last-changed epoch millis) for one photo. */
@@ -106,6 +114,53 @@ object ShopRepository:
         ): ConnectionIO[Option[Either[String, ShopRequestItem]]]
       yield result
       run.transact(xa)
+
+    private def requestForUpdate(sellerUserId: String, id: String): ConnectionIO[Option[ShopRequest]] =
+      sql"""SELECT id,buyer_name,buyer_contact,message,kind,items::text,status,created_at
+        FROM shop_requests WHERE id=$id AND seller_user_id=$sellerUserId FOR UPDATE"""
+        .query[Row].option.map(_.map(toRequest))
+
+    private def saveItems(sellerUserId: String, id: String, items: List[ShopRequestItem], status: String): ConnectionIO[Unit] =
+      sql"UPDATE shop_requests SET items=${items.toJson}::jsonb, status=$status WHERE id=$id AND seller_user_id=$sellerUserId"
+        .update.run.void
+
+    /** Takes `due` copies for a card: its real condition first, then the condition the buyer picked (the seller may
+     *  have corrected it while the collection still lists the copy the old way). Returns how many came out. */
+    private def takeFound(userId: String, item: ShopRequestItem, due: Int): ConnectionIO[Int] =
+      CollectionRepository.takeCopiesIO(userId, item.cardId, item.condition, due).flatMap { got =>
+        item.askedCondition.filter(_ => got < due)
+          .fold(FC.pure(got))(asked => CollectionRepository.takeCopiesIO(userId, item.cardId, asked, due - got).map(got + _))
+      }
+
+    def sell(sellerUserId: String, id: String): Task[Option[SaleResult]] =
+      requestForUpdate(sellerUserId, id).flatMap {
+        case None => FC.pure(None)
+        case Some(request) =>
+          request.items.traverse { item =>
+            val due = item.found - item.soldQty
+            if due <= 0 then FC.pure((item, 0, None))
+            else takeFound(sellerUserId, item, due).map { taken =>
+              val sold = item.soldQty + taken
+              (item.copy(sold = Option.when(sold > 0)(sold)), taken,
+                Option.when(taken < due)(SaleShortfall(item.name, item.number, item.condition, due, taken)))
+            }
+          }.flatMap { results =>
+            val items = results.map(_._1)
+            saveItems(sellerUserId, id, items, "done")
+              .as(Some(SaleResult(request.copy(items = items, status = "done"), results.map(_._2).sum, results.flatMap(_._3))))
+          }
+      }.transact(xa)
+
+    def putBack(sellerUserId: String, id: String, index: Option[Int]): Task[Option[ShopRequest]] =
+      requestForUpdate(sellerUserId, id).flatMap {
+        case None => FC.pure(None)
+        case Some(request) =>
+          request.items.zipWithIndex.traverse { (item, n) =>
+            if index.forall(_ == n) && item.soldQty > 0 then
+              CollectionRepository.returnCopiesIO(sellerUserId, item.cardId, item.condition, item.soldQty).as(item.copy(sold = None))
+            else FC.pure(item)
+          }.flatMap(items => saveItems(sellerUserId, id, items, request.status).as(Some(request.copy(items = items))))
+      }.transact(xa)
 
     def listPhotos(userId: String): Task[List[ShopPhotoRef]] =
       sql"SELECT card_id,condition,side,updated_at FROM shop_photos WHERE user_id=$userId ORDER BY card_id,condition,side"

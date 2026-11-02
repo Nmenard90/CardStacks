@@ -45,7 +45,7 @@ async function setup({ width = 1440, height = 900, authenticated = false, mode =
     localStorage.setItem('sb-qa-auth-token', JSON.stringify({ access_token: token, refresh_token: 'qa-refresh', expires_at: expires, expires_in: 3600, token_type: 'bearer', user }))
   }, { user })
   const state = {
-    mode, sent: [], statusPuts: [], itemPosts: [], offers: structuredClone(offers), release: null,
+    mode, sent: [], statusPuts: [], itemPosts: [], salePosts: [], offers: structuredClone(offers), release: null,
     settings: { slug: 'nmenard90', enabled: true, messengerUrl: '', displayName: fixture.shop.displayName, bio: fixture.shop.bio },
     inbox: [{ id: 'r1', sellerUserId: user.id, buyerName: 'Ash', buyerContact: 'ash@example.test', kind: 'buy', status: 'new', createdAt: '2026-10-28T12:00:00Z', items: [{ cardId: 'me1-65', name: 'Greavard', number: '65', condition: 'NM', qty: 1 }, { cardId: 'owned-2', name: 'Owned High', number: '3', condition: 'NM', qty: 1 }, { cardId: 'owned-1', name: 'Owned Mid', number: '2', condition: 'NM', qty: 2 }, { cardId: 'owned-0', name: 'Owned Low', number: '1', condition: 'NM', qty: 1 }],
       message: 'TRADE OFFER (cards about $3.00 for cards about $0.05, at today\'s prices):\n- 1× Trade Bait #9 (NM)' }],
@@ -87,13 +87,32 @@ async function setup({ width = 1440, height = 900, authenticated = false, mode =
       // Same rule as the server (ShopRoutes.applyItemChange): the buyer's pick is kept once the condition changes.
       const change = req.postDataJSON(), item = state.inbox.find(x => x.id === pull[1]).items[Number(pull[2])]
       state.itemPosts.push({ index: Number(pull[2]), ...change })
-      if (change.pulled !== undefined) item.pulled = change.pulled
+      if (change.pulled !== undefined) { item.pulled = change.pulled; delete item.foundQty }
+      if (change.foundQty !== undefined) {
+        item.pulled = change.foundQty > 0
+        if (change.foundQty > 0 && change.foundQty < item.qty) item.foundQty = change.foundQty; else delete item.foundQty
+      }
       if (change.condition) {
         const asked = item.askedCondition ?? item.condition
         item.condition = change.condition
         if (item.condition === asked) delete item.askedCondition; else item.askedCondition = asked
       }
       return route.fulfill({ json: item })
+    }
+    // A sale and a put back, by the server's rules (ShopRepository.sell / putBack): found copies not sold yet come out.
+    const sale = p.match(/\/shop-requests\/([^/]+)\/(sell|put-back)$/)
+    if (sale) {
+      const r = state.inbox.find(x => x.id === sale[1]), body = req.postDataJSON() ?? {}
+      state.salePosts.push({ action: sale[2], ...body })
+      const found = it => it.pulled ? Math.min(it.qty, it.foundQty ?? it.qty) : 0
+      if (sale[2] === 'put-back') {
+        r.items.forEach((it, n) => { if (body.index === undefined || body.index === n) delete it.sold })
+        return route.fulfill({ json: r })
+      }
+      let taken = 0
+      for (const it of r.items) { const due = found(it) - (it.sold ?? 0); if (due > 0) { it.sold = (it.sold ?? 0) + due; taken += due } }
+      r.status = 'done'
+      return route.fulfill({ json: { request: r, taken, short: [] } })
     }
     if (/\/shop-requests\/[^/]+$/.test(p)) {
       const r = state.inbox.find(x => p.endsWith('/' + x.id)); if (r) r.status = req.postDataJSON().status
@@ -300,6 +319,43 @@ try {
     await page.getByRole('button', { name: 'Mark answered' }).click()
     await page.waitForFunction(() => document.querySelectorAll('.shop-req').length === 0)
     assert.equal(state.inbox[0].status, 'answered')
+    assert.equal(errors.length, 0, errors.join('\n'))
+    await context.close()
+  })
+
+  for (const width of [1440, 390]) await run(`My Shop: a sale takes out only the found cards; refunds put them back (${width}px)`, async () => {
+    const { context, page, state, errors } = await setup({ authenticated: true, width, height: width === 390 ? 844 : 900 })
+    await page.goto(origin + '/shop/requests', { waitUntil: 'domcontentloaded' })
+    const low = page.locator('.req-card', { hasText: 'Owned Low' }), mid = page.locator('.req-card', { hasText: 'Owned Mid' })
+    await mid.locator('.req-card__places li', { hasText: 'Bulk Box 3' }).waitFor()
+    assert.match(await page.locator('.sale__hint').innerText(), /Mark the cards you found/)
+    // Of the 2 Owned Mid asked for, only 1 was found; Owned Low was found; Owned High and Greavard weren't.
+    await mid.getByRole('button', { name: 'One more found' }).click()
+    await mid.getByText('1 of 2 found').waitFor()
+    await mid.getByRole('button', { name: 'Found', pressed: true }).waitFor()
+    await low.getByRole('button', { name: 'Find' }).click()
+    assert.match(await page.locator('.req-cards__summary').innerText(), /^2 of 5 cards found/)
+    await page.getByRole('button', { name: 'Complete sale · take out 2 cards' }).click()
+    assert.equal((await page.locator('.sale__ask p').innerText()).replace(/\s+/g, ' '), 'Take the 2 cards you found out of your collection? The 3 cards not found stay.')
+    assert.equal(state.salePosts.length, 0, 'nothing is taken out before saying yes')
+    await page.getByRole('button', { name: 'Yes, take them out' }).click()
+    await page.getByText('Sold: 2 cards taken out of your collection.').waitFor()
+    // Still on screen though it's Done now; sold cards say so, can be put back, and can't be re-graded.
+    assert.match(await page.locator('.shop-req .shop-pill').innerText(), /Done/)
+    assert.match((await mid.locator('.req-sold__tag').innerText()), /Sold 1/)
+    assert(await mid.getByRole('button', { name: 'LP' }).isDisabled())
+    assert.equal(await page.locator('.req-card', { hasText: 'Owned High' }).locator('.req-sold').count(), 0)
+    assert.match(await page.locator('.req-cards__summary').innerText(), /2 sold and taken out of your collection/)
+    assert.equal(await page.getByRole('button', { name: /^Complete sale/ }).count(), 0, 'nothing left to take out')
+    await noOverflow(page)
+    await page.screenshot({ path: path.join(report, `my-shop-sold-${width}.png`) })
+    // One card comes back (a return), then the rest (a refund).
+    await mid.getByRole('button', { name: 'Put back' }).click()
+    await mid.getByRole('button', { name: 'Found', pressed: true }).waitFor()
+    await page.getByRole('button', { name: 'Refund · put all 1 back' }).click()
+    await page.getByText('Put back: 1 card returned to your collection.').waitFor()
+    assert.deepEqual(state.salePosts, [{ action: 'sell' }, { action: 'put-back', index: 2 }, { action: 'put-back' }])
+    assert.deepEqual(state.itemPosts, [{ index: 2, foundQty: 1 }, { index: 3, pulled: true }])
     assert.equal(errors.length, 0, errors.join('\n'))
     await context.close()
   })

@@ -5,6 +5,7 @@
  *            GET /api/collection/:userId/shop-requests,
  *            POST /api/collection/:userId/shop-requests/:id (owner only)
  *            POST /api/collection/:userId/shop-requests/:id/items/:index (owner only; the pull list)
+ *            POST /api/collection/:userId/shop-requests/:id/sell|put-back (owner only; takes sold cards out, puts them back)
  *            GET /api/shop/:slug/photo/:cardId/:side?cond= (public picture),
  *            PUT|DELETE /api/collection/:userId/shop-photos/:cardId/:side?cond= (owner only)
  * USED BY: ShopPage, ShopRequestsPage
@@ -22,7 +23,19 @@ export interface ShopRequestItem {
   pulled?: boolean
   /** Pull list: what the buyer picked, once the seller changed `condition` to the copy's real one. */
   askedCondition?: string
+  /** Pull list: how many were found, when only some of `qty` were. */
+  foundQty?: number
+  /** How many copies the sale took out of the seller's collection. */
+  sold?: number
 }
+
+/** Copies found on the pull list: none until marked found, then all of `qty` unless fewer were found. */
+export const foundCount = (item: ShopRequestItem) => item.pulled ? Math.min(item.qty, Math.max(0, item.foundQty ?? item.qty)) : 0
+
+/** A card the sale couldn't fully take out: the collection had fewer copies than were found. */
+export interface SaleShortfall { name: string; number: string; condition: string; wanted: number; taken: number }
+
+export interface SaleResult { request: ShopRequest; taken: number; short: SaleShortfall[] }
 
 export interface ShopRequestInput {
   buyerName: string
@@ -103,6 +116,14 @@ export const getShopRequests = (userId: string) =>
 export const setShopRequestStatus = (userId: string, id: string, status: ShopRequestStatus) =>
   api.post(`/api/collection/${userId}/shop-requests/${id}`, { status }).then(r => r.data)
 
-/** Pull list: marks the request's card at `index` found (or not) and/or sets its real condition ("LP"). Returns the saved card. */
-export const updateShopRequestItem = (userId: string, id: string, index: number, change: { pulled?: boolean; condition?: string }) =>
+/** Pull list: marks the request's card at `index` found (or not, or how many of it) and/or sets its real condition ("LP"). Returns the saved card. */
+export const updateShopRequestItem = (userId: string, id: string, index: number, change: { pulled?: boolean; foundQty?: number; condition?: string }) =>
   api.post<ShopRequestItem>(`/api/collection/${userId}/shop-requests/${id}/items/${index}`, change).then(r => r.data)
+
+/** Completes a sale: the found cards (only those, never twice) come out of the seller's collection and the request is done. */
+export const sellShopRequest = (userId: string, id: string) =>
+  api.post<SaleResult>(`/api/collection/${userId}/shop-requests/${id}/sell`, {}).then(r => r.data)
+
+/** A refund or a sale that fell through: puts the card at `index` (every sold card, without one) back in the collection. */
+export const putBackShopRequest = (userId: string, id: string, index?: number) =>
+  api.post<ShopRequest>(`/api/collection/${userId}/shop-requests/${id}/put-back`, index === undefined ? {} : { index }).then(r => r.data)

@@ -5,7 +5,8 @@
  *   Login required (owner only; the backend enforces it by path). Three tabs, kept in the URL
  *   (?tab=requests|offers|settings, ?offer=<id> opens one offer) so Back steps between them:
  *   - Requests: buy and trade requests sent from the public /shop/<slug> page, newest first,
- *     each with who, how to reach them, what they picked, and answered / done buttons.
+ *     each with who, how to reach them, what they picked (a pull list), and answered / done buttons.
+ *     "Complete sale" takes the found cards out of the collection; a refund puts them back.
  *   - Offers: card offers made through the old share-link trade page (folded into the shop),
  *     still answerable with their message threads. Hidden when there are none.
  *   - Settings: shop on/off, link name, shop name, bio and Messenger link.
@@ -19,9 +20,10 @@ import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  getShopRequests, getShopSettings, saveShopSettings, setShopRequestStatus,
+  foundCount, getShopRequests, getShopSettings, putBackShopRequest, saveShopSettings, sellShopRequest, setShopRequestStatus,
   type ShopRequest, type ShopRequestStatus, type ShopSettings,
 } from '../api/shop'
+import { afterInventoryChange } from '../lib/shopSale'
 import { getOffers } from '../api/trading'
 import { HeaderNav } from '../components/HeaderNav'
 import { LoginScreen } from '../components/LoginScreen'
@@ -125,12 +127,62 @@ function BuyerContact({ name, contact }: { name: string; contact: string }) {
   )
 }
 
+/**
+ * Completing a sale: the cards marked found come out of the seller's collection (only those, never twice). Asks first,
+ * then says what happened, including any card the collection no longer had. A whole order can be put back (a refund
+ * or a sale that fell through); one card is put back from its row (RequestedCards).
+ */
+function SaleControls({ request, userId, onChange }: { request: ShopRequest; userId: string; onChange: () => void }) {
+  const qc = useQueryClient()
+  const [asking, setAsking] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState('')
+  const toTake = request.items.reduce((n, i) => n + Math.max(0, foundCount(i) - (i.sold ?? 0)), 0)
+  const notFound = request.items.reduce((n, i) => n + (i.sold ? 0 : i.qty - foundCount(i)), 0)
+  const sold = request.items.reduce((n, i) => n + (i.sold ?? 0), 0)
+  const plural = (n: number) => `${n} card${n === 1 ? '' : 's'}`
+
+  const run = async (work: () => Promise<string>) => {
+    setBusy(true); setNote('')
+    try { onChange(); setNote(await work()); afterInventoryChange(qc, userId) }
+    catch { setNote("Couldn't do that. Nothing in your collection changed; please try again.") }
+    finally { setBusy(false); setAsking(false) }
+  }
+  const sell = () => run(async () => {
+    const r = await sellShopRequest(userId, request.id)
+    const short = r.short.map(s => `${s.name} #${s.number} (had ${s.taken} of ${s.wanted})`).join(', ')
+    return `Sold: ${plural(r.taken)} taken out of your collection.` + (short ? ` Already gone from your collection: ${short}.` : '')
+  })
+  const putAllBack = () => run(async () => { await putBackShopRequest(userId, request.id); return `Put back: ${plural(sold)} returned to your collection.` })
+
+  if (request.items.length === 0) return null
+  return (
+    <div className="sale">
+      {asking ? (
+        <div className="sale__ask" role="group" aria-label="Complete this sale">
+          <p>Take the <b>{plural(toTake)}</b> you found out of your collection?{notFound > 0 && <> The {plural(notFound)} not found stay.</>}</p>
+          <button type="button" className="shop-btn" disabled={busy} onClick={sell}>Yes, take them out</button>
+          <button type="button" className="shop-btn shop-btn-ghost" disabled={busy} onClick={() => setAsking(false)}>Cancel</button>
+        </div>
+      ) : (
+        <div className="sale__btns">
+          {toTake > 0 && <button type="button" className="shop-btn" onClick={() => setAsking(true)}>Complete sale · take out {plural(toTake)}</button>}
+          {sold > 0 && <button type="button" className="shop-btn shop-btn-ghost" disabled={busy} onClick={putAllBack}>Refund · put all {sold} back</button>}
+          {toTake === 0 && sold === 0 && <span className="sale__hint">Mark the cards you found, then complete the sale to take them out of your collection.</span>}
+        </div>
+      )}
+      {note && <p className="sale__note" role="status">{note}</p>}
+    </div>
+  )
+}
+
 export function ShopRequestsPage() {
   const { user } = useUser()
   const userId = user?.id ?? ''
   const qc = useQueryClient()
   const [params, setParams] = useSearchParams()
   const [filter, setFilter] = useState<ShopRequestStatus | 'all'>('new')
+  const [touched, setTouched] = useState<Set<string>>(new Set())
   const preview = usePreview() // hover a requested card's picture to see it big while pulling it
 
   const { data: requests = [], isLoading, isError } = useQuery({
@@ -161,7 +213,8 @@ export function ShopRequestsPage() {
 
   if (!user) return <div className="page-tracker"><LoginScreen /></div>
 
-  const shown = requests.filter(r => filter === 'all' || r.status === filter)
+  // A request just sold (or put back) stays on screen until the filter changes, though it's now Done.
+  const shown = requests.filter(r => filter === 'all' || r.status === filter || touched.has(r.id))
   const newCount = requests.filter(r => r.status === 'new').length
   const unreadOffers = offers.filter(o => o.unread).length
   const shopOff = settings && !settings.enabled
@@ -202,7 +255,7 @@ export function ShopRequestsPage() {
             {shopOff && <p className="shop-msg">Your shop is off, so nobody can send requests. <button type="button" className="shop-link-btn" onClick={() => setTab('settings')}>Turn it on in Settings →</button></p>}
             <div className="shop-tools">
               {(['new', 'answered', 'done', 'all'] as const).map(f => (
-                <button key={f} type="button" className={'shop-btn' + (filter === f ? '' : ' shop-btn-ghost')} onClick={() => setFilter(f)}>
+                <button key={f} type="button" className={'shop-btn' + (filter === f ? '' : ' shop-btn-ghost')} onClick={() => { setFilter(f); setTouched(new Set()) }}>
                   {f === 'all' ? 'All' : STATUS_LABEL[f]}
                 </button>
               ))}
@@ -223,9 +276,10 @@ export function ShopRequestsPage() {
                   <BuyerContact name={r.buyerName} contact={r.buyerContact} />
                   {r.items.length > 0 && <RequestedCards requestId={r.id} items={r.items} userId={userId} preview={preview} />}
                   {r.message && <p className="shop-req-msg">{r.message}</p>}
+                  <SaleControls request={r} userId={userId} onChange={() => setTouched(t => new Set(t).add(r.id))} />
                   <div className="shop-sheet-btns">
                     {r.status !== 'answered' && <button type="button" className="shop-btn shop-btn-ghost" onClick={() => mark(r, 'answered')}>Mark answered</button>}
-                    {r.status !== 'done' && <button type="button" className="shop-btn shop-btn-ghost" onClick={() => mark(r, 'done')}>Mark done</button>}
+                    {r.status !== 'done' && <button type="button" className="shop-btn shop-btn-ghost" onClick={() => mark(r, 'done')}>{r.items.length > 0 ? 'Close, no sale' : 'Mark done'}</button>}
                     {r.status !== 'new' && <button type="button" className="shop-btn shop-btn-ghost" onClick={() => mark(r, 'new')}>Reopen</button>}
                   </div>
                 </li>

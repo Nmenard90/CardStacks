@@ -38,9 +38,10 @@ final case class ShopView(
 object ShopView:
   given JsonEncoder[ShopView] = DeriveJsonEncoder.gen[ShopView]
 
-/** One card a buyer picked on the public shop page. The seller's pull list adds the last two (stored in the
- *  request's items JSON, so no migration): `pulled` once they've found the card, and `askedCondition`, what the
- *  buyer picked, once the seller changed `condition` to the copy's real one. Both absent on a new request. */
+/** One card a buyer picked on the public shop page. The seller's pull list adds the rest (stored in the request's
+ *  items JSON, so no migration): `pulled` once they've found the card, `foundQty` when they found only some of `qty`,
+ *  `askedCondition`, what the buyer picked, once the seller changed `condition` to the copy's real one, and `sold`,
+ *  how many copies the sale took out of their collection. All absent on a new request. */
 final case class ShopRequestItem(
   cardId:         String,
   name:           String,
@@ -48,11 +49,29 @@ final case class ShopRequestItem(
   condition:      String,
   qty:            Int,
   pulled:         Option[Boolean] = None,
-  askedCondition: Option[String]  = None
-)
+  askedCondition: Option[String]  = None,
+  foundQty:       Option[Int]     = None,
+  sold:           Option[Int]     = None
+):
+  /** Copies found: none until marked found, then all of `qty` unless the seller said fewer. */
+  def found: Int = if pulled.contains(true) then foundQty.getOrElse(qty).max(0).min(qty) else 0
+  def soldQty: Int = sold.getOrElse(0)
 
 object ShopRequestItem:
   given JsonCodec[ShopRequestItem] = DeriveJsonCodec.gen[ShopRequestItem]
+
+/** One card the sale couldn't fully take out: the collection had fewer copies than were found (already removed by
+ *  hand, or sold elsewhere). */
+final case class SaleShortfall(name: String, number: String, condition: String, wanted: Int, taken: Int)
+
+object SaleShortfall:
+  given JsonEncoder[SaleShortfall] = DeriveJsonEncoder.gen[SaleShortfall]
+
+/** What completing a sale did: the request as saved now, and any cards that came up short. */
+final case class SaleResult(request: ShopRequest, taken: Int, short: List[SaleShortfall])
+
+object SaleResult:
+  given JsonEncoder[SaleResult] = DeriveJsonEncoder.gen[SaleResult]
 
 /** What the public page POSTs. No account needed, so every field is untrusted. */
 final case class ShopRequestInput(
@@ -62,8 +81,8 @@ final case class ShopRequestInput(
   items:        List[ShopRequestItem]
 )
 
-/** The seller's change to one card on their pull list: found or not, and/or its real condition. */
-final case class ShopRequestItemChange(pulled: Option[Boolean] = None, condition: Option[String] = None)
+/** The seller's change to one card on their pull list: found or not, how many were found, and/or its real condition. */
+final case class ShopRequestItemChange(pulled: Option[Boolean] = None, condition: Option[String] = None, foundQty: Option[Int] = None)
 
 object ShopRequestItemChange:
   given JsonDecoder[ShopRequestItemChange] = DeriveJsonDecoder.gen[ShopRequestItemChange]
