@@ -626,3 +626,5 @@ canvas { display: block; touch-action: none; }
 .display-empty span { font-size: 1.125rem; line-height: 1; }
 .display-empty:hover { background: #fff1c8; }
 .display-empty:focus-visible { outline: 3px solid #ffd36e; outline-offset: 2px; }
+button.zone-browser__empty-slot { font: inherit; text-align: left; cursor: pointer; }
+.ui-site button.zone-browser__empty-slot:hover { color: var(--ink); border-color: var(--accent2); }

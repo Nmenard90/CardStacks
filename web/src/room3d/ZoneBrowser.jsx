@@ -28,7 +28,7 @@ export function Pager({ label, from, to, total, onPrev, onNext, hasPrev, hasNext
   );
 }
 
-export default function ZoneBrowser({ zone, world, state, nav, onOpen }) {
+export default function ZoneBrowser({ zone, world, state, nav, onOpen, onAddToSlot }) {
   const isDisplay = zone === 'display';
   const kind = zone === 'binders' ? 'binder' : 'box';
   const noun = zone === 'binders' ? 'binder' : zone === 'storage' ? 'box' : 'card';
@@ -72,7 +72,9 @@ export default function ZoneBrowser({ zone, world, state, nav, onOpen }) {
             const card = world.displayCards.find((c) => c.displayIndex === slot.displayIndex);
             return card
               ? <button key={slot.slotId} type="button" onClick={() => onOpen('display', slot.slotId)}><span>{String(from + slot.displayIndex).padStart(2, '0')}</span><strong>{card.name}</strong><small>{card.rarity || card.setName}</small></button>
-              : <div key={slot.slotId} className="zone-browser__empty-slot"><span>{String(from + slot.displayIndex).padStart(2, '0')}</span>Empty slot</div>;
+              : onAddToSlot
+                ? <button key={slot.slotId} type="button" className="zone-browser__empty-slot" onClick={() => onAddToSlot(slot.displayIndex)}><span>{String(from + slot.displayIndex).padStart(2, '0')}</span>+ Add a card</button>
+                : <div key={slot.slotId} className="zone-browser__empty-slot"><span>{String(from + slot.displayIndex).padStart(2, '0')}</span>Empty slot</div>;
           })}
         </div>
       </section>
