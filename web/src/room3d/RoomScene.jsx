@@ -301,7 +301,8 @@ export default function RoomScene({ userId, onHelp }) {
   // directly (no React render per mouse move); touch has no hover, so it shows for a mouse only.
   const tag = route.focus ? null : (hovered ? AREA_TAGS[hovered] : pieceTag(hoveredPiece)) ?? null;
   const [binderPage, setBinderPage] = useState(0);
-  const [pick, setPick] = useState(null); // card picker for one binder pocket: { slot, query, cardId, error, busy }
+  // Card picker for one binder pocket or one empty display slot: { kind: 'pocket'|'display', slot, slotId?, query, cardId, error, busy }
+  const [pick, setPick] = useState(null);
   const [boxUi, setBoxUi] = useState({ drawerId: null, cardId: null }); // which drawer the rolodex shows, and the card chosen in it
   const spread = useSpread(stage);
   const reducedMotion = useReducedMotion();
@@ -370,24 +371,32 @@ export default function RoomScene({ userId, onHelp }) {
   // Opening a different binder or box starts it fresh: first page, no picker, first drawer.
   useEffect(() => { setBinderPage(0); setPick(null); }, [route.binderId]);
   useEffect(() => { setBoxUi({ drawerId: null, cardId: null }); }, [route.boxId]);
-  useEffect(() => { if (!selectedBinder) setPick(null); }, [selectedBinder]);
+  useEffect(() => { if (!selectedBinder) setPick((p) => (p?.kind === 'display' ? p : null)); }, [selectedBinder]);
+  useEffect(() => { if (route.focus !== 'display') setPick((p) => (p?.kind === 'display' ? null : p)); }, [route.focus]);
 
   const boxDrawer = selectedBox ? (selectedBox.drawers.find((d) => d.id === boxUi.drawerId) ?? selectedBox.drawers[0] ?? null) : null;
-  const pickerSearch = usePocketSearch(room.raw, pick ? pick.query : null);
+  const pickerSearch = usePocketSearch(room.raw, pick ? pick.query : null, pick?.kind === 'display'); // the display case takes cards you own
   const pickerCards = pickerSearch.cards;
   const chosenPickerCard = pick ? pickerCards.find((c) => c.id === pick.cardId) ?? null : null;
   const binderPages = selectedBinder ? pageCount(selectedBinder.cards.map((c) => c.slotIndex).filter((n) => n != null), selectedBinder.pocketSize) : 0;
   const rolodexCards = pick ? pickerCards : boxDrawer?.cards ?? [];
   const rolodexSelectedId = pick ? pick.cardId : boxUi.cardId;
-  const openPicker = (slot) => setPick({ slot, query: '', cardId: null, error: null, busy: false });
+  const openPicker = (slot) => setPick({ kind: 'pocket', slot, query: '', cardId: null, error: null, busy: false });
+  // The open display case's empty slots on the cabinet (it shows five at a time); tapping one picks a card for it.
+  const emptyDisplay = (world?.zones.display.slots ?? []).filter((s) => !s.filled);
+  const openDisplayPicker = (displayIndex) => {
+    const slot = emptyDisplay.find((s) => s.displayIndex === displayIndex);
+    if (slot) setPick({ kind: 'display', slot: displayIndex, slotId: slot.slotId, query: '', cardId: null, error: null, busy: false });
+  };
   const placePicked = async () => {
-    if (!chosenPickerCard || !selectedBinder) return;
+    if (!chosenPickerCard || (pick.kind === 'pocket' && !selectedBinder)) return;
     setPick((p) => ({ ...p, busy: true, error: null }));
     try {
-      await room.placeInPocket({ binderId: String(selectedBinder.id), slotIndex: pick.slot, card: chosenPickerCard });
+      if (pick.kind === 'display') await room.placeInDisplay({ slotId: pick.slotId, card: chosenPickerCard });
+      else await room.placeInPocket({ binderId: String(selectedBinder.id), slotIndex: pick.slot, card: chosenPickerCard });
       setPick(null);
     } catch (error) {
-      setPick((p) => (p ? { ...p, busy: false, error: error?.response?.data?.message ?? error?.message ?? 'Could not save that pocket.' } : p));
+      setPick((p) => (p ? { ...p, busy: false, error: error?.response?.data?.message ?? error?.message ?? 'Could not save that.' } : p));
     }
   };
   const freeSlot = (() => { const used = new Set(selectedBinder?.cards.map((c) => c.slotIndex) ?? []); let i = 0; while (used.has(i)) i++; return i; })();
@@ -409,6 +418,7 @@ export default function RoomScene({ userId, onHelp }) {
   }, []);
 
   const hint = room.status !== 'ready' ? null
+    : pick?.kind === 'display' ? 'Swipe through the cards you own, tap one, then put it in the display case.'
     : pick ? `Swipe through the cards${pick.query.trim().length >= 2 ? '' : ' you own, or search the catalog'}, tap one, then place it in pocket ${pick.slot + 1}.`
     : selectedBox && boxDrawer ? 'Scroll or drag through this box; tap a card to read it.'
     : world.meta.isEmpty && !route.focus ? 'Your room is ready for your first binders, boxes and display cases.'
@@ -428,7 +438,8 @@ export default function RoomScene({ userId, onHelp }) {
             zones={world?.zones} onRoute={onRoute} setHoveredPiece={setHoveredPiece}
             onSelectBinder={selectBinder} hoveredBinder={hoveredBinder} selectedBinder={selectedBinder?.id ?? null} setHoveredBinder={setHoveredBinder}
             onSelectBin={selectBox} hoveredBin={hoveredBin} selectedBin={selectedBox?.id ?? null} setHoveredBin={setHoveredBin}
-            displayCards={world?.displayCards ?? []} selectedCard={selectedDisplayCard?.displayIndex ?? null} hoveredCard={hoveredCard} setHoveredCard={setHoveredCard} onSelectCard={selectDisplay} />
+            displayCards={world?.displayCards ?? []} selectedCard={selectedDisplayCard?.displayIndex ?? null} hoveredCard={hoveredCard} setHoveredCard={setHoveredCard} onSelectCard={selectDisplay}
+            emptyDisplaySlots={pick || selected ? [] : emptyDisplay.map((s) => s.displayIndex)} onPickEmptyDisplay={openDisplayPicker} />
           <BinderBook active={Boolean(selectedBinder) && !pick} binder={selectedBinder} page={binderPage} onPage={setBinderPage}
             selectedCardId={selectedBinderCard?.id ?? null} onPickSlot={openPicker}
             onSelectCard={(card) => navigate({ focus: 'binders', binderId: String(selectedBinder.id), binderCardId: card ? String(card.id) : null })} />
@@ -441,13 +452,16 @@ export default function RoomScene({ userId, onHelp }) {
       {hint && <div className={`hud${selectedBinder || pick ? ' hud--quiet' : ''}`}>{hint}{unplacedItems > 0 && !selected && !route.focus && <><br />{unplacedItems === 1 ? '1 binder or box isn’t' : `${unplacedItems} binders or boxes aren’t`} on a shelf yet — find {unplacedItems === 1 ? 'it' : 'them'} under Unplaced in Binders or Card boxes.</>}</div>}
       {tag && <div className="room-tag" ref={tagEl} aria-hidden="true">{tag}</div>}
       <RoomStatus room={room} focused={Boolean(route.focus)} onHelp={onHelp} />
-      {room.status === 'ready' && !selected && !pick && <button type="button" className={`add-fab${route.focus ? ' add-fab--focus' : ''}${world.meta.isEmpty ? ' add-fab--pulse' : ''}`} onClick={() => routerNavigate('/add')}><span aria-hidden="true">+</span> {world.meta.isEmpty ? 'Add your first cards' : 'Add cards'}</button>}
+      {/* At the display cabinet, adding means filling one of its empty slots here; everywhere else it's the Add Cards page. */}
+      {room.status === 'ready' && !selected && !pick && !(route.focus === 'display' && emptyDisplay.length === 0) && (route.focus === 'display'
+        ? <button type="button" className="add-fab add-fab--focus" onClick={() => openDisplayPicker(emptyDisplay[0].displayIndex)}><span aria-hidden="true">+</span> Add a card to the cabinet</button>
+        : <button type="button" className={`add-fab${route.focus ? ' add-fab--focus' : ''}${world.meta.isEmpty ? ' add-fab--pulse' : ''}`} onClick={() => routerNavigate('/add')}><span aria-hidden="true">+</span> {world.meta.isEmpty ? 'Add your first cards' : 'Add cards'}</button>)}
       {!route.focus && <nav className="zone-nav" aria-label="Room areas"><button type="button" onClick={() => navigate({ focus: 'storage' })}><span>01</span> Card boxes</button><button type="button" onClick={() => navigate({ focus: 'binders' })}><span>02</span> Binders</button><button type="button" onClick={() => navigate({ focus: 'display' })}><span>03</span> Display cabinet</button><button type="button" onClick={() => routerNavigate('/explore')}><span>04</span> Explore</button></nav>}
       {route.focus && <button type="button" className="back-btn" onClick={goBack} title="Esc">← {route.binderCardId ? 'Back to binder' : selected ? `Back to ${ZONES[route.focus].label}` : 'Back to room'}</button>}
       {route.focus && <div className="focus-label">{ZONES[route.focus].label}</div>}
       {route.focus && !selected && world && room.state && <ZoneBrowser zone={route.focus} world={world} state={room.state} nav={room.nav} onOpen={openFromBrowser} />}
       {selectedBinder && !pick && <BinderBar pages={binderPages} page={binderPage} spread={spread} onPage={setBinderPage} onAdd={() => { openPicker(freeSlot); setBinderPage(Math.floor(freeSlot / pocketsPerPage(selectedBinder.pocketSize))); }} empty={selectedBinder.cards.length === 0} />}
-      {pick && <PickerBar slot={pick.slot} query={pick.query} onQuery={(query) => setPick((p) => ({ ...p, query, cardId: null, error: null }))} resultCount={pickerCards.length} searching={pickerSearch.searching} chosen={chosenPickerCard} onPlace={placePicked} onCancel={() => setPick(null)} busy={pick.busy} error={pick.error} />}
+      {pick && <PickerBar label={pick.kind === 'display' ? `Display slot ${pick.slot + 1}` : `Pocket ${pick.slot + 1}`} ownedOnly={pick.kind === 'display'} query={pick.query} onQuery={(query) => setPick((p) => ({ ...p, query, cardId: null, error: null }))} resultCount={pickerCards.length} searching={pickerSearch.searching} chosen={chosenPickerCard} onPlace={placePicked} onCancel={() => setPick(null)} busy={pick.busy} error={pick.error} />}
       {selectedBinder && <ItemPanel type="binder" item={selectedBinder} selectedCard={selectedBinderCard} onClose={closeItem} siteLink={{ to: `/binder/${encodeURIComponent(selectedBinder.id)}`, label: 'Open binder page' }} onLink={routerNavigate} />}
       {selectedBox && <ItemPanel type="storage" item={selectedBox} onClose={closeItem} drawerId={boxDrawer?.id} onDrawer={(id) => setBoxUi({ drawerId: id, cardId: null })} cardId={boxUi.cardId} onCard={(id) => setBoxUi((u) => ({ ...u, cardId: id }))}
         siteLink={{ to: spacesLink({ space: selectedBox.spaceId, area: 'storage', unit: selectedBox.unitId, box: selectedBox.id }), label: 'Manage in Spaces' }} onLink={routerNavigate} />}

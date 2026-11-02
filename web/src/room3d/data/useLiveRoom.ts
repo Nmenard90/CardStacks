@@ -24,7 +24,7 @@
  */
 import { useCallback, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getCaseAllocations, getDrawerPlacements, getSpaceInventory, listSpaces } from '../../api/rooms'
+import { getCaseAllocations, getDrawerPlacements, getSpaceInventory, listSpaces, placeCopies } from '../../api/rooms'
 import { listBoxes } from '../../api/storage'
 import { getBinder, listBinders, setSlot } from '../../api/binders'
 import { getOwnedCards } from '../../api/collection'
@@ -154,23 +154,26 @@ function pickerCard(card: Card, setNames: Record<string, string>) {
  * @param query  what the user typed; null = picker closed
  * @return the cards to show and whether a search is still running
  */
-export function usePocketSearch(raw: RoomRaw | undefined, query: string | null) {
+export function usePocketSearch(raw: RoomRaw | undefined, query: string | null, ownedOnly = false) {
   const q = (query ?? '').trim()
   const search = useQuery({
     queryKey: ['room3d-search', currentGame(), q],
     queryFn: () => searchCards(q),
-    enabled: q.length >= 2,
+    enabled: q.length >= 2 && !ownedOnly,
     staleTime: 5 * 60 * 1000,
   })
   return useMemo(() => {
     if (query === null || !raw) return { cards: [], searching: false }
-    if (q.length < 2) {
+    // Your own cards: all of them, or (the display case only takes cards you own) those matching the search.
+    if (q.length < 2 || ownedOnly) {
       const ownedIds = new Set(raw.ownedIds)
-      const mine = raw.cards.filter(c => ownedIds.has(c.id)).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 200)
+      const needle = ownedOnly ? q.toLowerCase() : ''
+      const mine = raw.cards.filter(c => ownedIds.has(c.id) && (!needle || c.name.toLowerCase().includes(needle) || String(c.number).toLowerCase() === needle))
+        .sort((a, b) => a.name.localeCompare(b.name)).slice(0, 200)
       return { cards: mine.map(c => pickerCard(c, raw.setNames)), searching: false }
     }
     return { cards: (search.data ?? []).map(c => pickerCard(c, raw.setNames)), searching: search.isFetching }
-  }, [query, q, raw, search.data, search.isFetching])
+  }, [query, q, raw, ownedOnly, search.data, search.isFetching])
 }
 
 /**
@@ -234,6 +237,22 @@ export function useLiveRoom(userId: string | undefined) {
     })
   }, [userId, queryClient, queryKey])
 
+  /**
+   * PURPOSE: Puts one copy of `card` into an empty display slot with the Spaces page's own call, then rereads the room.
+   * The copy comes from the best condition you own; the server takes it out of the card's set box.
+   * @param slotId  the display slot
+   * @param card    the picked card (picker shape)
+   */
+  const placeInDisplay = useCallback(async ({ slotId, card }: { slotId: string; card: { id: string; name: string } }) => {
+    if (!userId) throw new Error('Sign in to change your display case.')
+    const rank = (lot: InventoryLot) => { const i = ['NM', 'LP', 'MP', 'HP', 'DMG'].indexOf(lot.condition.split(' ')[0]); return i < 0 ? 9 : i }
+    const lots = (await getSpaceInventory(userId)).filter(l => l.cardId === card.id && l.quantity > 0).sort((a, b) => rank(a) - rank(b))
+    if (lots.length === 0) throw new Error(`${card.name} isn't in your collection.`)
+    try { await placeCopies(userId, { lotId: lots[0].id, displaySlotId: slotId, quantity: 1, protection: 'raw' }) }
+    catch { throw new Error(`Every copy of ${card.name} is already in a binder or the display case.`) }
+    await query.refetch()
+  }, [userId, query])
+
   const status = query.isError && !raw ? 'error' : raw ? 'ready' : 'loading'
   return {
     status,
@@ -249,5 +268,6 @@ export function useLiveRoom(userId: string | undefined) {
     data: world,
     warnings: raw?.warnings ?? [],
     placeInPocket,
+    placeInDisplay,
   }
 }

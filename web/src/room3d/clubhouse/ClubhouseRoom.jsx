@@ -80,7 +80,7 @@ export default function ClubhouseRoom({
   onSelectBinder, hoveredBinder, selectedBinder, setHoveredBinder,
   onSelectBin, hoveredBin, selectedBin, setHoveredBin,
   selectedCard, hoveredCard, setHoveredCard, onSelectCard,
-  displayCards = [], activeZone, onRoute, setHoveredPiece,
+  displayCards = [], activeZone, onRoute, setHoveredPiece, emptyDisplaySlots, onPickEmptyDisplay,
 }) {
   const style = useMemo(() => makeStyle(theme, { lights: QUALITY.pointLights > 0 }), [theme]);
   const room = useMemo(() => {
@@ -158,7 +158,8 @@ export default function ClubhouseRoom({
         />
       )}
       <DisplayCabinet {...furnitureProps} anchor={anchors.display} displayCards={displayCards} itemHitsActive={activeZone === 'display'}
-        selectedCard={selectedCard} hoveredCard={hoveredCard} setHoveredCard={setHoveredCard} onSelectCard={onSelectCard} />
+        selectedCard={selectedCard} hoveredCard={hoveredCard} setHoveredCard={setHoveredCard} onSelectCard={onSelectCard}
+        emptySlots={emptyDisplaySlots} onPickEmpty={onPickEmptyDisplay} />
     </group>
   );
 }

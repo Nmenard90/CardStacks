@@ -115,7 +115,7 @@ async function setup({ width, height, touch = false, guideSeen = true, reducedMo
     for (const k of ['pushState', 'replaceState']) { const f = history[k].bind(history); history[k] = (st, t, u) => { note(`${k} ${u}`); return f(st, t, u) } }
     for (const t of ['pointerdown', 'pointerup', 'pointercancel', 'click']) window.addEventListener(t, (e) => note(`${t} ${e.pointerType ?? ''} ${Math.round(e.clientX)},${Math.round(e.clientY)} on ${e.target?.tagName}`), true)
   }, { user, guideSeen })
-  const state = { writes: [], requests: [], slots: structuredClone(binderSlots) }
+  const state = { writes: [], requests: [], slots: structuredClone(binderSlots), placed: [], caseAllocs: structuredClone(caseAllocs) }
   await context.route('https://qa.supabase.co/**', route => route.fulfill({ json: user }))
   await context.route(url => url.pathname.startsWith('/api/'), async route => {
     const req = route.request(), url = new URL(req.url()), p = url.pathname, m = req.method()
@@ -127,6 +127,13 @@ async function setup({ width, height, touch = false, guideSeen = true, reducedMo
       state.writes.push({ binderId, slot: Number(slot), body })
       state.slots[binderId] = [...(state.slots[binderId] ?? []).filter(s => s.slotIndex !== Number(slot)), { slotIndex: Number(slot), ...body }]
       return json({ ok: true })
+    }
+    if (m === 'POST' && p === `/api/spaces/${U}/allocations`) { // the Spaces page's own call: a copy into a display slot
+      const body = req.postDataJSON()
+      state.placed.push(body)
+      const alloc = { id: `calloc-new-${state.placed.length}`, ...body, createdAt: now, updatedAt: now }
+      state.caseAllocs.push(alloc)
+      return json(alloc)
     }
     if (m !== 'GET') return route.fulfill({ status: 405, body: `QA: unexpected ${m} ${p}` })
     if (p === '/api/auth/me') return json(user)
@@ -140,7 +147,7 @@ async function setup({ width, height, touch = false, guideSeen = true, reducedMo
     if (binder) { const b = binders.find(x => x.id === binder[1]); return b ? json({ ...b, slots: state.slots[b.id] ?? [] }) : route.fulfill({ status: 404, body: 'no binder' }) }
     const drawer = p.match(/^\/api\/spaces\/qa-owner\/drawers\/([^/]+)\/allocations$/)
     if (drawer) return json(drawerAllocs[drawer[1]] ?? [])
-    if (p === `/api/spaces/${U}/display-cases/case-1/allocations`) return json(caseAllocs)
+    if (p === `/api/spaces/${U}/display-cases/case-1/allocations`) return json(state.caseAllocs)
     if (p === `/api/collection/${U}/owned`) return json(owned)
     if (p === `/api/collection/${U}`) return json(owned.map(o => ({ ...o, id: o.cardId, userId: U })))
     if (p === `/api/collection/${U}/stats`) return json({ totalCards: 80, uniqueCards: 41, totalValue: 1234, setsEntered: 2 })
@@ -525,6 +532,36 @@ for (const size of SIZES.filter(s => !only || s.label === only)) {
     assert.match(facts, /Manage display case/)
     await shot(page, `${size.label}-display`)
     await layoutSound(page, HUD)
+  })
+
+  await check('display cabinet: an empty slot takes one of my cards, right in the room', async () => {
+    await page.goto(origin + '/#/display', { waitUntil: 'domcontentloaded' }); await roomReady(page)
+    const empty = page.locator('.room3d .display-empty')
+    await empty.first().waitFor()
+    assert.equal(await empty.count(), 1, 'one of the five slots on the cabinet is empty')
+    await shot(page, `${size.label}-display-empty`)
+    await press(empty.first())
+    const picker = page.locator('.room3d .view-bar--picker')
+    await picker.waitFor()
+    assert.match(await picker.innerText(), /Display slot 5/i)
+    assert.equal(await page.getByRole('searchbox', { name: 'Search cards' }).getAttribute('placeholder'), 'Search your cards by name or number…')
+    await page.waitForFunction(() => Boolean(window.__nook3d.scene.getObjectByName('RolodexCard_base1-1')))
+    await page.waitForTimeout(600)
+    let picked = null
+    for (const id of ['base1-1', 'base1-2', 'base1-3', 'base1-4', 'base1-5']) {
+      const at = await screenPoint(page, { name: `RolodexCard_${id}` })
+      if (at && !at.miss) { await clickObject(page, { name: `RolodexCard_${id}` }, touch); picked = id; break }
+    }
+    assert(picked, 'no rolodex card on screen')
+    await page.waitForFunction(() => !document.querySelector('.room3d .view-bar__add')?.disabled)
+    await shot(page, `${size.label}-display-picker`)
+    await press(page.locator('.room3d .view-bar__add'))
+    await picker.waitFor({ state: 'detached' })
+    const placed = state.placed.at(-1)
+    assert.equal(placed.displaySlotId, 'dslot-4'); assert.equal(placed.quantity, 1)
+    assert.equal(lots.find(l => l.id === placed.lotId)?.cardId, picked, 'a copy of the picked card')
+    await page.waitForFunction(() => Boolean(window.__nook3d.scene.getObjectByName('DisplayHit_4')))
+    assert.equal(await empty.count(), 0, 'the slot is filled now')
   })
 
   await check('furniture leads to the rest of the site (desk → Add Cards, Explore button → Explore)', async () => {

@@ -439,7 +439,24 @@ function VitrineAsset({ position, rotation, onSelect, setHovered, children }) {
   );
 }
 
-export function DisplayCabinet({ displayCards, selectedCard, hoveredCard, setHoveredCard, onSelectCard, itemHitsActive, anchor, ...props }) {
+/** An empty display slot while the cabinet is open: a faint card outline and a button that opens the card picker for it. */
+function EmptyDisplaySlot({ position, rotation, slot, onPick }) {
+  return (
+    <group position={position} rotation={rotation}>
+      <mesh>
+        <planeGeometry args={[0.48, 0.68]} />
+        <meshBasicMaterial color="#fff1c8" transparent opacity={0.14} depthWrite={false} side={THREE.DoubleSide} />
+      </mesh>
+      <DomAnchor position={[0, 0, 0]} center zIndex={4} style={{ pointerEvents: 'auto' }}>
+        <button type="button" className="display-empty" onClick={() => onPick(slot)} aria-label={`Add a card to display slot ${slot + 1}`}>
+          <span aria-hidden="true">+</span> Add a card
+        </button>
+      </DomAnchor>
+    </group>
+  );
+}
+
+export function DisplayCabinet({ displayCards, selectedCard, hoveredCard, setHoveredCard, onSelectCard, itemHitsActive, anchor, emptySlots = [], onPickEmpty, ...props }) {
   // Card centres sit 0.4 m above the shelf they stand on; the vitrine's shelves are lower and tighter than the old cabinet's.
   const [t0, t1, t2] = VITRINE.tiers; const z = CLUBHOUSE ? -0.1 : -0.25;
   const cards = CLUBHOUSE ? [
@@ -473,7 +490,9 @@ export function DisplayCabinet({ displayCards, selectedCard, hoveredCard, setHov
       </>}
       {cards.map((c) => {
         const card = displayCards.find((entry) => entry.displayIndex === c.seed);
-        return card && (
+        if (!card) return itemHitsActive && onPickEmpty && emptySlots.includes(c.seed)
+          ? <EmptyDisplaySlot key={c.seed} position={c.position} rotation={c.rotation} slot={c.seed} onPick={onPickEmpty} /> : null;
+        return (
         <HoloCard
           key={c.seed}
           position={c.position}

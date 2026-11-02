@@ -263,6 +263,21 @@ object RoomRepository:
         .query[(String,String,Option[String],Option[String],Option[String],Int,Option[String],Option[String],Instant,Instant)]
         .to[List].map(_.map(CardAllocation.apply.tupled)).transact(xa)
 
+    /** Frees up to `needed` copies of a lot from its auto-filed set-box placements (never from `keepDrawer`, the place
+      * they are going), newest first. */
+    private def releaseAutoFiled(lotId: String, needed: Int, keepDrawer: Option[String]): ConnectionIO[Unit] =
+      sql"""SELECT a.id, a.quantity FROM card_allocations a JOIN storage_drawers d ON d.id = a.drawer_id
+        WHERE a.lot_id=$lotId AND d.auto_set_id IS NOT NULL AND a.drawer_id IS DISTINCT FROM $keepDrawer
+        ORDER BY a.created_at DESC FOR UPDATE OF a""".query[(String, Int)].to[List].flatMap { filed =>
+        filed.foldLeft(needed.pure[ConnectionIO]) { case (leftIO, (id, qty)) =>
+          leftIO.flatMap { left =>
+            if left <= 0 then left.pure[ConnectionIO]
+            else if qty > left then sql"UPDATE card_allocations SET quantity=${qty - left},updated_at=NOW() WHERE id=$id".update.run.as(0)
+            else sql"DELETE FROM card_allocations WHERE id=$id".update.run.as(left - qty)
+          }
+        }.void
+      }
+
     def allocate(userId: String, lotId: String, drawerId: Option[String],
       binderSlotId: Option[String], displaySlotId: Option[String], quantity: Int,
       protection: Option[String], notes: Option[String]): Task[CardAllocation] =
@@ -277,6 +292,10 @@ object RoomRepository:
         total <- owned match
           case None => FC.raiseError[Int](RuntimeException("Inventory lot not found"))
           case Some(q) => q.pure[ConnectionIO]
+        before    <- sql"SELECT COALESCE(SUM(quantity),0) FROM card_allocations WHERE lot_id=$lotId".query[Int].unique
+        // Every owned copy is filed into its set's box automatically, so placing one somewhere else (a display
+        // slot, another box) takes it out of that set box, as it would in real life.
+        _         <- if before + quantity <= total then ().pure[ConnectionIO] else releaseAutoFiled(lotId, before + quantity - total, drawerId)
         allocated <- sql"SELECT COALESCE(SUM(quantity),0) FROM card_allocations WHERE lot_id=$lotId".query[Int].unique
         _ <- if allocated + quantity <= total then ().pure[ConnectionIO]
              else FC.raiseError(RuntimeException(s"Only ${total - allocated} of this card are available to place"))

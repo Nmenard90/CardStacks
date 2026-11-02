@@ -75,3 +75,23 @@ class CardLocationsDbSuite extends munit.FunSuite:
   test("no card ids → no query, no places") {
     assertEquals(run(rooms.cardLocations(owner, Nil)), Nil)
   }
+
+  test("putting a copy on display takes it out of its set box, and only when it has to") {
+    val cardId = ownedCard(qty = 2)
+    val lot = db(sql"SELECT id FROM inventory_lots WHERE user_id=$owner AND card_id=$cardId".query[String].unique)
+    val (space, display) = (UUID.randomUUID().toString, UUID.randomUUID().toString)
+    val slots = List.fill(3)(UUID.randomUUID().toString)
+    db((sql"INSERT INTO collection_spaces(id,user_id,name) VALUES($space,$owner,'Display room')".update.run *>
+      sql"INSERT INTO display_cases(id,space_id,name) VALUES($display,$space,'Grail case')".update.run *>
+      slots.zipWithIndex.traverse_((id, i) => sql"INSERT INTO display_slots(id,display_case_id,shelf_index,slot_index) VALUES($id,$display,0,$i)".update.run)).void)
+    def filed = db(sql"""SELECT COALESCE(SUM(a.quantity),0) FROM card_allocations a JOIN storage_drawers d ON d.id=a.drawer_id
+      WHERE a.lot_id=$lot AND d.auto_set_id IS NOT NULL""".query[Long].unique)
+    assertEquals(filed, 2L) // every owned copy starts filed in its set box
+    run(rooms.allocate(owner, lot, None, None, Some(slots(0)), 1, Some("raw"), None))
+    assertEquals(filed, 1L)
+    run(rooms.allocate(owner, lot, None, None, Some(slots(1)), 1, Some("raw"), None))
+    assertEquals(filed, 0L)
+    // Both copies are on display now; a third slot can't conjure another one.
+    assert(Unsafe.unsafe { implicit u => Runtime.default.unsafe.run(rooms.allocate(owner, lot, None, None, Some(slots(2)), 1, Some("raw"), None)) }.isFailure)
+    assertEquals(db(sql"SELECT COUNT(*) FROM card_allocations WHERE lot_id=$lot AND display_slot_id IS NOT NULL".query[Long].unique), 2L)
+  }

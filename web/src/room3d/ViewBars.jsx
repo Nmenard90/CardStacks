@@ -3,7 +3,8 @@
  *
  * BinderBar: turn pages and jump to "add a card" at the first empty pocket.
  * PickerBar: browse your own cards or search the whole catalog (the rolodex above
- * shows the results) and place the chosen card in the pocket the user clicked.
+ * shows the results) and place the chosen card in the pocket the user clicked, or
+ * (ownedOnly) one of your own cards in an empty display slot.
  */
 import React, { useEffect, useRef } from 'react';
 
@@ -23,14 +24,14 @@ export function BinderBar({ pages, page, spread, onPage, onAdd, empty }) {
   );
 }
 
-export function PickerBar({ slot, query, onQuery, resultCount, searching = false, chosen, onPlace, onCancel, busy, error }) {
+export function PickerBar({ label, ownedOnly = false, query, onQuery, resultCount, searching = false, chosen, onPlace, onCancel, busy, error }) {
   const input = useRef(null);
   useEffect(() => { input.current?.focus(); }, []);
   return (
-    <div className="view-bar view-bar--picker" role="group" aria-label="Pick a card for this pocket">
+    <div className="view-bar view-bar--picker" role="group" aria-label={`Pick a card for ${label}`}>
       <label className="view-bar__search">
-        <span>Pocket {slot + 1}</span>
-        <input ref={input} type="search" value={query} onChange={(e) => onQuery(e.target.value)} placeholder="Search any card by name or number…" aria-label="Search cards" />
+        <span>{label}</span>
+        <input ref={input} type="search" value={query} onChange={(e) => onQuery(e.target.value)} placeholder={ownedOnly ? 'Search your cards by name or number…' : 'Search any card by name or number…'} aria-label="Search cards" />
       </label>
       <span className="view-bar__label" aria-live="polite"><small>{searching ? 'Searching…' : `${resultCount} ${resultCount === 1 ? 'card' : 'cards'}`}</small></span>
       <button type="button" className="view-bar__add" disabled={!chosen || busy} onClick={onPlace}>{busy ? 'Saving…' : chosen ? `Place ${chosen.name}` : 'Pick a card'}</button>
