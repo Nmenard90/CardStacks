@@ -26,6 +26,8 @@ const user = { id: 'qa-owner', supabaseUserId: 'qa-owner', username: 'qa-owner',
 const owned = [1, 5, 20].map((price, i) => ({ cardId: `owned-${i}`, conditions: [{ condition: 'NM', quantity: 1 }], selectedCond: 'NM', updatedAt: new Date().toISOString(), card: {
   id: `owned-${i}`, setId: 'dp4', name: `Owned ${['Low', 'Mid', 'High'][i]}`, number: String(i + 1), prices: { nm: price, lp: price * 0.8 }, images: { small: 'https://images.pokemontcg.io/dp4/1.png', large: 'https://images.pokemontcg.io/dp4/1_hires.png' },
 } }))
+// A 1x1 JPEG, standing in for a photo of a card.
+const tinyJpeg = Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/yQALCAABAAEBAREA/8wABgAQEAX/2gAIAQEAAD8A0s8g/9k=', 'base64')
 const unowned = Array.from({ length: 60 }, (_, i) => ({ ...owned[0].card, id: `unowned-${i}`, name: `Unowned ${i}`, prices: { nm: 10000 + i } }))
 // A card a buyer offers in trade, found through the catalog search.
 const tradeCard = { id: 'sv4-9', setId: 'sv4', name: 'Trade Bait', number: '9', rarity: 'Rare', prices: { nm: 3 }, images: { small: 'https://images.pokemontcg.io/sv4/9.png', large: 'https://images.pokemontcg.io/sv4/9_hires.png' } }
@@ -126,6 +128,9 @@ async function setup({ width = 1440, height = 900, authenticated = false, mode =
     }
     if (p === `/api/trading/${user.id}/unread`) return route.fulfill({ json: { count: state.offers.filter(o => o.unread).length } })
     if (p === '/api/cards/browse') return route.fulfill({ json: { cards: unowned, total: 2000 } })
+    // Your own card photos, read from Explore (no shop needed): one front photo of Owned High in NM.
+    if (p === '/api/collection/qa-owner/shop-photos') return route.fulfill({ json: [{ cardId: 'owned-2', condition: 'NM', side: 'front', version: 1 }] })
+    if (p === '/api/collection/qa-owner/shop-photos/owned-2/front') return route.fulfill({ contentType: 'image/jpeg', body: tinyJpeg })
     if (p === '/api/collection/qa-owner/owned') return route.fulfill({ json: owned })
     if (p === '/api/collection/qa-owner/stats') return route.fulfill({ json: { totalCards: 3, uniqueCards: 3, totalValue: 26, setsEntered: 1 } })
     if (p === '/api/collection/qa-owner') return route.fulfill({ json: owned.map(o => ({ ...o, id: o.cardId, userId: user.id })) })
@@ -385,6 +390,23 @@ try {
     await page.getByRole('heading', { name: fixture.shop.displayName, exact: true }).waitFor()
     await page.goto(origin + '/s/gone', { waitUntil: 'domcontentloaded' })
     await page.getByRole('heading', { name: 'This link has moved' }).waitFor()
+    assert.equal(errors.length, 0, errors.join('\n'))
+    await context.close()
+  })
+
+  await run('Explore: a card you own has Photos, with your existing front photo', async () => {
+    const { context, page, errors } = await setup({ authenticated: true })
+    await page.goto(origin + '/explore?set=all', { waitUntil: 'domcontentloaded' })
+    await page.getByRole('button', { name: 'Owned only', exact: true }).click()
+    const tile = page.locator('.pcard', { hasText: 'Owned High' })
+    await tile.getByRole('button', { name: '📷 Photos' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Photos of Owned High' })
+    await dialog.waitFor()
+    await dialog.locator('img[alt="front of your Owned High"]').waitFor()
+    assert.equal(await dialog.getByRole('button', { name: '📷 Retake' }).count(), 1, 'front has a photo: retake')
+    assert.equal(await dialog.getByRole('button', { name: '📷 Take photo' }).count(), 1, 'back has none yet')
+    await page.screenshot({ path: path.join(report, 'explore-photos.png') })
+    await dialog.getByRole('button', { name: 'Done' }).click()
     assert.equal(errors.length, 0, errors.join('\n'))
     await context.close()
   })

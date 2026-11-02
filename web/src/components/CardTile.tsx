@@ -30,6 +30,8 @@ interface Props {
   onPreview: (src: string | null, opts?: PreviewOpts) => void
   /** If given, a "To binder" button shows and calls this with the card. */
   onAddToBinder?: (card: Card) => void
+  /** If given, a "Photos" button shows on a card you own: photograph your copy, front and back. */
+  onPhotos?: (card: Card) => void
   purchases?: PurchaseMap
   /** If given, each owned condition gets a "log what you paid" control. */
   onSetPurchase?: (cond: string, price: number) => void
@@ -57,7 +59,7 @@ function gainLossPct(paid: number, market: number): number | null {
   return ((market - paid) / paid) * 100
 }
 
-export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, onAdjCond, onPreview, onAddToBinder, purchases, onSetPurchase, setName, selected, onToggleSelect, actions }: Props) {
+export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, onAdjCond, onPreview, onAddToBinder, onPhotos, purchases, onSetPurchase, setName, selected, onToggleSelect, actions }: Props) {
   const [editingPurchase, setEditingPurchase] = useState<string | null>(null)
   const [purchaseInput, setPurchaseInput] = useState('')
   const [detailsOpen, setDetailsOpen] = useState(false)
@@ -236,6 +238,14 @@ export function CardTile({ card, conds, selCond, onAdj, onSetQty, onSelectCond, 
               onClick={() => onAddToBinder(card)}
               title="Add this card to one of your binders"
             >📒 To binder</button>
+          )}
+          {onPhotos && Object.values(conds).some(q => q > 0) && (
+            <button
+              className="tb-btn"
+              style={{ marginTop: 6, fontSize: 11, padding: '4px 8px', alignSelf: 'flex-start' }}
+              onClick={() => onPhotos(card)}
+              title="Photograph your copy of this card, front and back"
+            >📷 Photos</button>
           )}
         </div>
       </div>

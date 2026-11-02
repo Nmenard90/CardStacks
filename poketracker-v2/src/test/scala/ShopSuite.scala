@@ -41,6 +41,10 @@ class ShopSuite extends munit.FunSuite:
     assert(AuthGuard.isPublicPath(Method.GET, "/api/shop/nicholas/photo/sv3-125/front"))
     assert(!AuthGuard.isPublicPath(Method.PUT, "/api/collection/u1/shop-photos/sv3-125/front"))
     assert(!AuthGuard.isPublicPath(Method.DELETE, "/api/collection/u1/shop-photos/sv3-125/front"))
+    // The owner reads their own photos from their collection, signed in.
+    assert(!AuthGuard.isPublicPath(Method.GET, "/api/collection/u1/shop-photos"))
+    assert(!AuthGuard.isPublicPath(Method.GET, "/api/collection/u1/shop-photos/sv3-125/front"))
+    assertEquals(AuthGuard.requiredOwnerUserId("/api/collection/u1/shop-photos"), Some("u1"))
     assertEquals(AuthGuard.requiredOwnerUserId("/api/collection/u1/shop-photos/sv3-125/front"), Some("u1"))
   }
 

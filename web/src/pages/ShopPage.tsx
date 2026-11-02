@@ -22,7 +22,7 @@
 
 import { useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useUser } from '../context/UserContext'
 import { getSets } from '../api/cards'
 import { getShop, getShopSettings, sendShopRequest, shopPhotoUrl, type PhotoSide } from '../api/shop'
@@ -59,6 +59,7 @@ export function ShopPage() {
   // Is the viewer the shop's owner? Only a signed-in user's own settings can say so
   // (the public response deliberately carries no owner identity).
   const { user } = useUser()
+  const qc = useQueryClient()
   const { data: mine } = useQuery({
     queryKey: ['shop-settings', user?.id], queryFn: () => getShopSettings(user!.id), enabled: !!user && !user.isAnonymous,
   })
@@ -211,8 +212,9 @@ export function ShopPage() {
       {preview.overlay}
 
       {managing && user && (
-        <ShopPhotoManager slug={slug} userId={user.id} card={managing.card} cond={managing.cond}
-          photoUrl={side => photoAt(managing.card.id, managing.cond, side)} onClose={() => setManaging(null)} />
+        <ShopPhotoManager userId={user.id} card={managing.card} cond={managing.cond}
+          photoUrl={side => photoAt(managing.card.id, managing.cond, side)}
+          onChanged={() => qc.invalidateQueries({ queryKey: ['shop', slug] })} onClose={() => setManaging(null)} />
       )}
 
       <div className="shop-bar">

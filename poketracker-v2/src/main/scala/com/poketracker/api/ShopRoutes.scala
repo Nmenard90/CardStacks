@@ -20,6 +20,8 @@
  *     POST /api/shop/:slug/requests                        — buyer sends a buy request or question
  *     GET  /api/shop/:slug/photo/:cardId/:side?cond=NM     — a seller photo (side = front|back), JPEG
  *   Protected (owner only, enforced by AuthGuard's path check):
+ *     GET    /api/collection/:userId/shop-photos              — which photos the owner has (no shop needed)
+ *     GET    /api/collection/:userId/shop-photos/:cardId/:side?cond=NM — one of the owner's own photos, JPEG
  *     PUT    /api/collection/:userId/shop-photos/:cardId/:side?cond=NM — body = JPEG bytes (<= 1.5 MB)
  *     DELETE /api/collection/:userId/shop-photos/:cardId/:side?cond=NM
  *     GET  /api/collection/:userId/shop-settings           — slug / on-off / Messenger link
@@ -219,6 +221,31 @@ object ShopRoutes:
       ZIO.serviceWithZIO[ShopRepository](_.list(userId))
         .map(rs => Response.json(rs.toJson))
         .catchAll(e => ZIO.succeed(Response.internalServerError(e.getMessage)))
+    },
+
+    // The owner's own photos, from their collection (no shop needed): which exist, and each picture.
+    Method.GET / "api" / "collection" / string("userId") / "shop-photos" -> handler { (userId: String, _: Request) =>
+      ZIO.serviceWithZIO[ShopRepository](_.listPhotos(userId))
+        .map(photos => Response.json(photos.toJson))
+        .catchAll(_ => ZIO.succeed(Response.internalServerError("Could not load your photos.")))
+    },
+
+    Method.GET / "api" / "collection" / string("userId") / "shop-photos" / string("cardId") / string("side") -> handler {
+      (userId: String, cardId: String, side: String, req: Request) =>
+        validatePhotoKey(cardId, side, req.url.queryParams.getAll("cond").headOption) match
+          case Left(_)     => ZIO.succeed(Response.notFound)
+          case Right(cond) =>
+            ZIO.serviceWithZIO[ShopRepository](_.getPhoto(userId, cardId, cond, side)).some
+              .map(photo => Response(
+                status  = Status.Ok,
+                headers = Headers(
+                  Header.ContentType(MediaType.image.jpeg),
+                  Header.Custom("Cache-Control", "private, no-cache"),
+                  Header.Custom("X-Content-Type-Options", "nosniff")
+                ),
+                body = Body.fromArray(photo._1)
+              ))
+              .catchAll(_ => ZIO.succeed(Response.notFound))
     },
 
     Method.PUT / "api" / "collection" / string("userId") / "shop-photos" / string("cardId") / string("side") -> handler {

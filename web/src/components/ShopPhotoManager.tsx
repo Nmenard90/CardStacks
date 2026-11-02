@@ -6,15 +6,14 @@
  * HOW IT WORKS
  *   A photo is for the copy you actually hold (this card in this condition),
  *   so buyers can check its edges and corners. Taking one uploads the JPEG to
- *   the seller's own shop photos and refreshes the shop page's data, so the
- *   new picture shows up straight away in its frame on the tile.
+ *   the seller's own photos (the same ones their shop shows) and calls
+ *   onChanged, so the page re-reads them and the new picture shows straight away.
  *
- * USED BY: ShopPage (only when the seller is looking at their own shop)
+ * USED BY: ShopPage (the seller on their own shop), MyCardPhotos (a card in Explore)
  * DEPENDS ON: CardCamera, api/shop, lib/conditions
  */
 
 import { useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
 import { CardCamera } from './CardCamera'
 import { deleteShopPhoto, uploadShopPhoto, type PhotoSide } from '../api/shop'
 import { condLabel } from '../lib/conditions'
@@ -22,21 +21,21 @@ import type { Card } from '../types'
 
 const SIDES: PhotoSide[] = ['front', 'back']
 
-export function ShopPhotoManager({ slug, userId, card, cond, photoUrl, onClose }: {
-  slug: string
+export function ShopPhotoManager({ userId, card, cond, photoUrl, onChanged, onClose }: {
   userId: string
   card: Card
   cond: string
   /** The current picture's address for a side, if there is one. */
   photoUrl: (side: PhotoSide) => string | undefined
+  /** Re-reads the photos after one is added or removed. */
+  onChanged: () => Promise<unknown>
   onClose: () => void
 }) {
-  const qc = useQueryClient()
   const [camera, setCamera] = useState<PhotoSide | null>(null)
   const [busy, setBusy] = useState<PhotoSide | null>(null)
   const [msg, setMsg] = useState('')
 
-  const refresh = () => qc.invalidateQueries({ queryKey: ['shop', slug] })
+  const refresh = onChanged
   const explain = (e: unknown, fallback: string) => {
     const body = (e as { response?: { data?: unknown } }).response?.data
     return typeof body === 'string' && body ? body : fallback
@@ -61,7 +60,7 @@ export function ShopPhotoManager({ slug, userId, card, cond, photoUrl, onClose }
       <div className="shop-modal" role="dialog" aria-modal="true" aria-label={`Photos of ${card.name}`}>
         <div className="shop-sheet">
           <h2>Photos: {card.name} <small>({condLabel(cond)})</small></h2>
-          <p className="shop-sub">Take a photo of the card you actually have, front and back. Buyers see them in a frame on this card and can zoom in to check the edges and corners.</p>
+          <p className="shop-sub">Take a photo of the card you actually have, front and back. Line it up with the guide on screen; buyers see them in a frame on this card in your shop and can zoom in to check the edges and corners.</p>
           <div className="photo-slots">
             {SIDES.map(side => {
               const url = photoUrl(side)

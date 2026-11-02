@@ -96,6 +96,15 @@ export const shopPhotoUrl = (slug: string, p: ShopPhotoRef) =>
   `${api.defaults.baseURL ?? ''}/api/shop/${encodeURIComponent(slug)}/photo/${encodeURIComponent(p.cardId)}/${p.side}` +
   `?cond=${encodeURIComponent(p.condition)}&v=${p.version}`
 
+/** Owner only: which photos you have (from your collection, shop or not). */
+export const getMyPhotos = (userId: string) =>
+  api.get<ShopPhotoRef[]>(`/api/collection/${userId}/shop-photos`).then(r => r.data)
+
+/** Owner only: one of your own photos, as a picture to show (signed in, so not a plain <img src>). */
+export const getMyPhoto = (userId: string, cardId: string, condition: string, side: PhotoSide) =>
+  api.get<Blob>(`/api/collection/${userId}/shop-photos/${encodeURIComponent(cardId)}/${side}`,
+    { params: { cond: condition }, responseType: 'blob' }).then(r => r.data)
+
 /** Owner only: adds or replaces one photo (a JPEG, 1.5 MB max). */
 export const uploadShopPhoto = (userId: string, cardId: string, condition: string, side: PhotoSide, jpeg: Blob) =>
   api.put(`/api/collection/${userId}/shop-photos/${encodeURIComponent(cardId)}/${side}`, jpeg,

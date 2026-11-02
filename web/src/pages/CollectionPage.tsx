@@ -27,6 +27,7 @@ import { BinderPickerModal } from '../components/BinderPickerModal'
 import { CardTile } from '../components/CardTile'
 import { usePreview } from '../components/CardPreview'
 import { HeaderNav } from '../components/HeaderNav'
+import { MyCardPhotos } from '../components/MyCardPhotos'
 import { ImportModal } from '../components/ImportModal'
 import { LoginScreen } from '../components/LoginScreen'
 import { ALL_SETS, SetSelector } from '../components/SetSelector'
@@ -81,6 +82,7 @@ export function CollectionPage() {
 
   // Which card currently has its "add to binder" popup open.
   const [binderCard, setBinderCard] = useState<Card | null>(null)
+  const [photoCard, setPhotoCard] = useState<{ card: Card; cond: string } | null>(null) // 📷 Photos on an owned card
 
   // Cross-set search results, populated only while the box holds 2+ characters.
   const [globalHits, setGlobalHits] = useState<Card[]>([])
@@ -605,6 +607,8 @@ export function CollectionPage() {
                       onAdjCond={(cond, d) => adjCond(c, cond, d)}
                       onPreview={(src, opts) => (src ? preview.show(src, opts) : preview.hide())}
                       onAddToBinder={() => setBinderCard(c)}
+                      // The copy in the condition being edited, or else the first one owned.
+                      onPhotos={() => setPhotoCard({ card: c, cond: (entry.conds[entry.selCond] ?? 0) > 0 ? entry.selCond : Object.keys(entry.conds).find(k => entry.conds[k] > 0) ?? entry.selCond })}
                     />
                   )
                 })}
@@ -629,6 +633,7 @@ export function CollectionPage() {
 
       <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onImport={runImport} />
       <BinderPickerModal card={binderCard} userId={userId} onClose={() => setBinderCard(null)} />
+      {photoCard && <MyCardPhotos userId={userId} card={photoCard.card} cond={photoCard.cond} onClose={() => setPhotoCard(null)} />}
       {preview.overlay}
     </div>
   )
