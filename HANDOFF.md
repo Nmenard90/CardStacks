@@ -175,6 +175,16 @@ tcg/
 
 ## Current state (2026-10-29)
 
+**Google sign-in (2026-11-01):** it had stopped working because the Google
+provider was off in Supabase (`gdyviorqobfujfjamxul`) and held a bogus client
+ID. Now set up: Google Cloud project `cardstacks` → Google Auth Platform →
+client "Web client 1" (Web application, redirect URI
+`https://gdyviorqobfujfjamxul.supabase.co/auth/v1/callback`), branding links
+to `/privacy` and `/terms`, published "In production". Supabase has that
+client ID and its secret, Site URL `https://cardstacks.up.railway.app`.
+Verified with a real sign-in: the owner's existing account now lists
+providers "Email, Google". `LegalPage.tsx` still has a placeholder contact email.
+
 **LIVE in production.** `main` was fast-forwarded from `650949c` to `a65a2d3`
 on 2026-10-29 (owner-approved) and both Railway services deployed
 successfully: `tcg` (website, cardstacks.up.railway.app) and
