@@ -10,6 +10,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
+import { frameStep } from './room/frameStep.js';
 import DomAnchor from './room/DomAnchor.jsx';
 import * as THREE from 'three';
 import CardSlab from './room/CardSlab.jsx';
@@ -17,7 +18,9 @@ import { getCardTexture } from './room/cardTextures.js';
 import { freeRect } from './room/freeRect.js';
 
 const TAP_AGAIN = window.matchMedia?.('(pointer: coarse)').matches ? 'tap again to put it back' : 'click again to put it back'; // the picked card's label
-const DISTANCE = 3.1; // how far in front of the camera the ring floats
+// How far in front of the camera the ring floats; its size follows (see `framing`), so it looks the same on screen,
+// close enough that no furniture can come between it and the camera.
+const DISTANCE = 0.7;
 const FILL = 0.92; // share of the free screen area the front card may fill
 const SELECTED_GROW = 1.1; // the picked / hovered card is drawn a little larger
 const RADIUS = 2.4;
@@ -37,7 +40,8 @@ function RolodexCard({ index, scrollRef, card, selected, front, hasSelection, on
   const [isHovered, setIsHovered] = useState(false);
   const texture = useMemo(() => getCardTexture(card, selected || front ? 'large' : 'small'), [card, selected, front]); // the card at the front, or being read, gets full detail
 
-  useFrame((_, delta) => {
+  useFrame((_, rawDelta) => {
+    const delta = frameStep(rawDelta);
     if (!ref.current) return;
     const offset = index - scrollRef.current; // places from the centre, fractional while scrolling
     const angle = offset * ANGLE_PER;
@@ -65,7 +69,7 @@ function RolodexCard({ index, scrollRef, card, selected, front, hasSelection, on
       onPointerOut={() => { setIsHovered(false); gl.domElement.style.cursor = ''; }}
       onClick={(event) => { event.stopPropagation(); if (event.delta < 6) onSelect(card); }}
     >
-      <CardSlab width={CARD_W} height={CARD_H} depth={0.018} radius={0.022} smoothness={3} castShadow>
+      <CardSlab width={CARD_W} height={CARD_H} depth={0.018} radius={0.022} smoothness={3}>
         <roomMaterial
           map={texture}
           roughness={0.28}

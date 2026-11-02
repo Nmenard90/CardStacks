@@ -37,6 +37,7 @@ import { BinderBar, PickerBar } from './ViewBars.jsx';
 import ItemPanel from './ItemPanel.jsx';
 import ZoneBrowser from './ZoneBrowser.jsx';
 import { useLiveRoom, usePocketSearch } from './data/useLiveRoom.ts';
+import { frameStep } from './room/frameStep.js';
 import ClubhouseRoom from './clubhouse/ClubhouseRoom.jsx';
 import { CANVAS, DEFAULT_CAM, HOTSPOTS as ZONES } from './clubhouse/config.js';
 import { PIECE_TYPES, ROOM } from './clubhouse/layout.js';
@@ -225,7 +226,8 @@ function FixedCameraRig({ focus, reducedMotion, inspectSeed = null }) {
   const free = useRef(null);
   const subject = useRef({ focus: null, box: new THREE.Box3(), view: null }); // the zone's contents and where to stand to see them
   const tick = useRef(0);
-  useFrame((_, delta) => {
+  useFrame((_, rawDelta) => {
+    const delta = frameStep(rawDelta);
     const destination = focus ? ZONES[focus] : null;
     let look = new THREE.Vector3(...(destination ? destination.camTarget : DEFAULT_CAM.target));
     let pos = new THREE.Vector3(...(destination ? destination.camPos : DEFAULT_CAM.pos));

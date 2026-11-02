@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { RoundedBox, useGLTF } from '@react-three/drei';
 import DomAnchor from './room/DomAnchor.jsx';
 import CardSlab from './room/CardSlab.jsx';
+import { frameStep } from './room/frameStep.js';
 import { useFrame, useThree } from '@react-three/fiber';
 import { makeFloorInlayTexture, makeFloorTexture, makeHoloCardTexture, makeWallTexture } from './textures.js';
 import DynamicShelving from './room/DynamicShelving.jsx';
@@ -300,7 +301,8 @@ function HoloCard({ position, rotation = [0, Math.PI, 0], seed = 0, card, active
   // Individually clickable (unlike the binders/bins, these are already
   // separate React components, not meshes baked into one GLB) — selecting
   // one lifts it toward the viewer and tilts it flat-on instead of angled.
-  useFrame((state, delta) => {
+  useFrame((state, rawDelta) => {
+    const delta = frameStep(rawDelta);
     if (!groupRef.current) return;
     driveFoil(state.clock.elapsedTime, delta, selected ? 0.95 : hovered ? 0.75 : 0.55);
     const targetScale = selected ? 1.35 : hovered ? 1.08 : 1;

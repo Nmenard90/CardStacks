@@ -200,9 +200,17 @@ Same branch, also unpushed:
 - **Binder cover photo any time**: the room's binder panel adds/changes/
   removes it; stored as a ~60 KB JPEG data URL in `binders.cover_image`
   (no migration; `BinderRoutes.validateCover`); shown on BinderViewPage's cover.
-- Not done yet: room lag / jumpy camera / fuzzy textures (owner, 2026-11-02),
-  and "3D room binder goes to the old binder" needs the owner to say which
-  click does that.
+- **Room moves animate, and the open binder stays in front**: the room only
+  draws on change, so the first frame after sitting still got seconds of
+  `delta` and every easing (camera, page slide, cards) arrived in one jump —
+  measured 1–2 draws for a whole move. `room/frameStep.js` treats a gap over
+  0.25 s as a new move's first frame (60–160 draws per move now). BinderBook
+  and CardRolodex float 0.7 m from the camera (size follows the distance, so
+  they look the same) instead of 3.4/3.1 m, where the bookcase's boards cut
+  across the open binder on wide screens; they no longer cast shadows.
+- Not done yet: "3D room binder goes to the old binder" needs the owner to say
+  which click does that. The binder-zone move still has some 50–115 ms frames
+  on WARP that are not JS (the profile is idle) — GPU-process work.
 
 **Google sign-in (2026-11-01):** it had stopped working because the Google
 provider was off in Supabase (`gdyviorqobfujfjamxul`) and held a bogus client

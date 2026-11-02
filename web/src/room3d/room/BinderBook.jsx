@@ -11,6 +11,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { RoundedBox } from '@react-three/drei';
+import { frameStep } from './frameStep.js';
 import * as THREE from 'three';
 import CardSlab from './CardSlab.jsx';
 import { getCardTexture } from './cardTextures.js';
@@ -20,7 +21,10 @@ import { POCKET_H, POCKET_W, pageCount, pageSize, pocketCenter, pocketsPerPage, 
 
 import { freeRect } from './freeRect.js';
 
-const DISTANCE = 3.4;
+// How far in front of the camera the open binder floats. Its size is set from this distance (see `framing`), so
+// on screen it looks the same at any distance; close enough that no shelf or table can stand between it and the
+// camera (at 3.4 m the bookcase's boards cut across its pages on wide screens).
+const DISTANCE = 0.7;
 const FILL = 0.92; // share of the free screen area the open book may fill
 const COVER_MARGIN = 0.14; // the cover's overhang around the pages, in book metres (matches the cover RoundedBox)
 const SWIPE_PX = 70;
@@ -63,7 +67,8 @@ function PocketCard({ card, position, hidden, onSelect }) {
   const [hover, setHover] = useState(false);
   const texture = useMemo(() => getCardTexture(card), [card]);
   const { materialRef, drive: driveFoil } = useHoloFoil(card.rarity, CLUBHOUSE);
-  useFrame((state, delta) => {
+  useFrame((state, rawDelta) => {
+    const delta = frameStep(rawDelta);
     if (!ref.current) return;
     ref.current.position.z = THREE.MathUtils.damp(ref.current.position.z, hover ? 0.06 : 0.012, 12, delta);
     if (!hidden) driveFoil(state.clock.elapsedTime, delta, hover ? 0.6 : 0.26);
@@ -78,7 +83,7 @@ function PocketCard({ card, position, hidden, onSelect }) {
       onPointerOut={() => { setHover(false); setCursor(gl, ''); }}
       onClick={(e) => { e.stopPropagation(); if (e.delta < 6) onSelect(card); }}
     >
-      <CardSlab width={POCKET_W} height={POCKET_H} depth={0.012} radius={0.014} smoothness={2} castShadow>
+      <CardSlab width={POCKET_W} height={POCKET_H} depth={0.012} radius={0.014} smoothness={2}>
         <roomMaterial ref={materialRef} map={texture} roughness={0.3} metalness={0.04} />
       </CardSlab>
     </group>
@@ -90,14 +95,15 @@ function FocusedCard({ card, onClose, lift }) {
   const ref = useRef();
   const texture = useMemo(() => getCardTexture(card, 'large'), [card]); // hi-res art for reading
   const { materialRef, drive: driveFoil } = useHoloFoil(card.rarity, CLUBHOUSE);
-  useFrame((state, delta) => {
+  useFrame((state, rawDelta) => {
+    const delta = frameStep(rawDelta);
     if (!ref.current) return;
     ref.current.scale.setScalar(THREE.MathUtils.damp(ref.current.scale.x, 1, 9, delta));
     driveFoil(state.clock.elapsedTime, delta, 0.7);
   });
   return (
     <group ref={ref} scale={0.5} position={[0, lift, 0.9]} onClick={(e) => { e.stopPropagation(); onClose(); }}>
-      <CardSlab width={POCKET_W * 2.1} height={POCKET_H * 2.1} depth={0.02} radius={0.03} smoothness={3} castShadow>
+      <CardSlab width={POCKET_W * 2.1} height={POCKET_H * 2.1} depth={0.02} radius={0.03} smoothness={3}>
         <roomMaterial ref={materialRef} map={texture} roughness={0.28} metalness={0.06} />
       </CardSlab>
     </group>
@@ -150,7 +156,8 @@ export default function BinderBook({ active, binder, page, onPage, selectedCardI
     groupRef.current.translateX(framing.current.shiftX);
     groupRef.current.translateY(framing.current.shiftY);
   });
-  useFrame((_, delta) => {
+  useFrame((_, rawDelta) => {
+    const delta = frameStep(rawDelta);
     if (contentRef.current) contentRef.current.position.x = THREE.MathUtils.damp(contentRef.current.position.x, 0, 11, delta);
   });
   useEffect(() => { // slide new pages in from the side they were turned toward
@@ -196,7 +203,7 @@ export default function BinderBook({ active, binder, page, onPage, selectedCardI
   if (!active || !binder) return null;
   return (
     <group ref={groupRef}>
-      <RoundedBox args={[bookW + 0.14, ph + 0.14, 0.07]} radius={0.04} smoothness={3} position={[0, 0, -0.05]} castShadow receiveShadow>
+      <RoundedBox args={[bookW + 0.14, ph + 0.14, 0.07]} radius={0.04} smoothness={3} position={[0, 0, -0.05]} receiveShadow>
         <roomMaterial color={binder.accent ?? '#8a5a34'} roughness={0.55} metalness={0.05} />
       </RoundedBox>
       <group ref={contentRef}>
