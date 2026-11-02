@@ -269,9 +269,10 @@ export function BinderViewPage() {
     )
   }
 
+  // The binder's cover photo, when it has one (set in the 3D room's binder panel), fills the front cover.
   const frontCover = (
-    <div className="cover">
-      <div className="cover-ball" />
+    <div className="cover" style={binder?.coverImage ? { backgroundImage: `url("${binder.coverImage}")`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}>
+      {!binder?.coverImage && <div className="cover-ball" />}
       <div className="cover-title">{name || 'My Binder'}</div>
     </div>
   )

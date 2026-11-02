@@ -26,7 +26,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getCaseAllocations, getDrawerPlacements, getSpaceInventory, listSpaces, placeCopies } from '../../api/rooms'
 import { listBoxes } from '../../api/storage'
-import { getBinder, listBinders, setSlot } from '../../api/binders'
+import { getBinder, listBinders, setSlot, updateBinder } from '../../api/binders'
 import { getOwnedCards } from '../../api/collection'
 import { getCards, getSets, searchCards } from '../../api/cards'
 import { basePrice, condPrice, defaultVariant, lotKey, variantLabel } from '../../lib/conditions'
@@ -253,6 +253,15 @@ export function useLiveRoom(userId: string | undefined) {
     await query.refetch()
   }, [userId, query])
 
+  /**
+   * PURPOSE: Saves a binder's cover photo (a JPEG data URL), or removes it (null), with the binder page's own call.
+   */
+  const setBinderCover = useCallback(async (binderId: string, coverImage: string | null) => {
+    if (!userId) throw new Error('Sign in to change your binders.')
+    await updateBinder(userId, binderId, { coverImage: coverImage ?? '' })
+    queryClient.setQueryData<RoomRaw>(queryKey, old => old && { ...old, binders: old.binders.map(b => b.id !== binderId ? b : { ...b, coverImage: coverImage ?? undefined }) })
+  }, [userId, queryClient, queryKey])
+
   const status = query.isError && !raw ? 'error' : raw ? 'ready' : 'loading'
   return {
     status,
@@ -269,5 +278,6 @@ export function useLiveRoom(userId: string | undefined) {
     warnings: raw?.warnings ?? [],
     placeInPocket,
     placeInDisplay,
+    setBinderCover,
   }
 }

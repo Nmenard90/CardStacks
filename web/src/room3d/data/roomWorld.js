@@ -67,6 +67,7 @@ function panelBinder(state, binderId, setNames) {
   return {
     id: view.id, meshId: null, userId: state.userId, name: view.name, pocketSize: view.pocketSize, shelfIndex: view.shelfIndex, shelfPosition: view.shelfPosition,
     cards, slots: cards, cardCount: view.cardCount, capacity: null, accent: view.color, unitId: view.unitId, placed: view.unitId != null, updatedAt: view.updatedAt,
+    coverImage: state.binders.find((b) => b.id === binderId)?.coverImage || null,
   };
 }
 

@@ -43,6 +43,17 @@ object BinderRoutes:
   )
   private given JsonDecoder[SlotRequest] = DeriveJsonDecoder.gen
 
+  /** Longest cover photo kept as text: a 640 px JPEG is about 60 KB, so this leaves plenty of room. */
+  private val maxCoverPhoto = 400_000
+
+  /** A binder cover is empty (none), a web picture, or a small JPEG photo; Left = message for the user. */
+  private[poketracker] def validateCover(cover: String): Either[String, Unit] =
+    val c = cover.trim
+    if c.isEmpty then Right(())
+    else if c.startsWith("https://") && c.length <= 2000 then Right(())
+    else if c.startsWith("data:image/jpeg;base64,") && c.length <= maxCoverPhoto then Right(())
+    else Left("A cover must be a JPEG photo (up to about 300 KB) or an https:// picture link.")
+
   val routes: Routes[BinderService, Nothing] = Routes(
 
     Method.GET / "api" / "binders" / string("userId") -> handler { (userId: String, req: Request) =>
@@ -84,8 +95,9 @@ object BinderRoutes:
           _      <- ZIO.foreach(parsed.name)(n =>
                       ZIO.serviceWithZIO[BinderService](_.renameBinder(userId, binderId, n))
                     )
-          _      <- ZIO.foreach(parsed.coverImage)(url =>
-                      ZIO.serviceWithZIO[BinderService](_.setCover(userId, binderId, url))
+          _      <- ZIO.foreach(parsed.coverImage)(cover =>
+                      ZIO.fromEither(validateCover(cover)).mapError(RuntimeException(_)) *>
+                      ZIO.serviceWithZIO[BinderService](_.setCover(userId, binderId, cover.trim))
                     )
           _      <- ZIO.foreach(parsed.pocketSize)(s =>
                       ZIO.attempt(PocketSize.valueOf(s))

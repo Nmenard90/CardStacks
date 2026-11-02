@@ -128,6 +128,10 @@ async function setup({ width, height, touch = false, guideSeen = true, reducedMo
       state.slots[binderId] = [...(state.slots[binderId] ?? []).filter(s => s.slotIndex !== Number(slot)), { slotIndex: Number(slot), ...body }]
       return json({ ok: true })
     }
+    if (m === 'PUT' && /^\/api\/binders\/qa-owner\/[^/]+$/.test(p)) { // the binder page's own call: rename, cover, pocket size
+      state.binderPuts = [...(state.binderPuts ?? []), { binderId: p.split('/').at(-1), ...req.postDataJSON() }]
+      return json({ ok: true })
+    }
     if (m === 'POST' && p === `/api/spaces/${U}/allocations`) { // the Spaces page's own call: a copy into a display slot
       const body = req.postDataJSON()
       state.placed.push(body)
@@ -480,6 +484,23 @@ for (const size of SIZES.filter(s => !only || s.label === only)) {
     await page.waitForFunction(() => /\b3 cards\b/.test(document.querySelector('.room3d .view-bar--picker')?.innerText ?? ''))
     await tapButton('Cancel')
     await page.locator('.room3d .view-bar--picker').waitFor({ state: 'detached' })
+  })
+
+  await check('binder cover: add a cover photo to a binder that already exists', async () => {
+    const cover = page.locator('.room3d .binder-cover')
+    await cover.waitFor()
+    assert.match(await cover.innerText(), /No cover photo/)
+    // A tiny picture, as if just taken with the phone.
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
+    await cover.locator('input[type=file]').setInputFiles({ name: 'cover.png', mimeType: 'image/png', buffer: png })
+    await cover.locator('img').waitFor()
+    const put = state.binderPuts.at(-1)
+    assert.equal(put.binderId, 'binder-0'); assert.match(put.coverImage, /^data:image\/jpeg;base64,/)
+    assert.match(await cover.innerText(), /Change cover photo/)
+    await shot(page, `${size.label}-binder-cover`)
+    await press(cover.getByRole('button', { name: 'Remove' }))
+    await cover.getByText('No cover photo').waitFor()
+    assert.equal(state.binderPuts.at(-1).coverImage, '')
   })
 
   await check('"Open binder page" goes to the real binder page, and back returns', async () => {

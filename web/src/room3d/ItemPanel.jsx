@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { coverFromFile } from '../lib/coverPhoto.ts';
 import { isHoloRarity } from './room/holoFoil.js';
 import { BOX_PRESETS } from './data/contracts.js';
 
@@ -54,11 +55,41 @@ function CardFacts({ card, compact = false }) {
   );
 }
 
-function BinderPanel({ binder, selectedCard }) {
+/** The binder's cover photo: shown, and added, changed or removed any time (not only when the binder is made). */
+function BinderCover({ binder, onCover }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const save = async (value) => {
+    setBusy(true); setError('');
+    try { await onCover(value); } catch { setError('Could not save the cover. Please try again.'); } finally { setBusy(false); }
+  };
+  const choose = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try { await save(await coverFromFile(file)); } catch { setError('That picture could not be read. Try another one.'); }
+  };
+  return (
+    <div className="binder-cover">
+      <div className="binder-cover__frame">{binder.coverImage ? <img src={binder.coverImage} alt={`Cover of ${binder.name}`} /> : <span>No cover photo</span>}</div>
+      <div className="binder-cover__btns">
+        <label className={`binder-cover__btn${busy ? ' binder-cover__btn--busy' : ''}`}>
+          📷 {busy ? 'Saving…' : binder.coverImage ? 'Change cover photo' : 'Add a cover photo'}
+          <input type="file" accept="image/*" disabled={busy} onChange={choose} />
+        </label>
+        {binder.coverImage && <button type="button" className="binder-cover__remove" disabled={busy} onClick={() => save(null)}>Remove</button>}
+      </div>
+      {error && <p className="binder-cover__error" role="alert">{error}</p>}
+    </div>
+  );
+}
+
+function BinderPanel({ binder, selectedCard, onCover }) {
   // Real binders carry no capacity (CardStacks has no page count on the Binder record), so the meter only shows when one is known.
   const completion = binder.capacity ? Math.round((binder.cardCount / binder.capacity) * 100) : null;
   return (
     <>
+      {onCover && <BinderCover binder={binder} onCover={onCover} />}
       <div className="item-panel__stats">
         <div><strong>{binder.cardCount}</strong><span>cards</span></div>
         <div><strong>{binder.pocketSize}</strong><span>pocket</span></div>
@@ -150,8 +181,9 @@ export function ZonePicker({ zone, items, onSelect }) {
  * PURPOSE: The side panel for an open binder, box or displayed card.
  * @param siteLink  { to, label } — the page on the rest of the site where this item is managed
  * @param onLink    navigates there (react-router), so the visit stays inside the app
+ * @param onCover   binder only: saves a cover photo (a JPEG data URL), or removes it (null)
  */
-export default function ItemPanel({ type, item, selectedCard, onClose, drawerId, onDrawer, cardId, onCard, siteLink, onLink }) {
+export default function ItemPanel({ type, item, selectedCard, onClose, drawerId, onDrawer, cardId, onCard, siteLink, onLink, onCover }) {
   const eyebrow = type === 'binder' ? (item.shelfIndex != null ? `Binder · shelf ${item.shelfIndex + 1}` : 'Binder · unplaced') : type === 'storage' ? boxKind(item.boxType) : 'Display slot';
   return (
     <aside className={`item-panel item-panel--${type}`} data-panel-type={type} aria-live="polite">
@@ -163,7 +195,7 @@ export default function ItemPanel({ type, item, selectedCard, onClose, drawerId,
         {type === 'storage' && `${item.shelfIndex != null ? `Shelf ${item.shelfIndex + 1}` : 'Not on a shelf yet'}${item.capacity ? ` · ${item.capacity}-card capacity` : ''}`}
         {type === 'display' && [item.setName, item.number && `#${item.number}`].filter(Boolean).join(' · ')}
       </p>
-      {type === 'binder' && <BinderPanel binder={item} selectedCard={selectedCard} />}
+      {type === 'binder' && <BinderPanel binder={item} selectedCard={selectedCard} onCover={onCover} />}
       {type === 'storage' && <StoragePanel box={item} drawerId={drawerId} onDrawer={onDrawer} cardId={cardId} onCard={onCard} />}
       {type === 'display' && <CardFacts card={item} />}
       {siteLink && <a className="item-panel__site-link" href={siteLink.to} onClick={(event) => { event.preventDefault(); onLink(siteLink.to); }}>{siteLink.label} →</a>}
