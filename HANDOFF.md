@@ -183,7 +183,7 @@ client "Web client 1" (Web application, redirect URI
 to `/privacy` and `/terms`, published "In production". Supabase has that
 client ID and its secret, Site URL `https://cardstacks.up.railway.app`.
 Verified with a real sign-in: the owner's existing account now lists
-providers "Email, Google". `LegalPage.tsx` still has a placeholder contact email.
+providers "Email, Google". The privacy/terms contact is now the owner's email.
 
 **LIVE in production.** `main` was fast-forwarded from `650949c` to `a65a2d3`
 on 2026-10-29 (owner-approved) and both Railway services deployed

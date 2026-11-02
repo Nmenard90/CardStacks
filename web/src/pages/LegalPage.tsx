@@ -14,7 +14,7 @@
 
 import { Link } from 'react-router-dom'
 
-const CONTACT_EMAIL = 'REPLACE_WITH_SUPPORT_EMAIL@example.com'
+const CONTACT_EMAIL = 'nicholas.menard90@gmail.com'
 const LAST_UPDATED = 'August 24, 2026'
 
 function Shell({ title, children }: { title: string; children: React.ReactNode }) {
