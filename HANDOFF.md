@@ -187,6 +187,22 @@ last; a re-graded card falls back to the condition the buyer picked.
 `CollectionRepository.takeCopiesIO/returnCopiesIO` run inside the shop's
 transaction (`ShopRepository.sell/putBack`). Tests: `ShopSaleDbSuite`
 (SHOP_SALE_IT_DB_URL), `ShopSuite`, `web/tests/shop-browser.mjs`.
+Same branch, also unpushed:
+- **Display cabinet in the room**: empty slots show "+ Add a card" (and the
+  list's empty slot); the picker lists owned cards and places one copy via
+  `POST /api/spaces/:u/allocations`. `RoomRepository.allocate` now takes the
+  copy out of its auto-filed set box when nothing is free — before, every
+  copy was auto-filed, so placing anything failed ("Only 0 … available").
+- **Photos from Explore**: owned cards get "📷 Photos" (same screen and
+  CardCamera guide as the shop, no shop needed); new owner-only
+  `GET /api/collection/:u/shop-photos[/:cardId/:side?cond=]`. Photo/camera
+  modals now sit above the sticky header and phone tab bar.
+- **Binder cover photo any time**: the room's binder panel adds/changes/
+  removes it; stored as a ~60 KB JPEG data URL in `binders.cover_image`
+  (no migration; `BinderRoutes.validateCover`); shown on BinderViewPage's cover.
+- Not done yet: room lag / jumpy camera / fuzzy textures (owner, 2026-11-02),
+  and "3D room binder goes to the old binder" needs the owner to say which
+  click does that.
 
 **Google sign-in (2026-11-01):** it had stopped working because the Google
 provider was off in Supabase (`gdyviorqobfujfjamxul`) and held a bogus client
