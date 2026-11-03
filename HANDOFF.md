@@ -3,7 +3,7 @@
 Working context for continuing development. For the public-facing overview see
 `README.md`; for the live defect list see `BUGS.md`.
 
-_Last updated: 2026-10-29._
+_Last updated: 2026-11-03._
 
 **Every session: read this file and `BUGS.md` before starting, and update
 "Current state" (and `BUGS.md`) before finishing.**
@@ -173,10 +173,10 @@ tcg/
   shrink below content); page headers wrap or scroll rather than clip. Check
   with a 390px-wide view for any element past the right edge.
 
-## Current state (2026-10-29)
+## Current state (2026-11-03)
 
-**Shop sales take cards out of the collection (2026-11-02, branch
-`feature/shop-sale-inventory`, NOT pushed — owner to approve the UI):** in My
+**Shop sales take cards out of the collection (2026-11-02, LIVE on `main`
+since `4619de3`; built on `feature/shop-sale-inventory`):** in My
 Shop → Requests, "Complete sale" takes only the copies marked found (a card
 asked ×3 can be found 1–3 with −/+) out of the seller's collection, records
 `sold` per card in the request's items JSON (no migration) so it never takes
@@ -187,7 +187,7 @@ last; a re-graded card falls back to the condition the buyer picked.
 `CollectionRepository.takeCopiesIO/returnCopiesIO` run inside the shop's
 transaction (`ShopRepository.sell/putBack`). Tests: `ShopSaleDbSuite`
 (SHOP_SALE_IT_DB_URL), `ShopSuite`, `web/tests/shop-browser.mjs`.
-Same branch, also unpushed:
+Also LIVE on `main` (through `02ff32d`, 2026-11-02):
 - **Display cabinet in the room**: empty slots show "+ Add a card" (and the
   list's empty slot); the picker lists owned cards and places one copy via
   `POST /api/spaces/:u/allocations`. `RoomRepository.allocate` now takes the
