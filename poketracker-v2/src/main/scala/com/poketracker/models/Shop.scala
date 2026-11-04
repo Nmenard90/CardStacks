@@ -38,8 +38,8 @@ final case class ShopView(
 object ShopView:
   given JsonEncoder[ShopView] = DeriveJsonEncoder.gen[ShopView]
 
-/** One card a buyer picked on the public shop page. The seller's pull list adds the rest (stored in the request's
- *  items JSON, so no migration): `pulled` once they've found the card, `foundQty` when they found only some of `qty`,
+/** One card a buyer picked on the public shop page; `photos` when the buyer asked to see photos of the copy. The
+ *  seller's pull list adds the rest (stored in the request's items JSON, so no migration): `pulled` once they've found the card, `foundQty` when they found only some of `qty`,
  *  `askedCondition`, what the buyer picked, once the seller changed `condition` to the copy's real one, and `sold`,
  *  how many copies the sale took out of their collection. All absent on a new request. */
 final case class ShopRequestItem(
@@ -51,7 +51,8 @@ final case class ShopRequestItem(
   pulled:         Option[Boolean] = None,
   askedCondition: Option[String]  = None,
   foundQty:       Option[Int]     = None,
-  sold:           Option[Int]     = None
+  sold:           Option[Int]     = None,
+  photos:         Option[Boolean] = None
 ):
   /** Copies found: none until marked found, then all of `qty` unless the seller said fewer. */
   def found: Int = if pulled.contains(true) then foundQty.getOrElse(qty).max(0).min(qty) else 0
@@ -89,6 +90,26 @@ object ShopRequestItemChange:
 
 object ShopRequestInput:
   given JsonDecoder[ShopRequestInput] = DeriveJsonDecoder.gen[ShopRequestInput]
+
+/** One card of a request as its buyer sees it: the condition the seller confirmed with the copy in hand (and what the
+ *  buyer picked, when that differs), whether they asked for photos. Nothing else from the seller's pull list. */
+final case class BuyerRequestItem(cardId: String, name: String, number: String, condition: String, qty: Int, photos: Boolean,
+                                  askedCondition: Option[String] = None)
+
+object BuyerRequestItem:
+  given JsonEncoder[BuyerRequestItem] = DeriveJsonEncoder.gen[BuyerRequestItem]
+
+/** A request as its buyer sees it (from the link they got when sending it): the cards, whether the seller has
+ *  answered, and the seller's photos of those cards. No contact details, message or pull-list notes. */
+final case class BuyerRequestView(
+  status:    String,
+  createdAt: Instant,
+  items:     List[BuyerRequestItem],
+  photos:    List[ShopPhotoRef]
+)
+
+object BuyerRequestView:
+  given JsonEncoder[BuyerRequestView] = DeriveJsonEncoder.gen[BuyerRequestView]
 
 /** A stored request, as the seller sees it in their inbox. */
 final case class ShopRequest(

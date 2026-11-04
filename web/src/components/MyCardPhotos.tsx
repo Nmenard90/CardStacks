@@ -7,7 +7,7 @@
  *   requests carry your sign-in, so the pictures are fetched and shown from memory). Adding or removing one
  *   re-reads them, and your shop page if it is open.
  *
- * USED BY: pages/CollectionPage.tsx (the 📷 Photos button on an owned card)
+ * USED BY: pages/CollectionPage.tsx (the 📷 Photos button on an owned card), components/RequestedCards.tsx (My Shop)
  * DEPENDS ON: ShopPhotoManager (which opens CardCamera), api/shop
  */
 import { useEffect, useMemo } from 'react'
@@ -26,7 +26,7 @@ export function MyCardPhotos({ userId, card, cond, onClose }: { userId: string; 
   return (
     <ShopPhotoManager userId={userId} card={card} cond={cond}
       photoUrl={side => (side === 'front' ? front : back)}
-      onChanged={() => Promise.all([qc.invalidateQueries({ queryKey: ['my-photos', userId] }), qc.invalidateQueries({ queryKey: ['shop'] })])}
+      onChanged={() => Promise.all([qc.invalidateQueries({ queryKey: ['my-photos', userId] }), qc.invalidateQueries({ queryKey: ['shop'] }), qc.invalidateQueries({ queryKey: ['buyer-request'] })])}
       onClose={onClose} />
   )
 }

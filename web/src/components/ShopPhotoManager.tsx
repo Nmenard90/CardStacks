@@ -9,7 +9,7 @@
  *   the seller's own photos (the same ones their shop shows) and calls
  *   onChanged, so the page re-reads them and the new picture shows straight away.
  *
- * USED BY: ShopPage (the seller on their own shop), MyCardPhotos (a card in Explore)
+ * USED BY: MyCardPhotos (a card in Explore, or in a request in My Shop)
  * DEPENDS ON: CardCamera, api/shop, lib/conditions
  */
 
@@ -60,7 +60,7 @@ export function ShopPhotoManager({ userId, card, cond, photoUrl, onChanged, onCl
       <div className="shop-modal" role="dialog" aria-modal="true" aria-label={`Photos of ${card.name}`}>
         <div className="shop-sheet">
           <h2>Photos: {card.name} <small>({condLabel(cond)})</small></h2>
-          <p className="shop-sub">Take a photo of the card you actually have, front and back. Line it up with the guide on screen; buyers see them in a frame on this card in your shop and can zoom in to check the edges and corners.</p>
+          <p className="shop-sub">Take a photo of the card you actually have, front and back. Line it up with the guide on screen; buyers see them on this card in your shop and on their request, and can zoom in to check the edges and corners.</p>
           <div className="photo-slots">
             {SIDES.map(side => {
               const url = photoUrl(side)

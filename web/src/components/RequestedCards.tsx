@@ -3,6 +3,8 @@
  * each box is opened once, how many cards there are and how many are found, and the total at today's prices. Each card
  * shows its picture, price and where it's kept (box › compartment, binder page and pocket, or display case), a Found
  * button, and its condition, which the seller confirms or changes with the copy in hand (the price follows).
+ * Photos are taken here, on the seller's side: each card has a 📷 button for front and back photos of the copy in
+ * that condition, and says when the buyer asked for them. The buyer sees them on their request page.
  *
  * HOW IT WORKS
  *   A request records card id, name, number, condition and quantity, plus what the pull list adds (pulled, and the
@@ -19,12 +21,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getSets } from '../api/cards'
 import { getOwnedCards } from '../api/collection'
 import { getCardLocations, type CardLocation } from '../api/rooms'
-import { foundCount, putBackShopRequest, updateShopRequestItem, type ShopRequest, type ShopRequestItem } from '../api/shop'
+import { foundCount, getMyPhotos, putBackShopRequest, updateShopRequestItem, type ShopRequest, type ShopRequestItem } from '../api/shop'
 import { afterInventoryChange } from '../lib/shopSale'
 import { CONDS, COND_COLORS, condPrice } from '../lib/conditions'
-import type { OwnedCard } from '../types'
+import type { Card, OwnedCard } from '../types'
 import type { usePreview } from './CardPreview'
 import { CardThumb } from './CardThumb'
+import { MyCardPhotos } from './MyCardPhotos'
 
 /** Pockets per binder page, by pocket size (same grids as the binder page and the 3D room). */
 const POCKETS_PER_PAGE: Record<string, number> = { Four: 4, Nine: 9, Twelve: 12 }
@@ -65,6 +68,10 @@ export function RequestedCards({ requestId, items, userId, preview }: { requestI
     enabled: !!userId && ids.length > 0,
   })
   const byId = new Map<string, OwnedCard>(owned.map(o => [o.cardId, o]))
+  // Which photos the seller has (shared with Explore's photo screen), and the card being photographed.
+  const { data: photos = [] } = useQuery({ queryKey: ['my-photos', userId], queryFn: () => getMyPhotos(userId), enabled: !!userId })
+  const [photographing, setPhotographing] = useState<{ card: Card; cond: string } | null>(null)
+  const photoCount = (cardId: string, cond: string) => photos.filter(p => p.cardId === cardId && p.condition === cond).length
   const setInfo = new Map(sets.map(s => [s.id, s]))
 
   /** Shows the change at once (same rule as the server's), then saves it; a failed save reloads the inbox as stored. */
@@ -120,6 +127,7 @@ export function RequestedCards({ requestId, items, userId, preview }: { requestI
     here.sort((a, b) => Number(b.condition?.split(' ')[0] === cond) - Number(a.condition?.split(' ')[0] === cond))
     const got = foundCount(item)
     const soldHere = item.sold ?? 0
+    const pics = photoCount(item.cardId, item.condition)
     return (
       <li key={index} className={'req-card' + (soldHere > 0 ? ' req-card--sold' : item.pulled ? ' req-card--found' : '')}>
         {card ? <CardThumb card={card} showPrice={false} preview={preview} className="req-card__thumb" /> : <div className="thumb-placeholder req-card__thumb">🃏</div>}
@@ -146,6 +154,18 @@ export function RequestedCards({ requestId, items, userId, preview }: { requestI
             ))}
             {item.askedCondition && <span className="req-card__asked">Buyer picked {item.askedCondition}</span>}
           </div>
+          {card && (
+            <div className="req-card__photos">
+              <button type="button" className="req-photo-btn" onClick={() => setPhotographing({ card, cond: item.condition })}>
+                📷 {pics === 0 ? 'Add photos' : pics === 1 ? 'Photos · 1 of 2' : 'Photos · front and back'}
+              </button>
+              {item.photos && (
+                <span className={'req-card__photo-ask' + (pics >= 2 ? ' req-card__photo-ask--done' : '')}>
+                  {pics >= 2 ? '✓ Buyer can see the photos you took' : 'Buyer asked for photos'}
+                </span>
+              )}
+            </div>
+          )}
           {item.qty > 1 && soldHere === 0 && (
             <div className="req-card__count" role="group" aria-label={`How many ${item.name} you found`}>
               <button type="button" className="req-step" aria-label="One fewer found" disabled={got === 0} onClick={() => change(index, { foundQty: got - 1 })}>−</button>
@@ -176,6 +196,7 @@ export function RequestedCards({ requestId, items, userId, preview }: { requestI
         {sold > 0 && <span> · <b>{sold}</b> sold and taken out of your collection</span>}
       </p>
       {error && <p className="req-cards__error" role="alert">{error}</p>}
+      {photographing && <MyCardPhotos userId={userId} card={photographing.card} cond={photographing.cond} onClose={() => setPhotographing(null)} />}
       {ordered.map(([setId, rows]) => (
         <section key={setId || 'none'} className="req-set">
           <h4 className="req-set__name">

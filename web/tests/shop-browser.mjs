@@ -47,9 +47,9 @@ async function setup({ width = 1440, height = 900, authenticated = false, mode =
     localStorage.setItem('sb-qa-auth-token', JSON.stringify({ access_token: token, refresh_token: 'qa-refresh', expires_at: expires, expires_in: 3600, token_type: 'bearer', user }))
   }, { user })
   const state = {
-    mode, sent: [], statusPuts: [], itemPosts: [], salePosts: [], offers: structuredClone(offers), release: null,
+    mode, sent: [], statusPuts: [], itemPosts: [], salePosts: [], offers: structuredClone(offers), release: null, buyerPhotos: [],
     settings: { slug: 'nmenard90', enabled: true, messengerUrl: '', displayName: fixture.shop.displayName, bio: fixture.shop.bio },
-    inbox: [{ id: 'r1', sellerUserId: user.id, buyerName: 'Ash', buyerContact: 'ash@example.test', kind: 'buy', status: 'new', createdAt: '2026-10-28T12:00:00Z', items: [{ cardId: 'me1-65', name: 'Greavard', number: '65', condition: 'NM', qty: 1 }, { cardId: 'owned-2', name: 'Owned High', number: '3', condition: 'NM', qty: 1 }, { cardId: 'owned-1', name: 'Owned Mid', number: '2', condition: 'NM', qty: 2 }, { cardId: 'owned-0', name: 'Owned Low', number: '1', condition: 'NM', qty: 1 }],
+    inbox: [{ id: 'r1', sellerUserId: user.id, buyerName: 'Ash', buyerContact: 'ash@example.test', kind: 'buy', status: 'new', createdAt: '2026-10-28T12:00:00Z', items: [{ cardId: 'me1-65', name: 'Greavard', number: '65', condition: 'NM', qty: 1 }, { cardId: 'owned-2', name: 'Owned High', number: '3', condition: 'NM', qty: 1, photos: true }, { cardId: 'owned-1', name: 'Owned Mid', number: '2', condition: 'NM', qty: 2 }, { cardId: 'owned-0', name: 'Owned Low', number: '1', condition: 'NM', qty: 1 }],
       message: 'TRADE OFFER (cards about $3.00 for cards about $0.05, at today\'s prices):\n- 1× Trade Bait #9 (NM)' }],
   }
   await context.route('https://qa.supabase.co/**', route => route.fulfill({ json: user }))
@@ -72,6 +72,14 @@ async function setup({ width = 1440, height = 900, authenticated = false, mode =
       state.sent.push(req.postDataJSON())
       return route.fulfill({ json: { ok: true, id: 'qa-request' } })
     }
+    // The buyer's own request (by the id the POST returned), as the server builds it (ShopRoutes.buyerView).
+    if (p === '/api/shop/nmenard90/requests/qa-request') {
+      const sent = state.sent.at(-1)
+      if (!sent) return route.fulfill({ status: 404, body: 'This shop is not open.' })
+      const items = sent.items.map(i => ({ cardId: i.cardId, name: i.name, number: i.number, condition: i.condition, qty: i.qty, photos: !!i.photos }))
+      return route.fulfill({ json: { status: 'new', createdAt: '2026-11-04T12:00:00Z', items, photos: state.buyerPhotos } })
+    }
+    if (p.startsWith('/api/shop/nmenard90/photo/')) return route.fulfill({ contentType: 'image/jpeg', body: tinyJpeg })
     if (p.endsWith('/shop-settings')) {
       if (req.method() === 'PUT') state.settings = req.postDataJSON()
       return route.fulfill({ json: state.settings })
@@ -167,7 +175,7 @@ try {
     assert.match(policy, /Trades welcome/)
     assert.match(policy, /No percentage offers/)
     assert.doesNotMatch(await page.locator('body').innerText(), /sales only|no trades/i)
-    assert.equal(await page.getByRole('link', { name: /Edit shop/ }).count(), 0, 'visitors must not see the owner link')
+    assert.equal(await page.locator('.share-owner-note').count(), 0, 'visitors must not see the owner note')
     await page.screenshot({ path: path.join(report, `shop-${width}.png`) })
 
     // Set filter lives in the URL: choosing a set filters, Back returns to all sets.
@@ -186,6 +194,7 @@ try {
     await page.locator('.card-grid .pcard').filter({ hasText: first.name }).first().getByRole('button', { name: /^Add one/ }).click()
     await page.getByRole('button', { name: 'Send request' }).click()
     const dialog = page.getByRole('dialog')
+    await dialog.getByRole('checkbox', { name: /Send me photos/ }).check()
     await dialog.getByLabel('Your name').fill('QA Buyer')
     // "Facebook" alone can't be followed (what real buyers typed): a profile or Messenger link is required.
     await dialog.getByLabel(/Your Facebook profile link/).fill('Facebook')
@@ -199,6 +208,25 @@ try {
     assert.equal(state.sent.length, 1)
     assert.equal(state.sent[0].buyerContact, 'https://www.facebook.com/qa.buyer')
     assert.equal(state.sent[0].items[0].cardId, first.id)
+    assert.equal(state.sent[0].items[0].photos, true, 'the buyer asked for photos of that card')
+    // Their request page: the card, and that the photos are on their way; the seller's photos appear there.
+    await dialog.getByText(/photos you asked for will show up on your request page/).waitFor()
+    await page.screenshot({ path: path.join(report, `shop-sent-${width}.png`) })
+    await dialog.getByRole('link', { name: 'View your request' }).click()
+    await page.waitForURL('**/shop/nmenard90/request/qa-request')
+    await page.getByText(/You asked for photos/).waitFor()
+    assert.match((await page.locator('.buyer-req__card').first().innerText()).replace(/\s+/g, ' '), new RegExp(`1× ${first.name}`))
+    await noOverflow(page)
+    await page.screenshot({ path: path.join(report, `buyer-request-waiting-${width}.png`) })
+    const cond = state.sent[0].items[0].condition
+    state.buyerPhotos = [{ cardId: first.id, condition: cond, side: 'front', version: 1 }, { cardId: first.id, condition: cond, side: 'back', version: 1 }]
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.locator('.buyer-req__card .photo-frame').nth(1).waitFor()
+    assert.equal(await page.getByText(/You asked for photos/).count(), 0)
+    await page.screenshot({ path: path.join(report, `buyer-request-photos-${width}.png`) })
+    // Back on the shop, this browser remembers the request.
+    await page.getByRole('link', { name: /Back to the shop/ }).click()
+    await page.getByRole('link', { name: /Your request/ }).waitFor()
     assert.equal(errors.length, 0, errors.join('\n'))
     await context.close()
   })
@@ -253,10 +281,11 @@ try {
     await context.close()
   })
 
-  await run('owner: shop page links to My Shop; Settings saves name and bio', async () => {
+  await run('owner: shop page is what buyers see (no photo buttons), links to My Shop; Settings saves name and bio', async () => {
     const { context, page, state, errors } = await setup({ authenticated: true })
     await openShop(page)
-    await page.getByRole('link', { name: /Edit shop/ }).click()
+    assert.equal(await page.getByRole('button', { name: /photos/i }).count(), 0, 'photos are taken on the seller side, not on the shop')
+    await page.locator('.share-owner-note').getByRole('link', { name: 'My Shop' }).click()
     await page.waitForURL('**/shop/requests')
     await page.getByRole('button', { name: 'Settings' }).click()
     await page.waitForURL('**/shop/requests?tab=settings')
@@ -319,8 +348,17 @@ try {
     // Shop nav link carries the new-request count (desktop row or phone tab bar).
     const nav = width === 390 ? page.locator('.bottom-nav a[href="/shop/requests"]') : page.locator('.app-nav a[href="/shop/requests"]')
     assert.equal(await nav.locator('.nav-badge').innerText(), '1')
+    const high = page.locator('.req-card', { hasText: 'Owned High' })
+    await high.getByText('Buyer asked for photos').waitFor()
+    assert.equal(await mid.getByText('Buyer asked for photos').count(), 0)
     await noOverflow(page)
     await page.screenshot({ path: path.join(report, `my-shop-${width}.png`) })
+    await high.getByRole('button', { name: '📷 Photos · 1 of 2' }).click()
+    const photoDialog = page.getByRole('dialog', { name: 'Photos of Owned High' })
+    await photoDialog.locator('img[alt="front of your Owned High"]').waitFor()
+    await page.screenshot({ path: path.join(report, `my-shop-photos-${width}.png`) })
+    await photoDialog.getByRole('button', { name: 'Done' }).click()
+    assert.equal(await mid.getByRole('button', { name: '📷 Add photos' }).count(), 1)
     await page.getByRole('button', { name: 'Mark answered' }).click()
     await page.waitForFunction(() => document.querySelectorAll('.shop-req').length === 0)
     assert.equal(state.inbox[0].status, 'answered')
@@ -339,6 +377,7 @@ try {
     await mid.getByText('1 of 2 found').waitFor()
     await mid.getByRole('button', { name: 'Found', pressed: true }).waitFor()
     await low.getByRole('button', { name: 'Find' }).click()
+    await low.getByRole('button', { name: 'Found', pressed: true }).waitFor() // the click has drawn before the count is read
     assert.match(await page.locator('.req-cards__summary').innerText(), /^2 of 5 cards found/)
     await page.getByRole('button', { name: 'Complete sale · take out 2 cards' }).click()
     assert.equal((await page.locator('.sale__ask p').innerText()).replace(/\s+/g, ' '), 'Take the 2 cards you found out of your collection? The 3 cards not found stay.')

@@ -12,6 +12,9 @@
  *   Whose shop it is comes from the URL: /shop/:slug; the chosen set is ?set=<id>,
  *   so a link to one set can be shared and Back returns to the previous set.
  *   The seller's shop name and bio (Shop settings) head the page.
+ *   The page is the same for the seller as for buyers: photos are taken on the seller's side (My Shop, Explore).
+ *   A buyer can tick "Send me photos" on a card in their request; sending it gives them a link to their request
+ *   (ShopRequestStatusPage), where the seller's photos of those cards show up. This browser remembers the link.
  *   Prices are the card's LIVE market price every time the page loads —
  *   nothing is snapshotted — and the policy banner says so, along with
  *   "no percentage offers on buys or trades" (trades themselves are welcome).
@@ -22,7 +25,7 @@
 
 import { useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { useUser } from '../context/UserContext'
 import { getSets } from '../api/cards'
 import { getShop, getShopSettings, sendShopRequest, shopPhotoUrl, type PhotoSide } from '../api/shop'
@@ -30,12 +33,12 @@ import { condPrice } from '../lib/conditions'
 import { compareBy, DEFAULT_DIR, type SortDir, type SortKey } from '../lib/cardSort'
 import { usePagedList } from '../lib/usePagedList'
 import { ShopCardTile } from '../components/ShopCardTile'
-import { ShopPhotoManager } from '../components/ShopPhotoManager'
 import { TradeCardPicker, type TradeLine } from '../components/TradeCardPicker'
 import { SortControl } from '../components/SortControl'
 import { usePreview } from '../components/CardPreview'
 import type { Card, OwnedCard } from '../types'
 import { isFacebookLink } from '../lib/contact'
+import { myShopRequests, rememberShopRequest } from '../lib/myShopRequests'
 
 /** One picked card + condition. */
 interface CartLine { card: Card; cond: string; qty: number; max: number }
@@ -59,7 +62,6 @@ export function ShopPage() {
   // Is the viewer the shop's owner? Only a signed-in user's own settings can say so
   // (the public response deliberately carries no owner identity).
   const { user } = useUser()
-  const qc = useQueryClient()
   const { data: mine } = useQuery({
     queryKey: ['shop-settings', user?.id], queryFn: () => getShopSettings(user!.id), enabled: !!user && !user.isAnonymous,
   })
@@ -83,8 +85,8 @@ export function ShopPage() {
     () => new Map((shop?.photos ?? []).map(p => [`${p.cardId}|${p.condition}|${p.side}`, shopPhotoUrl(slug, p)])),
     [shop, slug])
   const photoAt = (cardId: string, cond: string, side: PhotoSide) => photoMap.get(`${cardId}|${cond}|${side}`)
-  // Which card + condition the seller is adding photos to (seller view only).
-  const [managing, setManaging] = useState<{ card: Card; cond: string } | null>(null)
+  // Requests this browser sent to this shop (newest first), so the buyer can get back to them.
+  const [sent, setSent] = useState(() => myShopRequests(slug))
 
   const rows = useMemo(() => {
     const needle = search.trim().toLowerCase()
@@ -136,9 +138,10 @@ export function ShopPage() {
           <input type="text" className="header-search" placeholder="Search name, artist, set…"
             value={search} onChange={e => setSearch(e.target.value)} />
           {messengerUrl && <a className="user-badge" href={messengerUrl} target="_blank" rel="noreferrer">💬 <b>Message me on Facebook</b></a>}
+          {sent.length > 0 && <Link className="user-badge" to={`/shop/${slug}/request/${sent[0].id}`}>🧾 <b>Your request{sent.length > 1 ? 's' : ''}</b></Link>}
         </header>
 
-        {isOwner && <p className="share-owner-note" style={{ padding: '8px 16px' }}>This is how buyers see your shop. <Link to="/shop/requests">Edit shop &amp; see requests</Link></p>}
+        {isOwner && <p className="share-owner-note" style={{ padding: '8px 16px' }}>This is how buyers see your shop. Requests, card photos and settings are in <Link to="/shop/requests">My Shop</Link>.</p>}
 
         <section className="shop-hero">
           <h1>{shop?.displayName || `${slug}'s Pokémon cards`}</h1>
@@ -194,7 +197,6 @@ export function ShopPage() {
                     inCart={cond => cart[lineKey(o.card.id, cond)]?.qty ?? 0}
                     onAdj={(cond, d) => adjust(o.card, cond, o.conditions.find(c => c.condition === cond)?.quantity ?? 0, d)}
                     photos={cond => ({ front: photoAt(o.card.id, cond, 'front'), back: photoAt(o.card.id, cond, 'back') })}
-                    onManagePhotos={isOwner && user ? cond => setManaging({ card: o.card, cond }) : undefined}
                   />
                 ))}
               </div>
@@ -211,12 +213,6 @@ export function ShopPage() {
       </div>
       {preview.overlay}
 
-      {managing && user && (
-        <ShopPhotoManager userId={user.id} card={managing.card} cond={managing.cond}
-          photoUrl={side => photoAt(managing.card.id, managing.cond, side)}
-          onChanged={() => qc.invalidateQueries({ queryKey: ['shop', slug] })} onClose={() => setManaging(null)} />
-      )}
-
       <div className="shop-bar">
         <span>{cartCount > 0 ? `${cartCount} card${cartCount === 1 ? '' : 's'} · about ${money(cartTotal)} at today's prices` : 'Pick cards with +, or just ask a question'}</span>
         <button type="button" className="shop-btn" onClick={() => setFormOpen(true)}>
@@ -225,15 +221,23 @@ export function ShopPage() {
       </div>
 
       {formOpen && <RequestForm slug={slug} lines={lines} total={cartTotal} onClose={() => setFormOpen(false)}
-        onSent={() => { setCart({}) }} />}
+        onSent={id => { setCart({}); rememberShopRequest(slug, id); setSent(myShopRequests(slug)) }} />}
     </div>
   )
 }
 
 /** The request / question form, shown over the page. */
 function RequestForm({ slug, lines, total, onClose, onSent }: {
-  slug: string; lines: CartLine[]; total: number; onClose: () => void; onSent: () => void
+  slug: string; lines: CartLine[]; total: number; onClose: () => void; onSent: (id: string) => void
 }) {
+  // Cards the buyer wants photos of (by card + condition); the seller adds them to the buyer's request page.
+  const [wantPhotos, setWantPhotos] = useState<Set<string>>(new Set())
+  const togglePhotos = (key: string) => setWantPhotos(prev => {
+    const next = new Set(prev)
+    if (next.has(key)) next.delete(key); else next.add(key)
+    return next
+  })
+  const [sentId, setSentId] = useState('')
   const [name, setName] = useState('')
   const [contact, setContact] = useState('')
   const [message, setMessage] = useState('')
@@ -272,13 +276,17 @@ function RequestForm({ slug, lines, total, onClose, onSent }: {
     if (!agreed) { setError('Please tick the box to confirm you read the rules.'); return }
     setState('sending')
     try {
-      await sendShopRequest(slug, {
+      const { id } = await sendShopRequest(slug, {
         buyerName: name, buyerContact: contact,
         message: trading ? tradeMessage() : message,
-        items: lines.map(l => ({ cardId: l.card.id, name: l.card.name, number: l.card.number, condition: l.cond, qty: l.qty })),
+        items: lines.map(l => ({
+          cardId: l.card.id, name: l.card.name, number: l.card.number, condition: l.cond, qty: l.qty,
+          ...(wantPhotos.has(lineKey(l.card.id, l.cond)) ? { photos: true } : {}),
+        })),
       })
+      setSentId(id ?? '')
       setState('sent')
-      onSent()
+      onSent(id ?? '')
     } catch (e) {
       // The backend's friendly validation text comes back as the body of a 400.
       const msg = (e as { response?: { data?: unknown } }).response?.data
@@ -294,16 +302,34 @@ function RequestForm({ slug, lines, total, onClose, onSent }: {
           <>
             <h2>Sent! ✅</h2>
             <p>Thanks {name.trim()}. I'll message you on Facebook to confirm availability and the price on that day.</p>
-            <button type="button" className="shop-btn" onClick={onClose}>Close</button>
+            {sentId && (
+              <p>
+                {wantPhotos.size > 0 ? 'The photos you asked for will show up on your request page.' : 'You can check on your request any time.'}{' '}
+                This browser remembers it; keep the link to open it anywhere else.
+              </p>
+            )}
+            <div className="shop-sheet-btns">
+              {sentId && <Link className="shop-btn" to={`/shop/${slug}/request/${sentId}`}>View your request</Link>}
+              <button type="button" className={'shop-btn' + (sentId ? ' shop-btn-ghost' : '')} onClick={onClose}>Close</button>
+            </div>
           </>
         ) : (
           <>
             <h2>{lines.length > 0 ? 'Send request' : 'Ask a question'}</h2>
             {lines.length > 0 && (
               <ul className="shop-summary">
-                {lines.map(l => (
-                  <li key={lineKey(l.card.id, l.cond)}>{l.qty}× {l.card.name} #{l.card.number} ({l.cond})</li>
-                ))}
+                {lines.map(l => {
+                  const key = lineKey(l.card.id, l.cond)
+                  return (
+                    <li key={key} className="shop-summary__line">
+                      <span>{l.qty}× {l.card.name} #{l.card.number} ({l.cond})</span>
+                      <label className="shop-photo-ask">
+                        <input type="checkbox" checked={wantPhotos.has(key)} onChange={() => togglePhotos(key)} />
+                        📷 Send me photos
+                      </label>
+                    </li>
+                  )
+                })}
                 <li><b>About {money(total)} at today's prices</b> — final price is the market price when I confirm.</li>
               </ul>
             )}

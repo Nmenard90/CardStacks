@@ -8,7 +8,7 @@ package com.poketracker
 
 import com.poketracker.security.AuthGuard
 import com.poketracker.api.ShopRoutes
-import com.poketracker.models.{ShopRequestInput, ShopRequestItem, ShopRequestItemChange, ShopSettings}
+import com.poketracker.models.{BuyerRequestItem, ShopPhotoRef, ShopRequest, ShopRequestInput, ShopRequestItem, ShopRequestItemChange, ShopSettings}
 import zio.json.*
 import zio.http.Method
 
@@ -123,4 +123,21 @@ class ShopSuite extends munit.FunSuite:
     for path <- List("/api/collection/u1/shop-requests/r1/sell", "/api/collection/u1/shop-requests/r1/put-back") do
       assert(!AuthGuard.isPublicPath(Method.POST, path))
       assertEquals(AuthGuard.requiredOwnerUserId(path), Some("u1"))
+  }
+
+  test("a buyer can ask for photos of a card; only a yes is stored") {
+    val asked = ShopRequestInput("Ash", "ash@example.test", "", List(card.copy(photos = Some(true)), card.copy(cardId = "base1-2", photos = Some(false))))
+    assertEquals(ShopRoutes.validateRequest(asked).toOption.get.items.map(_.photos), List(Some(true), None))
+  }
+
+  test("the buyer's view of a request: their pick, no pull-list notes, only photos of their cards") {
+    val graded  = card.copy(condition = "LP 1st Edition", askedCondition = Some("NM 1st Edition"), pulled = Some(true), photos = Some(true))
+    val request = ShopRequest("r1", "Ash", "ash@example.test", "hi", "buy", List(graded), "answered", java.time.Instant.EPOCH)
+    val photos  = List(ShopPhotoRef("base1-4", "LP", "front", 1L), ShopPhotoRef("base1-2", "NM", "front", 2L))
+    val view    = ShopRoutes.buyerView(request, photos)
+    assertEquals(view.items, List(BuyerRequestItem("base1-4", "Charizard", "4", "LP 1st Edition", 1, true, Some("NM 1st Edition"))))
+    assertEquals(view.photos, photos.take(1))
+    assertEquals(view.status, "answered")
+    assert(!view.toJson.contains("ash@example.test") && !view.toJson.contains("pulled"))
+    assert(AuthGuard.isPublicPath(Method.GET, "/api/shop/nicholas/requests/0b5e1c9e-0000-4000-8000-000000000000"))
   }

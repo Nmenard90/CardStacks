@@ -26,6 +26,7 @@ import { SpacesLivePage } from './pages/SpacesLivePage'
 import { RoomPage } from './pages/RoomPage'
 import { ShopPage } from './pages/ShopPage'
 import { ShopRequestsPage } from './pages/ShopRequestsPage'
+import { ShopRequestStatusPage } from './pages/ShopRequestStatusPage'
 import { LegalPage } from './pages/LegalPage'
 import { ShareLinkRedirect } from './pages/ShareLinkRedirect'
 import { NotFoundPage } from './pages/NotFoundPage'
@@ -82,6 +83,7 @@ export default function App() {
               <Route path="/s/:slug"           element={<ShareLinkRedirect />} />
               <Route path="/shop/requests"     element={<ShopRequestsPage />} />
               <Route path="/shop/:slug"        element={<ShopPage />} />
+              <Route path="/shop/:slug/request/:id" element={<ShopRequestStatusPage />} />
               <Route path="/privacy"           element={<LegalPage page="privacy" />} />
               <Route path="/terms"             element={<LegalPage page="terms" />} />
               <Route path="/shelf"             element={<Navigate to="/spaces" replace />} />

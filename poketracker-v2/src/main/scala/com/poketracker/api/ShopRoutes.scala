@@ -17,7 +17,9 @@
  *   Public:
  *     GET  /api/shop/:slug                                 — the shop's cards + Messenger link
  *     GET  /api/shop/from-share/:shareSlug                 — {slug} of the shop an old /s/<slug> share link now leads to
- *     POST /api/shop/:slug/requests                        — buyer sends a buy request or question
+ *     POST /api/shop/:slug/requests                        — buyer sends a buy request or question; returns {ok, id}
+ *     GET  /api/shop/:slug/requests/:id                    — the buyer's view of their request (the id is the secret:
+ *          a random UUID only the buyer's link carries): the cards, status, and the seller's photos of those cards
  *     GET  /api/shop/:slug/photo/:cardId/:side?cond=NM     — a seller photo (side = front|back), JPEG
  *   Protected (owner only, enforced by AuthGuard's path check):
  *     GET    /api/collection/:userId/shop-photos              — which photos the owner has (no shop needed)
@@ -137,7 +139,17 @@ object ShopRoutes:
     else if in.items.exists(i => i.qty < 1 || i.qty > 99 || i.cardId.length > 64 || i.name.length > 120 ||
                                  i.number.length > 20 || i.condition.length > 20)
                                                  then Left("One of the cards in your request looks wrong. Please refresh and try again.")
-    else Right(ShopRequestInput(name, contact, message, in.items.map(_.copy(pulled = None, askedCondition = None, foundQty = None, sold = None))))
+    else Right(ShopRequestInput(name, contact, message,
+      in.items.map(i => i.copy(pulled = None, askedCondition = None, foundQty = None, sold = None, photos = i.photos.filter(identity)))))
+
+  /** A request id as the server makes them (a random UUID); anything else can't be one. */
+  private val requestId = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$".r
+
+  /** The buyer's view of a request: their cards (not the seller's pull-list notes) and the seller's photos of them. */
+  private[poketracker] def buyerView(r: ShopRequest, photos: List[ShopPhotoRef]): BuyerRequestView =
+    val items = r.items.map(i => BuyerRequestItem(i.cardId, i.name, i.number, i.condition, i.qty, i.photos.contains(true), i.askedCondition))
+    val cards = items.map(_.cardId).toSet
+    BuyerRequestView(r.status, r.createdAt, items, photos.filter(p => cards(p.cardId)))
 
   val publicRoutes: Routes[CollectionService & ShopRepository, Nothing] = Routes(
 
@@ -192,6 +204,18 @@ object ShopRoutes:
         saved  <- ZIO.serviceWithZIO[ShopRepository](_.create(userId, clean)).mapError(_ => "Could not save your request. Please try again.")
       yield Response.json(s"""{"ok": true, "id": "${saved.id}"}""")
       ).catchAll(msg => ZIO.succeed(Response.badRequest(msg)))
+    },
+
+    Method.GET / "api" / "shop" / string("slug") / "requests" / string("id") -> handler { (slug: String, id: String, _: Request) =>
+      if requestId.matches(id) then
+        (for
+          seller  <- ZIO.serviceWithZIO[ShopRepository](_.findPublicSeller(slug.toLowerCase))
+          userId  <- ZIO.fromOption(seller.map(_._1))
+          request <- ZIO.serviceWithZIO[ShopRepository](_.find(userId, id)).some
+          photos  <- ZIO.serviceWithZIO[ShopRepository](_.listPhotos(userId)).asSomeError
+        yield Response.json(buyerView(request, photos).toJson)
+        ).catchAll(_ => ZIO.succeed(notOpen))
+      else ZIO.succeed(notOpen)
     }
   )
 

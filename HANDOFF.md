@@ -173,7 +173,19 @@ tcg/
   shrink below content); page headers wrap or scroll rather than clip. Check
   with a 390px-wide view for any element past the right edge.
 
-## Current state (2026-11-03)
+## Current state (2026-11-04)
+
+**Shop photos moved to the seller's side (2026-11-04, branch `fix/shop-photos-owner-side`, NOT pushed;
+worktree `C:\Users\nicho\tcg-shop-photos`):** the owner objected that "📷 Add photos" sat on the public shop
+page. The shop page is now identical for the owner and buyers (no photo buttons). The seller takes photos in My
+Shop → Requests (📷 on each requested card, via `MyCardPhotos`) or in Explore as before. A buyer ticks "📷 Send
+me photos" per card when sending a request (`photos: true` in the items JSON, no migration); sending returns the
+request id and the buyer gets a private page `/shop/<slug>/request/<id>` (`ShopRequestStatusPage`, new public
+`GET /api/shop/:slug/requests/:id`, the UUID is the secret; no contact/message/pull-list notes are returned)
+showing status, the seller-confirmed condition and the seller's photos of those cards. The browser remembers
+sent requests (`lib/myShopRequests.ts`) for a "Your request" link on the shop. Existing photos still show on the
+public tiles. Verified: ShopSuite 16/16 (sbt), shop-browser 14/14 (also fixes BUG-062, a test race: the found
+count was read before the click had drawn), tsc, eslint, vite build. Waiting for the owner's OK before pushing.
 
 **Shop sales take cards out of the collection (2026-11-02, LIVE on `main`
 since `4619de3`; built on `feature/shop-sale-inventory`):** in My

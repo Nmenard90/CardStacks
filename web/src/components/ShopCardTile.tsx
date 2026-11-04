@@ -27,15 +27,14 @@ interface Props {
   inCart: (cond: string) => number
   onAdj: (cond: string, delta: number) => void
   preview: { show: (src: string, opts?: PreviewOpts) => void; hide: () => void }
-  /** The seller's photo addresses (front/back) for one condition of this card, if any. */
+  /** The seller's photo addresses (front/back) for one condition of this card, if any. The seller takes them from
+   *  My Shop or Explore, never here: this tile is what buyers see. */
   photos?: (cond: string) => { front?: string; back?: string }
-  /** Seller only: opens the photo screen for one condition. Omitted for buyers. */
-  onManagePhotos?: (cond: string) => void
 }
 
 const money = (n: number) => '$' + n.toFixed(2)
 
-export function ShopCardTile({ card, conds, setName, inCart, onAdj, preview, photos, onManagePhotos }: Props) {
+export function ShopCardTile({ card, conds, setName, inCart, onAdj, preview, photos }: Props) {
   // Best condition first (NM→DMG), so the headline price is the best copy's.
   const ordered = [...conds].sort((a, b) => CONDS.indexOf(baseCond(a.cond)) - CONDS.indexOf(baseCond(b.cond)) || a.cond.localeCompare(b.cond))
   const [sel, setSel] = useState(ordered[0]?.cond ?? 'NM')
@@ -82,7 +81,7 @@ export function ShopCardTile({ card, conds, setName, inCart, onAdj, preview, pho
             )
           })}
         </div>
-        {(hasPics || onManagePhotos) && (
+        {hasPics && (
           <div className="shop-photos">
             {(['front', 'back'] as const).map(s => pics[s] && (
               <button key={s} type="button" className="photo-frame" title={`Zoom in: ${s} photo`} onClick={() => preview.show(pics[s]!)}>
@@ -90,11 +89,6 @@ export function ShopCardTile({ card, conds, setName, inCart, onAdj, preview, pho
                 <span>{s === 'front' ? 'Front' : 'Back'}</span>
               </button>
             ))}
-            {onManagePhotos && (
-              <button type="button" className="tb-btn photo-add" onClick={() => onManagePhotos(current.cond)}>
-                📷 {hasPics ? 'Photos' : 'Add photos'}
-              </button>
-            )}
           </div>
         )}
       </div>

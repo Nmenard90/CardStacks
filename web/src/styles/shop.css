@@ -76,7 +76,6 @@
 .photo-frame+.photo-frame{transform:rotate(2deg)}
 .photo-frame img{width:58px;aspect-ratio:630/880;object-fit:cover;display:block;background:#222}
 .photo-frame span{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em}
-.photo-add{align-self:center}
 .photo-slots{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .photo-slot{display:grid;gap:8px;justify-items:center;text-align:center}
 .photo-frame-lg{cursor:default;transform:none!important;padding:8px;width:100%;max-width:170px}
@@ -158,3 +157,31 @@
 .sale__hint{font-size:13.5px;color:var(--muted)}
 .sale__note{margin:8px 0 0;font-size:14px;font-weight:700}
 @media(max-width:600px){.req-sold{grid-column:1/-1;grid-template-columns:auto auto;justify-content:center}}
+
+/* Request form: "Send me photos" beside each picked card. */
+.shop-summary__line{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0.25rem 0.75rem}
+.shop-sheet label.shop-photo-ask{display:inline-flex;align-items:center;gap:0.375rem;font-size:0.8125rem;font-weight:700;color:var(--text);cursor:pointer}
+
+/* My Shop, a requested card: the seller's photo button, and whether the buyer asked for photos. */
+.req-card__photos{display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;margin-top:0.5rem}
+.page-tracker .req-photo-btn{min-height:2rem;padding:0 0.75rem;border-radius:0.5rem;border:2px solid var(--muted);background:transparent;color:var(--text);font:inherit;font-weight:700;font-size:0.8125rem;cursor:pointer}
+.page-tracker .req-photo-btn:hover{border-color:var(--accent)}
+.req-card__photo-ask{font-size:0.8125rem;font-weight:800;color:#111;background:var(--accent);border-radius:99px;padding:0.1875rem 0.625rem}
+.req-card__photo-ask--done{background:#22c55e}
+
+/* The buyer's request page (ShopRequestStatusPage). */
+.buyer-req{max-width:56rem;margin:0 auto;padding:1.25rem 1rem 3rem;display:grid;gap:1rem}
+.buyer-req__title{margin:0;font-size:1.5rem}
+.buyer-req__status{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem 0.75rem}
+.buyer-req__cards{list-style:none;margin:0;padding:0;display:grid;gap:0.75rem}
+.buyer-req__card{display:grid;grid-template-columns:5rem 1fr;gap:0.875rem;align-items:start;padding:0.75rem;border-radius:0.875rem;background:var(--surface);border:var(--ink-w) solid var(--border)}
+.page-tracker .buyer-req__card .buyer-req__thumb{width:100%;height:auto;aspect-ratio:63/88}
+.page-tracker .buyer-req__card .buyer-req__thumb .thumb{width:100%;height:100%;object-fit:contain;background:none}
+.buyer-req__body{display:grid;gap:0.25rem;min-width:0}
+.buyer-req__body .shop-photos{margin-top:0.375rem}
+.buyer-req__body .photo-frame img{width:5.5rem}
+.buyer-req__waiting{margin:0.375rem 0 0;font-size:0.875rem;color:var(--muted);font-weight:700}
+.buyer-req__others h2{font-size:1rem;margin:0 0 0.375rem}
+.buyer-req__others ul{margin:0;padding-left:1.25rem;display:grid;gap:0.25rem}
+.page-tracker .buyer-req .shop-photos .photo-frame{background:#f4f1e8;color:#222;border:0;border-radius:4px;padding:5px 5px 4px;box-shadow:0 2px 6px rgba(0,0,0,.45)}
+@media(max-width:600px){.buyer-req__card{grid-template-columns:3.5rem 1fr}}

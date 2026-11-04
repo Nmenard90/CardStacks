@@ -1,6 +1,7 @@
 /**
  * API calls for a user's public shop page, shop settings, and request inbox.
- * ENDPOINTS: GET /api/shop/:slug, POST /api/shop/:slug/requests (public, no login),
+ * ENDPOINTS: GET /api/shop/:slug, POST /api/shop/:slug/requests (public, no login; returns the request's id),
+ *            GET /api/shop/:slug/requests/:id (public: the buyer's own request, by the id only their link carries),
  *            GET|PUT /api/collection/:userId/shop-settings,
  *            GET /api/collection/:userId/shop-requests,
  *            POST /api/collection/:userId/shop-requests/:id (owner only)
@@ -8,7 +9,7 @@
  *            POST /api/collection/:userId/shop-requests/:id/sell|put-back (owner only; takes sold cards out, puts them back)
  *            GET /api/shop/:slug/photo/:cardId/:side?cond= (public picture),
  *            PUT|DELETE /api/collection/:userId/shop-photos/:cardId/:side?cond= (owner only)
- * USED BY: ShopPage, ShopRequestsPage
+ * USED BY: ShopPage, ShopRequestsPage, ShopRequestStatusPage, RequestedCards
  */
 import { api } from './client'
 import type { OwnedCard } from '../types'
@@ -19,6 +20,8 @@ export interface ShopRequestItem {
   number: string
   condition: string
   qty: number
+  /** The buyer asked to see photos of this copy. */
+  photos?: boolean
   /** Pull list (seller only): found in the boxes. */
   pulled?: boolean
   /** Pull list: what the buyer picked, once the seller changed `condition` to the copy's real one. */
@@ -89,7 +92,30 @@ export const shopForShareLink = (shareSlug: string) =>
   api.get<{ slug: string }>(`/api/shop/from-share/${encodeURIComponent(shareSlug)}`).then(r => r.data.slug)
 
 export const sendShopRequest = (slug: string, input: ShopRequestInput) =>
-  api.post<{ ok: boolean }>(`/api/shop/${encodeURIComponent(slug)}/requests`, input).then(r => r.data)
+  api.post<{ ok: boolean; id: string }>(`/api/shop/${encodeURIComponent(slug)}/requests`, input).then(r => r.data)
+
+/** One card of a request as its buyer sees it: the condition the seller confirmed (and the buyer's pick, if different). */
+export interface BuyerRequestItem {
+  cardId: string
+  name: string
+  number: string
+  condition: string
+  qty: number
+  photos: boolean
+  askedCondition?: string
+}
+
+/** A buyer's own request: its cards, whether the seller has answered, and the seller's photos of those cards. */
+export interface BuyerRequestView {
+  status: ShopRequestStatus
+  createdAt: string
+  items: BuyerRequestItem[]
+  photos: ShopPhotoRef[]
+}
+
+/** The buyer's view of a request they sent; rejects (404) for an unknown id or a closed shop. */
+export const getBuyerRequest = (slug: string, id: string) =>
+  api.get<BuyerRequestView>(`/api/shop/${encodeURIComponent(slug)}/requests/${encodeURIComponent(id)}`).then(r => r.data)
 
 /** Where a seller photo's picture lives — usable straight in an <img src>. */
 export const shopPhotoUrl = (slug: string, p: ShopPhotoRef) =>

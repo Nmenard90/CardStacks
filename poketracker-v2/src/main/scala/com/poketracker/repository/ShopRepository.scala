@@ -27,6 +27,8 @@ trait ShopRepository:
   def shopSlugForShareLink(shareSlug: String): Task[Option[String]]
   def create(sellerUserId: String, input: ShopRequestInput): Task[ShopRequest]
   def list(sellerUserId: String): Task[List[ShopRequest]]
+  /** One of this seller's requests by its id (the buyer's link), or None. */
+  def find(sellerUserId: String, id: String): Task[Option[ShopRequest]]
   def setStatus(sellerUserId: String, id: String, status: String): Task[Unit]
   /** Changes the request's card at `index` with `change` (Left = message for the seller), in one transaction so two
    *  quick taps can't undo each other. None when the request isn't this seller's or has no card there. */
@@ -94,6 +96,11 @@ object ShopRepository:
       sql"""SELECT id,buyer_name,buyer_contact,message,kind,items::text,status,created_at
         FROM shop_requests WHERE seller_user_id=$sellerUserId ORDER BY created_at DESC LIMIT 200"""
         .query[Row].to[List].map(_.map(toRequest)).transact(xa)
+
+    def find(sellerUserId: String, id: String): Task[Option[ShopRequest]] =
+      sql"""SELECT id,buyer_name,buyer_contact,message,kind,items::text,status,created_at
+        FROM shop_requests WHERE id=$id AND seller_user_id=$sellerUserId"""
+        .query[Row].option.map(_.map(toRequest)).transact(xa)
 
     def setStatus(sellerUserId: String, id: String, status: String): Task[Unit] =
       sql"UPDATE shop_requests SET status=$status WHERE id=$id AND seller_user_id=$sellerUserId"
