@@ -175,8 +175,8 @@ tcg/
 
 ## Current state (2026-11-04)
 
-**Shop photos moved to the seller's side (2026-11-04, branch `fix/shop-photos-owner-side`, NOT pushed;
-worktree `C:\Users\nicho\tcg-shop-photos`):** the owner objected that "📷 Add photos" sat on the public shop
+**Shop photos moved to the seller's side (2026-11-04, LIVE on main `f4c1887`, no migration; owner will
+try it and report back):** the owner objected that "📷 Add photos" sat on the public shop
 page. The shop page is now identical for the owner and buyers (no photo buttons). The seller takes photos in My
 Shop → Requests (📷 on each requested card, via `MyCardPhotos`) or in Explore as before. A buyer ticks "📷 Send
 me photos" per card when sending a request (`photos: true` in the items JSON, no migration); sending returns the
