@@ -175,8 +175,8 @@ tcg/
 
 ## Current state (2026-11-04)
 
-**Shop request form: pick how to be contacted; owner gets an email (2026-11-04, branch
-`fix/shop-photos-owner-side`, committed, push waits for the owner):** the owner was angry that the form *required*
+**Shop request form: pick how to be contacted; owner gets an email (2026-11-04, LIVE on main `e38e3b7`, no
+migration; emails stay off until the owner adds the SMTP_* vars in Railway):** the owner was angry that the form *required*
 a Facebook profile link ("most people dont even know how to get theirs"). Now the buyer picks Text / Call / Email /
 Facebook / Other and fills one matching detail (phone checked for 7-15 digits, email checked; a Facebook *name* is
 enough). Stored as one line `"<Method>: <detail>"` in the existing `buyer_contact` (no migration;
