@@ -30,7 +30,7 @@ import { LoginScreen } from '../components/LoginScreen'
 import { OfferInbox } from '../components/OfferInbox'
 import { RequestedCards } from '../components/RequestedCards'
 import { usePreview } from '../components/CardPreview'
-import { contactUrl, facebookSearchUrl } from '../lib/contact'
+import { contactAction, contactMethod, parseContact } from '../lib/contact'
 import { useUser } from '../context/UserContext'
 
 const STATUS_LABEL: Record<ShopRequestStatus, string> = { new: 'New', answered: 'Answered', done: 'Done' }
@@ -113,16 +113,19 @@ function ShopSettingsPanel({ userId, suggestedSlug }: { userId: string; suggeste
 type Tab = 'requests' | 'offers' | 'settings'
 
 /**
- * How to reach a buyer: their link when they gave one, otherwise what they typed plus a Facebook search for their
- * name (older requests often just say "Facebook").
+ * How to reach a buyer: the way they asked for (text, call, email, Facebook, other) and a button that does it. Older
+ * requests have no chosen way: their link when they gave one, otherwise a Facebook search for their name.
  */
 function BuyerContact({ name, contact }: { name: string; contact: string }) {
-  const url = contactUrl(contact)
+  const { method, value } = parseContact(contact)
+  const action = contactAction(contact, name)
   return (
     <div className="shop-req-contact">
-      Reach them at:{' '}
-      {url ? <a href={url.href} target="_blank" rel="noopener noreferrer"><b>{url.hostname.replace(/^www\./, '')}{url.pathname}</b> ↗</a> : <b>{contact}</b>}
-      {!url && <a className="shop-btn shop-btn-ghost shop-req-search" href={facebookSearchUrl(name)} target="_blank" rel="noopener noreferrer">Search “{name}” on Facebook ↗</a>}
+      {method ? contactMethod(method).sellerLabel : 'Reach them at:'} <b>{value}</b>
+      {action && (
+        <a className="shop-btn shop-btn-ghost shop-req-search" href={action.href}
+          {...(action.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}>{action.label}</a>
+      )}
     </div>
   )
 }
@@ -251,7 +254,7 @@ export function ShopRequestsPage() {
           )}
 
           {tab === 'requests' && <>
-            <p className="shop-sub">Buy and trade requests from your public shop. Reply on Facebook, by phone, or by email using the contact they gave.</p>
+            <p className="shop-sub">Buy and trade requests from your public shop. Each one says how the buyer wants to be contacted. You also get an email at your sign-in address when a new one arrives.</p>
             {shopOff && <p className="shop-msg">Your shop is off, so nobody can send requests. <button type="button" className="shop-link-btn" onClick={() => setTab('settings')}>Turn it on in Settings →</button></p>}
             <div className="shop-tools">
               {(['new', 'answered', 'done', 'all'] as const).map(f => (

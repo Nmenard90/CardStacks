@@ -25,6 +25,8 @@ trait ShopRepository:
   /** The enabled shop of whoever owned an old share-link slug (/s/<slug>), so
    *  links handed out before trading moved into the shop still lead somewhere. */
   def shopSlugForShareLink(shareSlug: String): Task[Option[String]]
+  /** The email a seller signs in with, for the new-request email; None for a demo (anonymous) account. */
+  def sellerEmail(userId: String): Task[Option[String]]
   def create(sellerUserId: String, input: ShopRequestInput): Task[ShopRequest]
   def list(sellerUserId: String): Task[List[ShopRequest]]
   /** One of this seller's requests by its id (the buyer's link), or None. */
@@ -81,6 +83,10 @@ object ShopRepository:
       sql"""SELECT s.slug FROM share_profiles p JOIN shop_settings s ON s.user_id = p.user_id
             WHERE p.slug = $shareSlug AND s.enabled = TRUE"""
         .query[String].option.transact(xa)
+
+    def sellerEmail(userId: String): Task[Option[String]] =
+      sql"SELECT email FROM users WHERE id=$userId AND is_anonymous=FALSE"
+        .query[String].option.map(_.map(_.trim).filter(_.contains("@"))).transact(xa)
 
     def create(sellerUserId: String, input: ShopRequestInput): Task[ShopRequest] =
       val id    = java.util.UUID.randomUUID().toString

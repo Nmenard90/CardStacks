@@ -24,8 +24,8 @@ import { myShopRequests, rememberShopRequest } from '../lib/myShopRequests'
 import type { Card } from '../types'
 
 const STATUS: Record<ShopRequestStatus, { label: string; note: string }> = {
-  new: { label: 'Sent', note: "The seller hasn't replied yet. They'll message you on Facebook." },
-  answered: { label: 'Replied', note: 'The seller has replied. Check your Facebook messages.' },
+  new: { label: 'Sent', note: "The seller hasn't replied yet. They'll contact you the way you asked." },
+  answered: { label: 'Replied', note: 'The seller has replied the way you asked to be contacted. Check your texts, email or messages.' },
   done: { label: 'Closed', note: 'This request is closed.' },
 }
 
@@ -65,7 +65,7 @@ export function ShopRequestStatusPage() {
         <main className="buyer-req">
           <h1 className="buyer-req__title">Your request</h1>
           {isLoading && <p className="shop-msg">Loading…</p>}
-          {isError && <p className="shop-msg">This request can't be found. Check the link, or message the seller on Facebook.</p>}
+          {isError && <p className="shop-msg">This request can't be found. Check the link, or go back to the shop and ask the seller.</p>}
           {request && <>
             <p className="buyer-req__status">
               <span className={'shop-pill shop-pill-' + request.status}>{STATUS[request.status].label}</span>

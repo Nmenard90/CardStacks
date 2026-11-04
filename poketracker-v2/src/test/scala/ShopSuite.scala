@@ -141,3 +141,40 @@ class ShopSuite extends munit.FunSuite:
     assert(!view.toJson.contains("ash@example.test") && !view.toJson.contains("pulled"))
     assert(AuthGuard.isPublicPath(Method.GET, "/api/shop/nicholas/requests/0b5e1c9e-0000-4000-8000-000000000000"))
   }
+
+  test("request emails are off until the mail server, user and password are all set") {
+    import com.poketracker.service.ShopNotifier.readConfig
+    val full = Map("SMTP_HOST" -> "smtp.gmail.com", "SMTP_USER" -> "me@gmail.test", "SMTP_PASSWORD" -> "abcd efgh ijkl mnop")
+    assertEquals(readConfig(Map.empty[String, String].get), None)
+    assertEquals(readConfig((full - "SMTP_PASSWORD").get), None)
+    assertEquals(readConfig(full.updated("SMTP_HOST", "  ").get), None)
+    val cfg = readConfig(full.get).get
+    assertEquals((cfg.port, cfg.password, cfg.from, cfg.appUrl), (587, "abcdefghijklmnop", "me@gmail.test", "https://cardstacks.up.railway.app"))
+    assertEquals(readConfig(full.updated("APP_URL", "https://example.test/").updated("SMTP_PORT", "465").get).map(c => (c.appUrl, c.port)),
+      Some(("https://example.test", 465)))
+  }
+
+  test("the new-request email: who, how to reach them, the cards, and a link to My Shop") {
+    import com.poketracker.service.ShopNotifier.requestEmail
+    val request = ShopRequest("r1", "Ash\r\nBcc: x@evil.test", "Text: 555-123-4567", "Is it still there?", "buy",
+                              List(card.copy(qty = 2, photos = Some(true))), "new", java.time.Instant.EPOCH)
+    val email = requestEmail("seller@example.test", "nicholas", "Nick's Cards", request, "https://cardstacks.example")
+    assertEquals(email.to, "seller@example.test")
+    assert(!email.subject.exists(c => c == '\r' || c == '\n'), email.subject)
+    assert(email.subject.contains("(2 cards)"), email.subject)
+    for part <- List("How they want to be contacted: Text: 555-123-4567", "2× Charizard #4 (NM 1st Edition) · wants photos",
+                     "Is it still there?", "https://cardstacks.example/shop/requests", "\"Nick's Cards\"") do
+      assert(email.body.contains(part), part)
+    assertEquals(email.replyTo, None)
+    val question = requestEmail("s@example.test", "nicholas", "", request.copy(items = Nil, buyerContact = "Email: ash@example.test"), "https://x.test")
+    assert(question.subject.startsWith("New question"), question.subject)
+    assertEquals(question.replyTo, Some("ash@example.test"))
+  }
+
+  test("only a real email address the buyer chose becomes the Reply-To") {
+    import com.poketracker.service.ShopNotifier.buyerEmail
+    assertEquals(buyerEmail("email: ash@example.test "), Some("ash@example.test"))
+    assertEquals(buyerEmail("Email: not an address"), None)
+    assertEquals(buyerEmail("Email: a@b.test, c@d.test"), None)
+    assertEquals(buyerEmail("Facebook: ash@example.test"), None)
+  }

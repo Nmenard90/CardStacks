@@ -37,7 +37,7 @@ import { TradeCardPicker, type TradeLine } from '../components/TradeCardPicker'
 import { SortControl } from '../components/SortControl'
 import { usePreview } from '../components/CardPreview'
 import type { Card, OwnedCard } from '../types'
-import { isFacebookLink } from '../lib/contact'
+import { CONTACT_METHODS, contactMethod, contactProblem, formatContact, type ContactMethod } from '../lib/contact'
 import { myShopRequests, rememberShopRequest } from '../lib/myShopRequests'
 
 /** One picked card + condition. */
@@ -239,6 +239,8 @@ function RequestForm({ slug, lines, total, onClose, onSent }: {
   })
   const [sentId, setSentId] = useState('')
   const [name, setName] = useState('')
+  // How the buyer wants to be reached (text, call, email, Facebook, other) and the detail it needs.
+  const [method, setMethod] = useState<ContactMethod | null>(null)
   const [contact, setContact] = useState('')
   const [message, setMessage] = useState('')
   // Optional trade offer: cards the buyer searched for and added. The backend has one
@@ -266,8 +268,10 @@ function RequestForm({ slug, lines, total, onClose, onSent }: {
 
   const submit = async () => {
     setError('')
-    if (!name.trim() || !contact.trim()) { setError('Please enter your name and your Facebook profile link.'); return }
-    if (!isFacebookLink(contact)) { setError('Please paste your Facebook profile link (or Messenger link) so I can find you. On Facebook: open your profile, tap ⋯, then Copy link.'); return }
+    if (!name.trim()) { setError('Please enter your name.'); return }
+    if (!method) { setError('Please pick how you would like me to contact you.'); return }
+    const contactError = contactProblem(method, contact)
+    if (contactError) { setError(contactError); return }
     if (trading && lines.length === 0) { setError('Pick the cards you want from the shop first, then offer your trade.'); return }
     if (trading && tradeLines.length === 0) { setError('Search for the cards you would like to trade and tap Add, or untick the trade box.'); return }
     if (shortBy > 0.005) { setError(`Your offer is ${money(shortBy)} short of the cards you picked. Add more cards or some cash to cover it.`); return }
@@ -277,7 +281,7 @@ function RequestForm({ slug, lines, total, onClose, onSent }: {
     setState('sending')
     try {
       const { id } = await sendShopRequest(slug, {
-        buyerName: name, buyerContact: contact,
+        buyerName: name, buyerContact: formatContact(method, contact),
         message: trading ? tradeMessage() : message,
         items: lines.map(l => ({
           cardId: l.card.id, name: l.card.name, number: l.card.number, condition: l.cond, qty: l.qty,
@@ -290,7 +294,7 @@ function RequestForm({ slug, lines, total, onClose, onSent }: {
     } catch (e) {
       // The backend's friendly validation text comes back as the body of a 400.
       const msg = (e as { response?: { data?: unknown } }).response?.data
-      setError(typeof msg === 'string' && msg ? msg : 'Could not send. Please try again, or message me on Facebook.')
+      setError(typeof msg === 'string' && msg ? msg : 'Could not send. Please try again.')
       setState('idle')
     }
   }
@@ -301,7 +305,7 @@ function RequestForm({ slug, lines, total, onClose, onSent }: {
         {state === 'sent' ? (
           <>
             <h2>Sent! ✅</h2>
-            <p>Thanks {name.trim()}. I'll message you on Facebook to confirm availability and the price on that day.</p>
+            <p>Thanks {name.trim()}. I'll {method ? contactMethod(method).reply : 'get back to you'} to confirm availability and the price on that day.</p>
             {sentId && (
               <p>
                 {wantPhotos.size > 0 ? 'The photos you asked for will show up on your request page.' : 'You can check on your request any time.'}{' '}
@@ -334,10 +338,25 @@ function RequestForm({ slug, lines, total, onClose, onSent }: {
               </ul>
             )}
             <label>Your name<input type="text" value={name} maxLength={80} onChange={e => setName(e.target.value)} /></label>
-            <label>Your Facebook profile link
-              <input type="url" inputMode="url" value={contact} maxLength={200} placeholder="https://www.facebook.com/your.name" onChange={e => setContact(e.target.value)} />
-              <small className="shop-hint">On Facebook: open your profile, tap <b>⋯</b>, then <b>Copy link</b>. A Messenger link (m.me/…) works too.</small>
-            </label>
+            <fieldset className="shop-contact">
+              <legend>How should I contact you?</legend>
+              <div className="shop-contact-methods">
+                {CONTACT_METHODS.map(m => (
+                  <label key={m.id} className={'shop-contact-method' + (method === m.id ? ' on' : '')}>
+                    <input type="radio" name="contact-method" value={m.id} checked={method === m.id} onChange={() => setMethod(m.id)} />
+                    <span aria-hidden="true">{m.icon}</span> {m.label}
+                  </label>
+                ))}
+              </div>
+              {method && (() => {
+                const m = contactMethod(method)
+                return (
+                  <label>{m.field}
+                    <input type={m.inputType} autoComplete={m.autoComplete} value={contact} maxLength={150} placeholder={m.placeholder} onChange={e => { setContact(e.target.value); setError('') }} />
+                  </label>
+                )
+              })()}
+            </fieldset>
             <label className="shop-agree">
               <input type="checkbox" checked={trading} onChange={e => setTrading(e.target.checked)} />
               I'd like to trade (instead of, or as well as, paying)

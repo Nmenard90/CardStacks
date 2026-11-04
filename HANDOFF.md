@@ -175,6 +175,26 @@ tcg/
 
 ## Current state (2026-11-04)
 
+**Shop request form: pick how to be contacted; owner gets an email (2026-11-04, branch
+`fix/shop-photos-owner-side`, committed, push waits for the owner):** the owner was angry that the form *required*
+a Facebook profile link ("most people dont even know how to get theirs"). Now the buyer picks Text / Call / Email /
+Facebook / Other and fills one matching detail (phone checked for 7-15 digits, email checked; a Facebook *name* is
+enough). Stored as one line `"<Method>: <detail>"` in the existing `buyer_contact` (no migration;
+`lib/contact.ts`: `formatContact`/`parseContact`/`contactAction`). My Shop shows "Wants a text at …" with a
+one-tap 💬 Text / 📞 Call / ✉️ Email / Facebook button; old unprefixed contacts behave as before. All form boxes
+are one size (the contact box was `type=url`, which the CSS didn't style). **New-request emails:**
+`service/ShopNotifier.scala` emails the seller's sign-in address (`users.email`, never anonymous accounts) after a
+request is saved, in the background (never fails or slows the request), max 20/hour per seller, plain text,
+Reply-To the buyer when they chose email. Off until Railway vars `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD` are set
+on poketracker-v2 (owner chose Gmail + app password; optional `SMTP_PORT` 587/465, `SMTP_FROM`, `APP_URL`, default
+`https://cardstacks.up.railway.app`). New dependency `org.eclipse.angus:angus-mail:2.0.3`; the fat JAR was checked
+to load the SMTP transport. Verified: ShopSuite 19/19, contact unit tests 6/6, shop-browser 14/14 (new: same-width
+boxes, contact choice), tsc, eslint. Also on the branch: the owner note on the shop page now points to Explore for
+photos of any card (`c72cfc5`). Local browser-test recipe: Vite on 5198 (5199 is a Windows-reserved port here), plus
+`PLAYWRIGHT_MODULE=~/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright` and
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE=%LOCALAPPDATA%\ms-playwright\chromium_headless_shell-1248\chrome-headless-shell-win64\chrome-headless-shell.exe`.
+A stale Vite from 2026-10-29 (deleted `.worktrees/cleanup`) still listens on 5178.
+
 **Shop photos moved to the seller's side (2026-11-04, LIVE on main `f4c1887`, no migration; owner will
 try it and report back):** the owner objected that "📷 Add photos" sat on the public shop
 page. The shop page is now identical for the owner and buyers (no photo buttons). The seller takes photos in My
@@ -185,7 +205,7 @@ request id and the buyer gets a private page `/shop/<slug>/request/<id>` (`ShopR
 showing status, the seller-confirmed condition and the seller's photos of those cards. The browser remembers
 sent requests (`lib/myShopRequests.ts`) for a "Your request" link on the shop. Existing photos still show on the
 public tiles. Verified: ShopSuite 16/16 (sbt), shop-browser 14/14 (also fixes BUG-062, a test race: the found
-count was read before the click had drawn), tsc, eslint, vite build. Waiting for the owner's OK before pushing.
+count was read before the click had drawn), tsc, eslint, vite build.
 
 **Shop sales take cards out of the collection (2026-11-02, LIVE on `main`
 since `4619de3`; built on `feature/shop-sale-inventory`):** in My

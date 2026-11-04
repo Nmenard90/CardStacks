@@ -43,7 +43,7 @@ package com.poketracker.api
 
 import com.poketracker.models.*
 import com.poketracker.repository.ShopRepository
-import com.poketracker.service.CollectionService
+import com.poketracker.service.{CollectionService, ShopNotifier}
 import zio.*
 import zio.http.*
 import zio.json.*
@@ -151,7 +151,7 @@ object ShopRoutes:
     val cards = items.map(_.cardId).toSet
     BuyerRequestView(r.status, r.createdAt, items, photos.filter(p => cards(p.cardId)))
 
-  val publicRoutes: Routes[CollectionService & ShopRepository, Nothing] = Routes(
+  val publicRoutes: Routes[CollectionService & ShopRepository & ShopNotifier, Nothing] = Routes(
 
     // Old share links (/s/<slug>) point at the same person's shop. 404 when they have none open.
     Method.GET / "api" / "shop" / "from-share" / string("shareSlug") -> handler { (shareSlug: String, _: Request) =>
@@ -202,6 +202,8 @@ object ShopRoutes:
         parsed <- ZIO.fromEither(body.fromJson[ShopRequestInput]).mapError(_ => "Could not read that request.")
         clean  <- ZIO.fromEither(validateRequest(parsed))
         saved  <- ZIO.serviceWithZIO[ShopRepository](_.create(userId, clean)).mapError(_ => "Could not save your request. Please try again.")
+        // Email the seller in the background: the buyer doesn't wait for it, and it can't fail their request.
+        _      <- ZIO.serviceWithZIO[ShopNotifier](_.newRequest(userId, slug.toLowerCase, seller.fold("")(_._3), saved)).forkDaemon
       yield Response.json(s"""{"ok": true, "id": "${saved.id}"}""")
       ).catchAll(msg => ZIO.succeed(Response.badRequest(msg)))
     },

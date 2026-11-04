@@ -66,7 +66,8 @@ object Main extends ZIOAppDefault:
 
         // Routes read buyer requests directly; nothing else depends on this, so it
         // sits outside repoLayer/coreServices.
-        shopRepoLayer = ZLayer.succeed(transactor) >>> ShopRepository.layer
+        // ShopNotifier emails a seller about each new request (off until SMTP_* is set).
+        shopRepoLayer = (ZLayer.succeed(transactor) >>> ShopRepository.layer) >+> ShopNotifier.layer
 
         appLayer    = coreServices ++ ripLayer ++ shopRepoLayer ++ SupabaseJwtVerifier.layer
 

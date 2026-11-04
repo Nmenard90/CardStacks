@@ -124,6 +124,10 @@ lazy val root = project
       // algorithm selection) without us hand-rolling ECDSA.
       "com.nimbusds" % "nimbus-jose-jwt" % "9.40",
 
+      // Eclipse Angus Mail — the standard Jakarta Mail implementation (SMTP).
+      // Emails a shop owner when a buyer sends a request (service/ShopNotifier.scala).
+      "org.eclipse.angus" % "angus-mail" % "2.0.3",
+
       // MUnit — unit testing framework.
       // We write tests in src/test/scala/ that verify our business logic.
       // "Test" means it is only included when running tests, never in production.
