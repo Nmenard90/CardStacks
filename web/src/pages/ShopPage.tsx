@@ -141,7 +141,7 @@ export function ShopPage() {
           {sent.length > 0 && <Link className="user-badge" to={`/shop/${slug}/request/${sent[0].id}`}>🧾 <b>Your request{sent.length > 1 ? 's' : ''}</b></Link>}
         </header>
 
-        {isOwner && <p className="share-owner-note" style={{ padding: '8px 16px' }}>This is how buyers see your shop. Requests, card photos and settings are in <Link to="/shop/requests">My Shop</Link>.</p>}
+        {isOwner && <p className="share-owner-note" style={{ padding: '8px 16px' }}>This is how buyers see your shop. To add photos of any card you own, use 📷 Photos on the card in <Link to="/explore">Explore</Link>. Requests and settings are in <Link to="/shop/requests">My Shop</Link>.</p>}
 
         <section className="shop-hero">
           <h1>{shop?.displayName || `${slug}'s Pokémon cards`}</h1>
