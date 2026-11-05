@@ -2,30 +2,34 @@
  * ShopRequestStatusPage — a buyer's own request on someone's shop: /shop/:slug/request/:id.
  *
  * HOW IT WORKS
- *   No login: the request's id (a random UUID the buyer got when sending it) is the key, so only the buyer's link
- *   opens it. Shows whether the seller has replied, the cards asked for (with the condition the seller confirmed
- *   with the copy in hand, and the buyer's pick when that differs), and the seller's front/back photos of each card.
- *   A card the buyer asked photos of but that has none yet says so; the page re-checks every minute while open.
- *   Card pictures come from the shop's list (a card already sold is shown by name). Other requests this browser
- *   sent to the same shop are linked underneath (lib/myShopRequests).
+ *   Signed in: only the buyer who sent it can open it (the backend checks it is theirs). Shows whether the seller
+ *   has replied, the cards (with the condition the seller confirmed with the copy in hand, and the buyer's pick when
+ *   that differs), the seller's front/back photos of each card, the buyer's note, and the chat with the seller.
+ *   Checks for new messages and photos every 10s while open; opening it marks the seller's messages read.
+ *   Card pictures come from the shop's list (a card already sold is shown by name). All of the buyer's requests are
+ *   listed in My Shop → Sent.
  *
- * USED BY: App.tsx (route "/shop/:slug/request/:id"), linked from ShopPage after sending and from its header
- * DEPENDS ON: api/shop (getBuyerRequest, getShop, shopPhotoUrl), components/CardThumb, components/CardPreview
+ * USED BY: App.tsx (route "/shop/:slug/request/:id"), linked from ShopPage after sending and from My Shop → Sent
+ * DEPENDS ON: api/shop (getSentRequest, postBuyerMessage, getShop, shopPhotoUrl), components/MessageThread,
+ *   components/CardThumb, components/CardPreview, components/LoginScreen
  */
 
 import { useEffect, useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { getBuyerRequest, getShop, shopPhotoUrl, type BuyerRequestItem, type ShopRequestStatus } from '../api/shop'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { getSentRequest, getShop, postBuyerMessage, shopPhotoUrl, type BuyerRequestItem, type BuyerRequestView, type ShopRequestStatus } from '../api/shop'
 import { CardThumb } from '../components/CardThumb'
 import { usePreview } from '../components/CardPreview'
+import { LoginScreen } from '../components/LoginScreen'
+import { MessageThread } from '../components/MessageThread'
+import { useToast } from '../components/Toast'
+import { useUser } from '../context/UserContext'
 import { condLabel } from '../lib/conditions'
-import { myShopRequests, rememberShopRequest } from '../lib/myShopRequests'
 import type { Card } from '../types'
 
 const STATUS: Record<ShopRequestStatus, { label: string; note: string }> = {
-  new: { label: 'Sent', note: "The seller hasn't replied yet. They'll contact you the way you asked." },
-  answered: { label: 'Replied', note: 'The seller has replied the way you asked to be contacted. Check your texts, email or messages.' },
+  new: { label: 'Sent', note: "The seller hasn't replied yet. You'll get an email when they write here." },
+  answered: { label: 'Replied', note: 'The seller has replied. Their messages are below.' },
   done: { label: 'Closed', note: 'This request is closed.' },
 }
 
@@ -35,23 +39,30 @@ const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 
 
 export function ShopRequestStatusPage() {
   const { slug = '', id = '' } = useParams()
+  const { user } = useUser()
+  const userId = user && !user.isAnonymous ? user.id : ''
   const preview = usePreview()
+  const qc = useQueryClient()
+  const toast = useToast()
+  const key = ['sent-request', userId, id]
   const { data: request, isLoading, isError } = useQuery({
-    queryKey: ['buyer-request', slug, id], queryFn: () => getBuyerRequest(slug, id),
-    retry: false, refetchInterval: 60_000, // photos and replies show up without a refresh
+    queryKey: key, queryFn: () => getSentRequest(userId, id), enabled: !!userId,
+    retry: false, refetchInterval: 10_000, // replies and photos show up without a refresh
   })
   const { data: shop } = useQuery({ queryKey: ['shop', slug], queryFn: () => getShop(slug), staleTime: 60_000, retry: false })
   const cards = useMemo(() => new Map<string, Card>((shop?.cards ?? []).map(o => [o.cardId, o.card])), [shop])
 
-  // Opening the link on this browser remembers it with the others, so the shop's "Your requests" finds it.
-  useEffect(() => { if (request) rememberShopRequest(slug, id) }, [request, slug, id])
-  const others = myShopRequests(slug).filter(r => r.id !== id)
+  // Opening it marked the seller's messages read: refresh My Shop → Sent and the nav badge once that has landed.
+  const loaded = !!request
+  useEffect(() => { if (loaded) void qc.invalidateQueries({ queryKey: ['shop-sent', userId] }) }, [loaded, qc, userId])
+
+  if (!userId) return <div className="page-tracker"><LoginScreen /></div>
 
   const photoOf = (item: BuyerRequestItem, side: (typeof SIDES)[number]) => {
     const ref = request?.photos.find(p => p.cardId === item.cardId && p.condition === item.condition && p.side === side)
     return ref ? shopPhotoUrl(slug, ref) : undefined
   }
-  const shopName = shop?.displayName || `${slug}'s shop`
+  const shopName = request?.shopName || shop?.displayName || `${slug}'s shop`
 
   return (
     <div className="page-tracker shop-wrap">
@@ -60,12 +71,13 @@ export function ShopRequestStatusPage() {
           <div className="logo">{shopName.toUpperCase()}</div>
           <Link to="/" className="user-badge" title="Powered by CardStacks">🃏 <b>CardStacks</b></Link>
           <Link to={`/shop/${slug}`} className="user-badge">🛍 <b>Back to the shop</b></Link>
+          <Link to="/shop/requests?tab=sent" className="user-badge">🧾 <b>All your requests</b></Link>
         </header>
 
         <main className="buyer-req">
-          <h1 className="buyer-req__title">Your request</h1>
+          <h1 className="buyer-req__title">{request?.kind === 'photos' ? 'Your photo request' : 'Your request'}</h1>
           {isLoading && <p className="shop-msg">Loading…</p>}
-          {isError && <p className="shop-msg">This request can't be found. Check the link, or go back to the shop and ask the seller.</p>}
+          {isError && <p className="shop-msg">This request can't be found. It may have been sent from another account; your requests are in <Link to="/shop/requests?tab=sent">My Shop → Sent</Link>.</p>}
           {request && <>
             <p className="buyer-req__status">
               <span className={'shop-pill shop-pill-' + request.status}>{STATUS[request.status].label}</span>
@@ -98,22 +110,31 @@ export function ShopRequestStatusPage() {
                           ))}
                         </div>
                       ) : item.photos ? (
-                        <p className="buyer-req__waiting">📷 You asked for photos. They'll show up here once the seller takes them.</p>
+                        <p className="buyer-req__waiting">📷 You asked for photos. They'll show up here and on the card in the shop once the seller takes them.</p>
                       ) : null}
                     </div>
                   </li>
                 )
               })}
             </ul>
+            {request.message && <p className="shop-req-msg">{request.message}</p>}
+            <MessageThread
+              title={`Chat with ${shopName}`}
+              empty="No messages yet. Ask the seller anything here; they get an email."
+              otherName="the seller"
+              messages={request.messages.map(m => ({ id: m.id, mine: !m.fromSeller, who: shopName, body: m.body, createdAt: m.createdAt }))}
+              onSend={async body => {
+                try {
+                  const messages = await postBuyerMessage(userId, id, body)
+                  qc.setQueryData<BuyerRequestView>(key, prev => (prev ? { ...prev, messages } : prev))
+                  return true
+                } catch {
+                  toast("Couldn't send that. Please try again.")
+                  return false
+                }
+              }}
+            />
           </>}
-          {others.length > 0 && (
-            <section className="buyer-req__others" aria-label="Your other requests">
-              <h2>Your other requests to this shop</h2>
-              <ul>
-                {others.map(r => <li key={r.id}><Link to={`/shop/${slug}/request/${r.id}`}>Sent {day(r.at)}</Link></li>)}
-              </ul>
-            </section>
-          )}
         </main>
       </div>
       {preview.overlay}

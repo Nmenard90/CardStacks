@@ -10,18 +10,24 @@
  *   Public responses strip everything private — what the seller paid,
  *   purchase dates, which box/drawer a card lives in, and the stored price
  *   snapshot (the page prices from the card's live market data).
- *   Anyone can POST a request (no account); only the seller can read or
- *   update them, via the normal AuthGuard-protected /api/collection/:userId path.
+ *   Anyone can browse a shop; sending a request or asking for photos needs a real (not demo) account, and the
+ *   seller and buyer then talk in the request's chat. Everything but browsing goes through the normal
+ *   AuthGuard-protected /api/collection/:userId path (the caller's own id).
  *
  * ENDPOINTS
  *   Public:
  *     GET  /api/shop/:slug                                 — the shop's cards + Messenger link
  *     GET  /api/shop/from-share/:shareSlug                 — {slug} of the shop an old /s/<slug> share link now leads to
- *     POST /api/shop/:slug/requests                        — buyer sends a buy request or question; returns {ok, id}
- *     GET  /api/shop/:slug/requests/:id                    — the buyer's view of their request (the id is the secret:
- *          a random UUID only the buyer's link carries): the cards, status, and the seller's photos of those cards
  *     GET  /api/shop/:slug/photo/:cardId/:side?cond=NM     — a seller photo (side = front|back), JPEG
- *   Protected (owner only, enforced by AuthGuard's path check):
+ *   Protected, buyer side (the signed-in buyer's own id):
+ *     POST /api/collection/:userId/shop-orders/:slug           — body {message, items}; returns {ok, id}; emails the seller
+ *     POST /api/collection/:userId/shop-orders/:slug/photo-ask — body {cardId, name, number, condition}; returns {ok, id}
+ *     GET  /api/collection/:userId/shop-sent                   — requests this user sent (`unread` = the seller wrote)
+ *     GET  /api/collection/:userId/shop-sent/:id               — one, with the seller's photos and the chat (marks read)
+ *     POST /api/collection/:userId/shop-sent/:id/messages      — body {body}; returns the chat; emails the seller
+ *   Protected, seller side (owner only, enforced by AuthGuard's path check):
+ *     GET  /api/collection/:userId/shop-requests/:id/messages  — the chat (marks read)
+ *     POST /api/collection/:userId/shop-requests/:id/messages  — body {body}; returns the chat; emails the buyer
  *     GET    /api/collection/:userId/shop-photos              — which photos the owner has (no shop needed)
  *     GET    /api/collection/:userId/shop-photos/:cardId/:side?cond=NM — one of the owner's own photos, JPEG
  *     PUT    /api/collection/:userId/shop-photos/:cardId/:side?cond=NM — body = JPEG bytes (<= 1.5 MB)
@@ -127,31 +133,64 @@ object ShopRoutes:
           askedCondition = if condition == asked then None else Some(asked)
         ))
 
-  /** Trims and length-caps the untrusted buyer request; Left = message for the buyer. */
-  private[poketracker] def validateRequest(in: ShopRequestInput): Either[String, ShopRequestInput] =
-    val name    = in.buyerName.trim
-    val contact = in.buyerContact.trim
+  /** True when a card on a request is shaped like one from the shop page (not tampered with). */
+  private def cardLooksRight(i: ShopRequestItem): Boolean =
+    i.qty >= 1 && i.qty <= 99 && i.cardId.nonEmpty && i.cardId.length <= 64 && i.name.length <= 120 &&
+      i.number.length <= 20 && i.condition.nonEmpty && i.condition.length <= 20
+
+  /** Trims and checks a signed-in buyer's request; Left = message for the buyer. Pull-list fields are the seller's, so
+   *  anything the buyer sent in them is dropped. */
+  private[poketracker] def validateOrder(in: ShopOrderInput): Either[String, ShopOrderInput] =
     val message = in.message.trim
-    if name.isEmpty || name.length > 80          then Left("Please enter your name (80 characters max).")
-    else if contact.isEmpty || contact.length > 200 then Left("Please tell me how to reach you (Facebook name, phone, or email).")
-    else if message.length > 1000                then Left("Message is too long (1000 characters max).")
-    else if in.items.length > 150                then Left("That is too many cards for one request (150 max).")
-    else if in.items.exists(i => i.qty < 1 || i.qty > 99 || i.cardId.length > 64 || i.name.length > 120 ||
-                                 i.number.length > 20 || i.condition.length > 20)
-                                                 then Left("One of the cards in your request looks wrong. Please refresh and try again.")
-    else Right(ShopRequestInput(name, contact, message,
+    if message.length > 1000                   then Left("Message is too long (1000 characters max).")
+    else if in.items.isEmpty && message.isEmpty then Left("Pick some cards or type your question first.")
+    else if in.items.length > 150              then Left("That is too many cards for one request (150 max).")
+    else if !in.items.forall(cardLooksRight)   then Left("One of the cards in your request looks wrong. Please refresh and try again.")
+    else Right(ShopOrderInput(message,
       in.items.map(i => i.copy(pulled = None, askedCondition = None, foundQty = None, sold = None, photos = i.photos.filter(identity)))))
 
-  /** A request id as the server makes them (a random UUID); anything else can't be one. */
-  private val requestId = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$".r
+  /** The card a buyer asked for photos of, as a request line; Left = message for the buyer. */
+  private[poketracker] def validatePhotoAsk(in: PhotoAskInput): Either[String, ShopRequestItem] =
+    val item = ShopRequestItem(cardId = in.cardId.trim, name = in.name.trim, number = in.number.trim,
+                               condition = in.condition.trim, qty = 1, photos = Some(true))
+    if cardLooksRight(item) then Right(item) else Left("That card looks wrong. Please refresh and try again.")
 
-  /** The buyer's view of a request: their cards (not the seller's pull-list notes) and the seller's photos of them. */
-  private[poketracker] def buyerView(r: ShopRequest, photos: List[ShopPhotoRef]): BuyerRequestView =
+  /** A chat message's text; Left = message for the writer. */
+  private[poketracker] def validateMessage(in: MessageInput): Either[String, String] =
+    val text = in.body.trim
+    if text.isEmpty then Left("Type a message first.")
+    else if text.length > 2000 then Left("That message is too long (2000 characters max).")
+    else Right(text)
+
+  /** Stored chat rows as one side sees them: which messages the seller wrote. */
+  private[poketracker] def toMessages(rows: List[(String, String, String, java.time.Instant)], sellerUserId: String): List[ShopMessage] =
+    rows.map((id, sender, body, at) => ShopMessage(id, sender == sellerUserId, body, at))
+
+  /** The buyer's view of a request: their cards (not the seller's pull-list notes), the seller's photos of them and
+   *  the chat. */
+  private[poketracker] def buyerView(r: ShopRequest, shopSlug: String, shopName: String, photos: List[ShopPhotoRef],
+                                     messages: List[ShopMessage], unread: Boolean): BuyerRequestView =
     val items = r.items.map(i => BuyerRequestItem(i.cardId, i.name, i.number, i.condition, i.qty, i.photos.contains(true), i.askedCondition))
     val cards = items.map(_.cardId).toSet
-    BuyerRequestView(r.status, r.createdAt, items, photos.filter(p => cards(p.cardId)))
+    BuyerRequestView(r.id, shopSlug, shopName, r.kind, r.status, r.createdAt, r.message, items,
+                     photos.filter(p => cards(p.cardId)), messages, unread)
 
-  val publicRoutes: Routes[CollectionService & ShopRepository & ShopNotifier, Nothing] = Routes(
+  /** The open shop at `slug` that a signed-in, real (not demo) account may send to: (seller id, shop name, buyer's
+   *  name). Fails with a message for the buyer. */
+  private def shopToBuyFrom(slug: String, buyerUserId: String): ZIO[ShopRepository, String, (String, String, String)] =
+    for
+      seller <- ZIO.serviceWithZIO[ShopRepository](_.findPublicSeller(slug.toLowerCase)).orElseFail("Could not reach that shop. Please try again.")
+      s      <- ZIO.fromOption(seller).orElseFail("This shop is not open.")
+      _      <- ZIO.when(s._1 == buyerUserId)(ZIO.fail("This is your own shop."))
+      name   <- ZIO.serviceWithZIO[ShopRepository](_.accountName(buyerUserId)).orElseFail("Could not reach that shop. Please try again.")
+                  .someOrFail("Make a free CardStacks account (or sign in) to send requests.")
+    yield (s._1, s._3, name)
+
+  /** Reads a JSON body; Left = message for the sender. */
+  private def readJson[A: JsonDecoder](req: Request): IO[String, A] =
+    req.body.asString.orElseFail("Could not read that.").flatMap(b => ZIO.fromEither(b.fromJson[A]).orElseFail("Could not read that."))
+
+  val publicRoutes: Routes[CollectionService & ShopRepository, Nothing] = Routes(
 
     // Old share links (/s/<slug>) point at the same person's shop. 404 when they have none open.
     Method.GET / "api" / "shop" / "from-share" / string("shareSlug") -> handler { (shareSlug: String, _: Request) =>
@@ -193,35 +232,103 @@ object ShopRoutes:
             )).catchAll(_ => ZIO.succeed(Response.notFound))
     },
 
-    Method.POST / "api" / "shop" / string("slug") / "requests" -> handler { (slug: String, req: Request) =>
-      (for
-        seller <- ZIO.serviceWithZIO[ShopRepository](_.findPublicSeller(slug.toLowerCase))
-                    .mapError(_ => "Could not save your request. Please try again.")
-        userId <- ZIO.fromOption(seller.map(_._1)).orElseFail("This shop is not open.")
-        body   <- req.body.asString.mapError(_ => "Could not read that request.")
-        parsed <- ZIO.fromEither(body.fromJson[ShopRequestInput]).mapError(_ => "Could not read that request.")
-        clean  <- ZIO.fromEither(validateRequest(parsed))
-        saved  <- ZIO.serviceWithZIO[ShopRepository](_.create(userId, clean)).mapError(_ => "Could not save your request. Please try again.")
-        // Email the seller in the background: the buyer doesn't wait for it, and it can't fail their request.
-        _      <- ZIO.serviceWithZIO[ShopNotifier](_.newRequest(userId, slug.toLowerCase, seller.fold("")(_._3), saved)).forkDaemon
-      yield Response.json(s"""{"ok": true, "id": "${saved.id}"}""")
-      ).catchAll(msg => ZIO.succeed(Response.badRequest(msg)))
-    },
-
-    Method.GET / "api" / "shop" / string("slug") / "requests" / string("id") -> handler { (slug: String, id: String, _: Request) =>
-      if requestId.matches(id) then
-        (for
-          seller  <- ZIO.serviceWithZIO[ShopRepository](_.findPublicSeller(slug.toLowerCase))
-          userId  <- ZIO.fromOption(seller.map(_._1))
-          request <- ZIO.serviceWithZIO[ShopRepository](_.find(userId, id)).some
-          photos  <- ZIO.serviceWithZIO[ShopRepository](_.listPhotos(userId)).asSomeError
-        yield Response.json(buyerView(request, photos).toJson)
-        ).catchAll(_ => ZIO.succeed(notOpen))
-      else ZIO.succeed(notOpen)
-    }
   )
 
-  val protectedRoutes: Routes[ShopRepository, Nothing] = Routes(
+  val protectedRoutes: Routes[ShopRepository & ShopNotifier, Nothing] = Routes(
+
+    // ── Buying: a signed-in buyer's side ───────────────────────────────────────────────────────────────────────────
+
+    // Send a request from a shop page. The seller is emailed in the background (it can't slow or fail the request).
+    Method.POST / "api" / "collection" / string("userId") / "shop-orders" / string("slug") -> handler {
+      (userId: String, slug: String, req: Request) =>
+        (for
+          shop  <- shopToBuyFrom(slug, userId)
+          order <- readJson[ShopOrderInput](req).flatMap(o => ZIO.fromEither(validateOrder(o)))
+          saved <- ZIO.serviceWithZIO[ShopRepository](_.create(shop._1, ShopRequestInput(shop._3, "", order.message, order.items), Some(userId)))
+                     .orElseFail("Could not send your request. Please try again.")
+          _     <- ZIO.serviceWithZIO[ShopNotifier](_.newRequest(shop._1, slug.toLowerCase, shop._2, saved)).forkDaemon
+        yield Response.json(s"""{"ok": true, "id": "${saved.id}"}""")
+        ).catchAll(msg => ZIO.succeed(Response.badRequest(msg)))
+    },
+
+    // "📷 Ask for photos" on a card tile. Asking again for the same card is fine and sends nothing new.
+    Method.POST / "api" / "collection" / string("userId") / "shop-orders" / string("slug") / "photo-ask" -> handler {
+      (userId: String, slug: String, req: Request) =>
+        (for
+          shop   <- shopToBuyFrom(slug, userId)
+          item   <- readJson[PhotoAskInput](req).flatMap(a => ZIO.fromEither(validatePhotoAsk(a)))
+          result <- ZIO.serviceWithZIO[ShopRepository](_.askPhotos(shop._1, userId, shop._3, item))
+                      .orElseFail("Could not ask for photos. Please try again.")
+          _      <- ZIO.when(result._2)(ZIO.serviceWithZIO[ShopNotifier](_.newRequest(shop._1, slug.toLowerCase, shop._2, result._1)).forkDaemon)
+        yield Response.json(s"""{"ok": true, "id": "${result._1.id}"}""")
+        ).catchAll(msg => ZIO.succeed(Response.badRequest(msg)))
+    },
+
+    // The requests this user sent to other shops (no photos or messages; `unread` = the seller wrote).
+    Method.GET / "api" / "collection" / string("userId") / "shop-sent" -> handler { (userId: String, _: Request) =>
+      ZIO.serviceWithZIO[ShopRepository](_.listSent(userId))
+        .map(rows => Response.json(rows.map((r, slug, name, unread) => buyerView(r, slug, name, Nil, Nil, unread)).toJson))
+        .catchAll(_ => ZIO.succeed(Response.internalServerError("Could not load your requests.")))
+    },
+
+    // One sent request with the seller's photos of its cards and the chat; opening it marks the chat read.
+    Method.GET / "api" / "collection" / string("userId") / "shop-sent" / string("id") -> handler {
+      (userId: String, id: String, _: Request) =>
+        (for
+          found  <- ZIO.serviceWithZIO[ShopRepository](_.findSent(userId, id)).some
+          photos <- ZIO.serviceWithZIO[ShopRepository](_.listPhotos(found._2)).asSomeError
+          rows   <- ZIO.serviceWithZIO[ShopRepository](_.messages(id)).asSomeError
+          _      <- ZIO.serviceWithZIO[ShopRepository](_.markRead(id, userId)).asSomeError
+        yield Response.json(buyerView(found._1, found._3, found._4, photos, toMessages(rows, found._2), false).toJson)
+        ).catchAll(_ => ZIO.succeed(Response.notFound("That request can't be found.")))
+    },
+
+    // The buyer writes in the chat; the seller is emailed. Returns the whole chat.
+    Method.POST / "api" / "collection" / string("userId") / "shop-sent" / string("id") / "messages" -> handler {
+      (userId: String, id: String, req: Request) =>
+        (for
+          found <- ZIO.serviceWithZIO[ShopRepository](_.findSent(userId, id)).orElseFail("Could not send that. Please try again.")
+                     .someOrFail("That request can't be found.")
+          text  <- readJson[MessageInput](req).flatMap(m => ZIO.fromEither(validateMessage(m)))
+          rows  <- (ZIO.serviceWithZIO[ShopRepository](_.addMessage(id, userId, text)) *>
+                    ZIO.serviceWithZIO[ShopRepository](_.markRead(id, userId)) *>
+                    ZIO.serviceWithZIO[ShopRepository](_.messages(id))).orElseFail("Could not send that. Please try again.")
+          _     <- ZIO.serviceWithZIO[ShopNotifier](_.newMessage(found._2, true, found._1.buyerName, found._3, found._4, id, text)).forkDaemon
+        yield Response.json(toMessages(rows, found._2).toJson)
+        ).catchAll(msg => ZIO.succeed(Response.badRequest(msg)))
+    },
+
+    // ── Selling: the shop owner's side ─────────────────────────────────────────────────────────────────────────────
+
+    // A request's chat; opening it marks it read.
+    Method.GET / "api" / "collection" / string("userId") / "shop-requests" / string("id") / "messages" -> handler {
+      (userId: String, id: String, _: Request) =>
+        (for
+          _    <- ZIO.serviceWithZIO[ShopRepository](_.find(userId, id)).some
+          rows <- ZIO.serviceWithZIO[ShopRepository](_.messages(id)).asSomeError
+          _    <- ZIO.serviceWithZIO[ShopRepository](_.markRead(id, userId)).asSomeError
+        yield Response.json(toMessages(rows, userId).toJson)
+        ).catchAll(_ => ZIO.succeed(Response.notFound("That request can't be found.")))
+    },
+
+    // The seller writes in the chat (which also marks a new request answered); the buyer is emailed.
+    Method.POST / "api" / "collection" / string("userId") / "shop-requests" / string("id") / "messages" -> handler {
+      (userId: String, id: String, req: Request) =>
+        (for
+          request  <- ZIO.serviceWithZIO[ShopRepository](_.find(userId, id)).orElseFail("Could not send that. Please try again.")
+                        .someOrFail("That request can't be found.")
+          buyer    <- ZIO.fromOption(request.buyerUserId).orElseFail("This request came before chat. Reach the buyer the way they asked.")
+          text     <- readJson[MessageInput](req).flatMap(m => ZIO.fromEither(validateMessage(m)))
+          rows     <- (ZIO.serviceWithZIO[ShopRepository](_.addMessage(id, userId, text)) *>
+                       ZIO.serviceWithZIO[ShopRepository](_.markRead(id, userId)) *>
+                       ZIO.serviceWithZIO[ShopRepository](_.messages(id))).orElseFail("Could not send that. Please try again.")
+          shop     <- ZIO.serviceWithZIO[ShopRepository](_.getSettings(userId)).orElseSucceed(None)
+          seller   <- ZIO.serviceWithZIO[ShopRepository](_.accountName(userId)).orElseSucceed(None)
+          shopName  = shop.map(_.displayName).filter(_.nonEmpty).orElse(seller).getOrElse("the seller")
+          _        <- ZIO.serviceWithZIO[ShopNotifier](_.newMessage(buyer, false, shopName, shop.fold("")(_.slug), shopName, id, text)).forkDaemon
+        yield Response.json(toMessages(rows, userId).toJson)
+        ).catchAll(msg => ZIO.succeed(Response.badRequest(msg)))
+    },
 
     Method.GET / "api" / "collection" / string("userId") / "shop-settings" -> handler { (userId: String, _: Request) =>
       ZIO.serviceWithZIO[ShopRepository](_.getSettings(userId))

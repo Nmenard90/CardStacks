@@ -99,19 +99,54 @@ final case class BuyerRequestItem(cardId: String, name: String, number: String, 
 object BuyerRequestItem:
   given JsonEncoder[BuyerRequestItem] = DeriveJsonEncoder.gen[BuyerRequestItem]
 
-/** A request as its buyer sees it (from the link they got when sending it): the cards, whether the seller has
- *  answered, and the seller's photos of those cards. No contact details, message or pull-list notes. */
+/** One message in a request's chat between the seller and the (signed-in) buyer. */
+final case class ShopMessage(id: String, fromSeller: Boolean, body: String, createdAt: Instant)
+
+object ShopMessage:
+  given JsonEncoder[ShopMessage] = DeriveJsonEncoder.gen[ShopMessage]
+
+/** A request as its signed-in buyer sees it: which shop, the cards, whether the seller has answered, the seller's
+ *  photos of those cards, and the chat. No pull-list notes. In the list of sent requests, photos and messages are
+ *  left empty (`unread` says whether the seller wrote since the buyer last looked). */
 final case class BuyerRequestView(
+  id:        String,
+  shopSlug:  String,
+  shopName:  String,
+  kind:      String,
   status:    String,
   createdAt: Instant,
+  message:   String,
   items:     List[BuyerRequestItem],
-  photos:    List[ShopPhotoRef]
+  photos:    List[ShopPhotoRef],
+  messages:  List[ShopMessage],
+  unread:    Boolean
 )
 
 object BuyerRequestView:
   given JsonEncoder[BuyerRequestView] = DeriveJsonEncoder.gen[BuyerRequestView]
 
-/** A stored request, as the seller sees it in their inbox. */
+/** A request from a signed-in buyer on a shop page: the cards (each may ask for photos) and their note or trade
+ *  offer. Who they are comes from their account; they talk to the seller in the request's chat. */
+final case class ShopOrderInput(message: String, items: List[ShopRequestItem])
+
+object ShopOrderInput:
+  given JsonDecoder[ShopOrderInput] = DeriveJsonDecoder.gen[ShopOrderInput]
+
+/** "📷 Ask for photos" on one card tile of a shop (the condition shown on the tile). */
+final case class PhotoAskInput(cardId: String, name: String, number: String, condition: String)
+
+object PhotoAskInput:
+  given JsonDecoder[PhotoAskInput] = DeriveJsonDecoder.gen[PhotoAskInput]
+
+/** A chat message being sent. */
+final case class MessageInput(body: String)
+
+object MessageInput:
+  given JsonDecoder[MessageInput] = DeriveJsonDecoder.gen[MessageInput]
+
+/** A stored request, as the seller sees it in their inbox. `buyerUserId` is set when a signed-in buyer sent it
+ *  (those have a chat; older ones only the contact the buyer typed); `unread` = the buyer wrote since the seller
+ *  last opened the chat. `kind` is buy, chat (a question), or photos (asked for photos from a card tile). */
 final case class ShopRequest(
   id:           String,
   buyerName:    String,
@@ -120,7 +155,9 @@ final case class ShopRequest(
   kind:         String,
   items:        List[ShopRequestItem],
   status:       String,
-  createdAt:    Instant
+  createdAt:    Instant,
+  buyerUserId:  Option[String] = None,
+  unread:       Boolean        = false
 )
 
 object ShopRequest:

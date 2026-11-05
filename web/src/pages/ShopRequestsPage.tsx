@@ -4,9 +4,10 @@
  * HOW IT WORKS
  *   Login required (owner only; the backend enforces it by path). Three tabs, kept in the URL
  *   (?tab=requests|offers|settings, ?offer=<id> opens one offer) so Back steps between them:
- *   - Requests: buy and trade requests sent from the public /shop/<slug> page, newest first,
- *     each with who, how to reach them, what they picked (a pull list), and answered / done buttons.
+ *   - Requests: buy, trade and photo requests sent from the public /shop/<slug> page, newest first,
+ *     each with who, what they picked (a pull list), the chat with the buyer, and answered / done buttons.
  *     "Complete sale" takes the found cards out of the collection; a refund puts them back.
+ *   - Sent: requests this user sent to other shops (hidden until there is one); each opens its chat page.
  *   - Offers: card offers made through the old share-link trade page (folded into the shop),
  *     still answerable with their message threads. Hidden when there are none.
  *   - Settings: shop on/off, link name, shop name, bio and Messenger link.
@@ -20,9 +21,10 @@ import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  foundCount, getShopRequests, getShopSettings, putBackShopRequest, saveShopSettings, sellShopRequest, setShopRequestStatus,
-  type ShopRequest, type ShopRequestStatus, type ShopSettings,
+  foundCount, getSentRequests, getShopRequests, getShopSettings, putBackShopRequest, saveShopSettings, sellShopRequest, setShopRequestStatus,
+  type BuyerRequestView, type ShopRequest, type ShopRequestStatus, type ShopSettings,
 } from '../api/shop'
+import { ShopRequestChat } from '../components/ShopRequestChat'
 import { afterInventoryChange } from '../lib/shopSale'
 import { getOffers } from '../api/trading'
 import { HeaderNav } from '../components/HeaderNav'
@@ -89,9 +91,6 @@ function ShopSettingsPanel({ userId, suggestedSlug }: { userId: string; suggeste
           onChange={e => setDraft({ ...form, bio: e.target.value })} />
         <span className="shop-sub">Shown on your public shop. {(form.bio ?? '').length}/1000 characters.</span>
       </label>
-      <label>Your Messenger link (optional, like https://m.me/yourname)
-        <input type="text" value={form.messengerUrl} maxLength={200} onChange={e => setDraft({ ...form, messengerUrl: e.target.value })} />
-      </label>
       {saved.enabled && saved.slug && <p>Your link: <b>{`${window.location.origin}/shop/${saved.slug}`}</b></p>}
       <div className="shop-sheet-btns">
         <button type="button" className="shop-btn" disabled={busy} onClick={() => save(form)}>{busy ? 'Saving…' : 'Save'}</button>
@@ -110,7 +109,34 @@ function ShopSettingsPanel({ userId, suggestedSlug }: { userId: string; suggeste
   )
 }
 
-type Tab = 'requests' | 'offers' | 'settings'
+type Tab = 'requests' | 'sent' | 'offers' | 'settings'
+
+const KIND_LABEL = (r: { kind: string; message: string }) =>
+  r.kind === 'photos' ? 'Photo request' : r.kind === 'chat' ? 'Question' : r.message.startsWith('TRADE OFFER') ? 'Trade request' : 'Buy request'
+
+/** Requests you sent to other shops: each opens its page (cards, the seller's photos, the chat). */
+function SentRequests({ sent, loading }: { sent: BuyerRequestView[]; loading: boolean }) {
+  if (loading) return <p className="shop-msg">Loading…</p>
+  if (sent.length === 0) return <p className="shop-msg">You haven't sent any requests yet. Find a shop, pick cards, and tap Send request.</p>
+  return (
+    <ul className="shop-list">
+      {sent.map(r => (
+        <li key={r.id} className="shop-req">
+          <div className="shop-req-head">
+            <b>{r.shopName || r.shopSlug}</b>
+            <span className={'shop-pill shop-pill-' + r.status}>{KIND_LABEL(r)} · {STATUS_LABEL[r.status]}</span>
+            {r.unread && <span className="shop-pill shop-pill-new">New message</span>}
+            <span className="shop-sub">{new Date(r.createdAt).toLocaleString()}</span>
+          </div>
+          {r.items.length > 0 && <p className="shop-sub">{r.items.map(i => `${i.qty}× ${i.name} #${i.number} (${i.condition})`).join(' · ')}</p>}
+          <div className="shop-sheet-btns">
+            <Link className="shop-btn" to={`/shop/${r.shopSlug}/request/${r.id}`}>Open chat and photos</Link>
+          </div>
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 /**
  * How to reach a buyer: the way they asked for (text, call, email, Facebook, other) and a button that does it. Older
@@ -203,10 +229,14 @@ export function ShopRequestsPage() {
   const { data: settings } = useQuery({
     queryKey: ['shop-settings', userId], queryFn: () => getShopSettings(userId), enabled: !!userId,
   })
+  const { data: sent = [], isLoading: sentLoading } = useQuery({
+    queryKey: ['shop-sent', userId], queryFn: () => getSentRequests(userId),
+    enabled: !!userId && !user?.isAnonymous, refetchInterval: 60_000,
+  })
 
   const openOffer = params.get('offer') ?? ''
   const urlTab = params.get('tab')
-  const tab: Tab = openOffer ? 'offers' : urlTab === 'offers' || urlTab === 'settings' ? urlTab : 'requests'
+  const tab: Tab = openOffer ? 'offers' : urlTab === 'offers' || urlTab === 'settings' || urlTab === 'sent' ? urlTab : 'requests'
   const setTab = (t: Tab) => { if (t !== tab) setParams(t === 'requests' ? {} : { tab: t }) }
 
   const mark = async (r: ShopRequest, status: ShopRequestStatus) => {
@@ -218,7 +248,9 @@ export function ShopRequestsPage() {
 
   // A request just sold (or put back) stays on screen until the filter changes, though it's now Done.
   const shown = requests.filter(r => filter === 'all' || r.status === filter || touched.has(r.id))
-  const newCount = requests.filter(r => r.status === 'new').length
+  // The Requests badge counts new requests plus older ones with an unread message.
+  const newCount = requests.filter(r => r.status === 'new' || r.unread).length
+  const unreadSent = sent.filter(r => r.unread).length
   const unreadOffers = offers.filter(o => o.unread).length
   const shopOff = settings && !settings.enabled
 
@@ -237,6 +269,11 @@ export function ShopRequestsPage() {
             <button className={tab === 'requests' ? 'active' : ''} onClick={() => setTab('requests')}>
               Requests {newCount > 0 && <span className="trade-badge">{newCount}</span>}
             </button>
+            {(sent.length > 0 || tab === 'sent') && (
+              <button className={tab === 'sent' ? 'active' : ''} onClick={() => setTab('sent')}>
+                Sent {unreadSent > 0 && <span className="trade-badge">{unreadSent}</span>}
+              </button>
+            )}
             {(offers.length > 0 || tab === 'offers') && (
               <button className={tab === 'offers' ? 'active' : ''} onClick={() => setTab('offers')}>
                 Offers {unreadOffers > 0 && <span className="trade-badge">{unreadOffers}</span>}
@@ -248,13 +285,18 @@ export function ShopRequestsPage() {
 
           {tab === 'settings' && <ShopSettingsPanel userId={userId} suggestedSlug={user.username} />}
 
+          {tab === 'sent' && <>
+            <p className="shop-sub">Requests you sent to other shops. Open one to see the seller's photos and chat with them.</p>
+            <SentRequests sent={sent} loading={sentLoading} />
+          </>}
+
           {tab === 'offers' && (
             <OfferInbox userId={userId} offers={offers} openId={openOffer}
               setOpenId={id => setParams(id ? { offer: id } : { tab: 'offers' })} />
           )}
 
           {tab === 'requests' && <>
-            <p className="shop-sub">Buy and trade requests from your public shop. Each one says how the buyer wants to be contacted. You also get an email at your sign-in address when a new one arrives.</p>
+            <p className="shop-sub">Buy, trade and photo requests from your public shop. Reply in each request's chat; you get an email at your sign-in address for each new request and message.</p>
             {shopOff && <p className="shop-msg">Your shop is off, so nobody can send requests. <button type="button" className="shop-link-btn" onClick={() => setTab('settings')}>Turn it on in Settings →</button></p>}
             <div className="shop-tools">
               {(['new', 'answered', 'done', 'all'] as const).map(f => (
@@ -273,12 +315,15 @@ export function ShopRequestsPage() {
                 <li key={r.id} className="shop-req">
                   <div className="shop-req-head">
                     <b>{r.buyerName}</b>
-                    <span className={'shop-pill shop-pill-' + r.status}>{r.kind === 'chat' ? 'Question' : r.message.startsWith('TRADE OFFER') ? 'Trade request' : 'Buy request'} · {STATUS_LABEL[r.status]}</span>
+                    <span className={'shop-pill shop-pill-' + r.status}>{KIND_LABEL(r)} · {STATUS_LABEL[r.status]}</span>
+                    {r.unread && <span className="shop-pill shop-pill-new">New message</span>}
                     <span className="shop-sub">{new Date(r.createdAt).toLocaleString()}</span>
                   </div>
-                  <BuyerContact name={r.buyerName} contact={r.buyerContact} />
+                  {/* Requests from before the chat only have the contact the buyer typed. */}
+                  {!r.buyerUserId && <BuyerContact name={r.buyerName} contact={r.buyerContact} />}
                   {r.items.length > 0 && <RequestedCards requestId={r.id} items={r.items} userId={userId} preview={preview} />}
                   {r.message && <p className="shop-req-msg">{r.message}</p>}
+                  {r.buyerUserId && <ShopRequestChat userId={userId} request={r} />}
                   <SaleControls request={r} userId={userId} onChange={() => setTouched(t => new Set(t).add(r.id))} />
                   <div className="shop-sheet-btns">
                     {r.status !== 'answered' && <button type="button" className="shop-btn shop-btn-ghost" onClick={() => mark(r, 'answered')}>Mark answered</button>}

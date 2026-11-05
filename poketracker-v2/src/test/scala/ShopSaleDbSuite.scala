@@ -56,7 +56,7 @@ class ShopSaleDbSuite extends munit.FunSuite:
     run(collection.findEntry(seller, cardId)).toList.flatMap(_.conditions.map(c => (c.condition, c.quantity)))
 
   private def request(items: ShopRequestItem*): ShopRequest =
-    run(shop.create(seller, ShopRequestInput("Buyer", "buyer@example.test", "", items.toList)))
+    run(shop.create(seller, ShopRequestInput("Buyer", "buyer@example.test", "", items.toList), None))
 
   private def mark(req: ShopRequest, index: Int, change: ShopRequestItemChange) =
     run(shop.updateItem(seller, req.id, index, ShopRoutes.applyItemChange(_, change))).get.toOption.get

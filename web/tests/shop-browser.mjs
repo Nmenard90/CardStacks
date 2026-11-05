@@ -38,24 +38,76 @@ const offer = {
   messages: [{ id: 'm1', senderId: 'u-old', sender: 'old-trader', body: 'Still have this one?', createdAt: '2026-10-20T10:00:00Z' }],
 }
 
-async function setup({ width = 1440, height = 900, authenticated = false, mode = 'normal', offers = [] } = {}) {
+// Laptop and phone; SHOP_TEST_WIDE=1 adds the owner's screen (3200x1588 at 80% zoom = 4000x1985 CSS pixels).
+const WIDTHS = process.env.SHOP_TEST_WIDE ? [4000, 1440, 390] : [1440, 390]
+const heightFor = width => (width === 4000 ? 1985 : width === 390 ? 844 : 900)
+
+// A signed-in shopper (not the shop's owner): sends requests, asks for photos, chats.
+const buyer = { ...user, id: 'qa-buyer', supabaseUserId: 'qa-buyer', username: 'qa-buyer', email: 'buyer@example.test' }
+
+/** A request as the buyer's API returns it (ShopRoutes.buyerView). */
+const sentView = (id, kind, items, message) => ({
+  id, shopSlug: 'nmenard90', shopName: fixture.shop.displayName, kind, status: 'new', createdAt: '2026-11-04T12:00:00Z',
+  message, items, photos: [], messages: [], unread: false,
+})
+
+async function setup({ width = 1440, height = 900, authenticated = false, as = 'owner', mode = 'normal', offers = [] } = {}) {
+  const me = as === 'buyer' ? buyer : user
   const context = await browser.newContext({ viewport: { width, height }, reducedMotion: 'reduce', ...(width < 600 ? { hasTouch: true, isMobile: true } : {}) })
-  if (authenticated) await context.addInitScript(({ user }) => {
+  if (authenticated || as === 'buyer') await context.addInitScript(({ user }) => {
     const encode = value => btoa(JSON.stringify(value)).replaceAll('=', '').replaceAll('+', '-').replaceAll('/', '_')
     const expires = Math.floor(Date.now() / 1000) + 3600
     const token = `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({ sub: user.id, exp: expires, aud: 'authenticated', role: 'authenticated' })}.cWE`
     localStorage.setItem('sb-qa-auth-token', JSON.stringify({ access_token: token, refresh_token: 'qa-refresh', expires_at: expires, expires_in: 3600, token_type: 'bearer', user }))
-  }, { user })
+  }, { user: me })
   const state = {
     mode, sent: [], statusPuts: [], itemPosts: [], salePosts: [], offers: structuredClone(offers), release: null, buyerPhotos: [],
+    photoAsks: [], sentList: [], buyerChat: [],
+    // The seller's chat with qa-buyer on request r2 (the buyer wrote first).
+    sellerChat: [{ id: 'c1', fromSeller: false, body: 'Is the Owned Low centered?', createdAt: '2026-11-03T09:00:00Z' }],
     settings: { slug: 'nmenard90', enabled: true, messengerUrl: '', displayName: fixture.shop.displayName, bio: fixture.shop.bio },
     inbox: [{ id: 'r1', sellerUserId: user.id, buyerName: 'Ash', buyerContact: 'ash@example.test', kind: 'buy', status: 'new', createdAt: '2026-10-28T12:00:00Z', items: [{ cardId: 'me1-65', name: 'Greavard', number: '65', condition: 'NM', qty: 1 }, { cardId: 'owned-2', name: 'Owned High', number: '3', condition: 'NM', qty: 1, photos: true }, { cardId: 'owned-1', name: 'Owned Mid', number: '2', condition: 'NM', qty: 2 }, { cardId: 'owned-0', name: 'Owned Low', number: '1', condition: 'NM', qty: 1 }],
-      message: 'TRADE OFFER (cards about $3.00 for cards about $0.05, at today\'s prices):\n- 1× Trade Bait #9 (NM)' }],
+      message: 'TRADE OFFER (cards about $3.00 for cards about $0.05, at today\'s prices):\n- 1× Trade Bait #9 (NM)' },
+    // From a signed-in buyer: it has a chat instead of a typed contact.
+    { id: 'r2', sellerUserId: user.id, buyerUserId: 'qa-buyer', buyerName: 'qa-buyer', buyerContact: '', kind: 'buy', status: 'answered', unread: false, createdAt: '2026-11-03T08:00:00Z',
+      items: [{ cardId: 'owned-0', name: 'Owned Low', number: '1', condition: 'NM', qty: 1 }], message: '' }],
   }
-  await context.route('https://qa.supabase.co/**', route => route.fulfill({ json: user }))
+  await context.route('https://qa.supabase.co/**', route => route.fulfill({ json: me }))
   await context.route(url => url.pathname.startsWith('/api/'), async route => {
     const req = route.request(), url = new URL(req.url()), p = url.pathname
-    if (p === '/api/auth/me') return route.fulfill({ json: user })
+    if (p === '/api/auth/me') return route.fulfill({ json: me })
+    // The buyer's side (ShopRoutes protected buyer routes): send, ask for photos, their sent requests and chat.
+    if (p === '/api/collection/qa-buyer/shop-orders/nmenard90' && req.method() === 'POST') {
+      const body = req.postDataJSON()
+      state.sent.push(body)
+      state.sentList.unshift(sentView('qa-request', 'buy', body.items.map(i => ({ ...i, photos: false })), body.message))
+      return route.fulfill({ json: { ok: true, id: 'qa-request' } })
+    }
+    if (p === '/api/collection/qa-buyer/shop-orders/nmenard90/photo-ask' && req.method() === 'POST') {
+      const ask = req.postDataJSON()
+      state.photoAsks.push(ask)
+      let r = state.sentList.find(x => x.kind === 'photos')
+      if (!r) { r = sentView('qa-photos', 'photos', [], ''); state.sentList.push(r) }
+      if (!r.items.some(i => i.cardId === ask.cardId && i.condition === ask.condition)) r.items.push({ ...ask, qty: 1, photos: true })
+      return route.fulfill({ json: { ok: true, id: r.id } })
+    }
+    if (p === '/api/collection/qa-buyer/shop-sent' || p === '/api/collection/qa-owner/shop-sent') return route.fulfill({ json: me === buyer ? state.sentList : [] })
+    const sentOne = p.match(/^\/api\/collection\/qa-buyer\/shop-sent\/([^/]+)(\/messages)?$/)
+    if (sentOne) {
+      const r = state.sentList.find(x => x.id === sentOne[1])
+      if (!r) return route.fulfill({ status: 404, body: "That request can't be found." })
+      if (sentOne[2]) {
+        state.buyerChat.push({ id: 'b' + state.buyerChat.length, fromSeller: false, body: req.postDataJSON().body, createdAt: '2026-11-04T12:05:00Z' })
+        return route.fulfill({ json: state.buyerChat })
+      }
+      return route.fulfill({ json: { ...r, photos: state.buyerPhotos, messages: state.buyerChat, unread: false } })
+    }
+    // The seller's side of a request's chat.
+    const chat = p.match(/^\/api\/collection\/qa-owner\/shop-requests\/([^/]+)\/messages$/)
+    if (chat) {
+      if (req.method() === 'POST') state.sellerChat.push({ id: 's' + state.sellerChat.length, fromSeller: true, body: req.postDataJSON().body, createdAt: '2026-11-04T12:06:00Z' })
+      return route.fulfill({ json: state.sellerChat })
+    }
     if (p === '/api/games') return route.fulfill({ json: [{ id: 'pokemon', name: 'Pokémon', shortName: 'Pokémon', enabled: true }] })
     if (p === '/api/sets') return route.fulfill({ json: fixture.sets })
     if (p === '/api/search') return route.fulfill({ json: [tradeCard] })
@@ -68,18 +120,8 @@ async function setup({ width = 1440, height = 900, authenticated = false, mode =
       if (state.mode === 'partial' && cards[0]) cards[0].card.prices = undefined
       return route.fulfill({ json: { ...fixture.shop, displayName: state.settings.displayName, bio: state.settings.bio, cards, photos: [] } })
     }
-    if (p === '/api/shop/nmenard90/requests' && req.method() === 'POST') {
-      state.sent.push(req.postDataJSON())
-      return route.fulfill({ json: { ok: true, id: 'qa-request' } })
-    }
-    // The buyer's own request (by the id the POST returned), as the server builds it (ShopRoutes.buyerView).
-    if (p === '/api/shop/nmenard90/requests/qa-request') {
-      const sent = state.sent.at(-1)
-      if (!sent) return route.fulfill({ status: 404, body: 'This shop is not open.' })
-      const items = sent.items.map(i => ({ cardId: i.cardId, name: i.name, number: i.number, condition: i.condition, qty: i.qty, photos: !!i.photos }))
-      return route.fulfill({ json: { status: 'new', createdAt: '2026-11-04T12:00:00Z', items, photos: state.buyerPhotos } })
-    }
     if (p.startsWith('/api/shop/nmenard90/photo/')) return route.fulfill({ contentType: 'image/jpeg', body: tinyJpeg })
+    if (p === '/api/collection/qa-buyer/shop-settings') return route.fulfill({ json: { slug: '', enabled: false, messengerUrl: '', displayName: '', bio: '' } })
     if (p.endsWith('/shop-settings')) {
       if (req.method() === 'PUT') state.settings = req.postDataJSON()
       return route.fulfill({ json: state.settings })
@@ -187,60 +229,85 @@ try {
     await page.goBack()
     await page.waitForFunction(n => document.querySelectorAll('.card-grid .pcard').length === n, all)
 
-    // Search, then pick a card and send a buy request.
+    // Signed out: sending (or asking for photos) shows the sign-in screen, keeping the picked cards; Back returns.
     const first = fixture.shop.cards[0].card
     await page.getByPlaceholder('Search name, artist, set…').fill(first.name)
-    await page.locator('.card-grid .pcard').filter({ hasText: first.name }).first().waitFor()
-    await page.locator('.card-grid .pcard').filter({ hasText: first.name }).first().getByRole('button', { name: /^Add one/ }).click()
+    const tile = page.locator('.card-grid .pcard').filter({ hasText: first.name }).first()
+    await tile.getByRole('button', { name: /^Add one/ }).click()
     await page.getByRole('button', { name: 'Send request' }).click()
-    const dialog = page.getByRole('dialog')
-    await dialog.getByRole('checkbox', { name: /Send me photos/ }).check()
-    await dialog.getByLabel('Your name').fill('QA Buyer')
-    // The buyer picks how to be contacted (no Facebook link required), and the detail must fit that way.
+    await page.locator('.shop-signin-note').getByText('Sign in to send your request.').waitFor()
+    assert.equal(JSON.parse(await page.evaluate(() => sessionStorage.getItem('cardstacks.shop.pending.nmenard90'))).cart[0].cardId, first.id)
+    await noOverflow(page)
+    await page.screenshot({ path: path.join(report, `shop-signin-${width}.png`) })
+    await page.getByRole('button', { name: '← Back to the shop' }).click()
+    await tile.waitFor()
+    assert.equal(await page.evaluate(() => sessionStorage.getItem('cardstacks.shop.pending.nmenard90')), null)
+    assert.equal(state.sent.length, 0)
+    assert.equal(errors.length, 0, errors.join('\n'))
+    await context.close()
+  })
+
+  for (const width of WIDTHS) await run(`signed-in buyer: ask for photos on the tile, one tidy form, chat on the request (${width}px)`, async () => {
+    const { context, page, state, errors } = await setup({ as: 'buyer', width, height: heightFor(width) })
+    await openShop(page)
+    const first = fixture.shop.cards[0].card
+    await page.getByPlaceholder('Search name, artist, set…').fill(first.name)
+    const tile = page.locator('.card-grid .pcard').filter({ hasText: first.name }).first()
+    // 📷 Ask for photos sits on the tile (no checkbox in the form) and turns into "asked".
+    await tile.getByRole('button', { name: '📷 Ask for photos' }).click()
+    await tile.getByRole('button', { name: '📷 Photos asked ✓' }).waitFor()
+    assert.equal(state.photoAsks.length, 1)
+    assert.equal(state.photoAsks[0].cardId, first.id)
+    await page.screenshot({ path: path.join(report, `shop-tile-asked-${width}.png`) })
+    await tile.getByRole('button', { name: /^Add one/ }).click()
+    await page.getByRole('button', { name: 'Send request' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Send request' })
+    await dialog.getByText('Signed in as').waitFor()
+    // One checkbox (the rules), Buy/Trade as one choice, no contact fields.
+    assert.equal(await dialog.getByRole('checkbox').count(), 1, 'exactly one checkbox on the form')
+    assert.equal(await dialog.getByRole('radio').count(), 2)
+    assert(await dialog.getByRole('radio', { name: /Buy/ }).isChecked(), 'Buy is the default')
+    assert.equal(await dialog.locator('input[type=tel], input[type=email], input[type=url]').count(), 0, 'no contact boxes')
+    // Every label on the form uses the same font.
+    const fonts = await dialog.locator('label, legend').evaluateAll(els => els.map(e => getComputedStyle(e).fontFamily))
+    assert.equal(new Set(fonts).size, 1, `form fonts differ: ${[...new Set(fonts)]}`)
+    await dialog.getByRole('button', { name: 'Send', exact: true }).click()
+    await dialog.getByRole('alert').filter({ hasText: /tick the box/ }).waitFor()
+    assert.equal(state.sent.length, 0, 'not sent before agreeing to the rules')
     await dialog.getByRole('checkbox', { name: /prices follow the market/ }).check()
-    await dialog.getByRole('button', { name: 'Send', exact: true }).click()
-    await dialog.getByText(/pick how you would like me to contact you/).waitFor()
-    await dialog.getByRole('radio', { name: /Text/ }).check()
-    await dialog.getByLabel('Your phone number').fill('call me maybe')
-    await dialog.getByRole('button', { name: 'Send', exact: true }).click()
-    await dialog.getByText(/phone number doesn't look right/).waitFor()
-    assert.equal(state.sent.length, 0, 'a request without a usable contact must not send')
-    // Same width for every box on the form (a type=url box once fell back to the browser's small default).
-    const widths = await dialog.locator('input[type=text], input[type=tel], textarea').evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().width)))
-    assert.equal(new Set(widths).size, 1, `form boxes differ in width: ${widths}`)
-    await dialog.getByLabel('Your phone number').fill('555-123-4567')
+    await dialog.getByLabel('Message to the seller (optional)').fill('Can you hold it until Friday?')
     await page.screenshot({ path: path.join(report, `shop-form-${width}.png`) })
     await dialog.getByRole('button', { name: 'Send', exact: true }).click()
     await dialog.getByRole('heading', { name: /Sent!/ }).waitFor()
-    await dialog.getByText(/I'll text you to confirm/).waitFor()
     assert.equal(state.sent.length, 1)
-    assert.equal(state.sent[0].buyerContact, 'Text: 555-123-4567')
+    assert.deepEqual(Object.keys(state.sent[0]).sort(), ['items', 'message'], 'no name or contact is sent; the account says who')
     assert.equal(state.sent[0].items[0].cardId, first.id)
-    assert.equal(state.sent[0].items[0].photos, true, 'the buyer asked for photos of that card')
-    // Their request page: the card, and that the photos are on their way; the seller's photos appear there.
-    await dialog.getByText(/photos you asked for will show up on your request page/).waitFor()
+    assert.equal(state.sent[0].message, 'Can you hold it until Friday?')
     await page.screenshot({ path: path.join(report, `shop-sent-${width}.png`) })
-    await dialog.getByRole('link', { name: 'View your request' }).click()
+    // Their request page: the card, its photos once taken, and the chat with the seller.
+    await dialog.getByRole('link', { name: 'Open your request' }).click()
     await page.waitForURL('**/shop/nmenard90/request/qa-request')
-    await page.getByText(/You asked for photos/).waitFor()
+    await page.getByRole('heading', { name: new RegExp(`Chat with ${fixture.shop.displayName}`) }).waitFor()
     assert.match((await page.locator('.buyer-req__card').first().innerText()).replace(/\s+/g, ' '), new RegExp(`1× ${first.name}`))
-    await noOverflow(page)
-    await page.screenshot({ path: path.join(report, `buyer-request-waiting-${width}.png`) })
+    await page.getByLabel('Message the seller').fill('Thanks! Paying by Venmo.')
+    await page.getByRole('button', { name: 'Send', exact: true }).click()
+    await page.locator('.offer-msg.mine').getByText('Thanks! Paying by Venmo.').waitFor()
+    assert.equal(state.buyerChat.length, 1)
     const cond = state.sent[0].items[0].condition
     state.buyerPhotos = [{ cardId: first.id, condition: cond, side: 'front', version: 1 }, { cardId: first.id, condition: cond, side: 'back', version: 1 }]
     await page.reload({ waitUntil: 'domcontentloaded' })
     await page.locator('.buyer-req__card .photo-frame').nth(1).waitFor()
-    assert.equal(await page.getByText(/You asked for photos/).count(), 0)
-    await page.screenshot({ path: path.join(report, `buyer-request-photos-${width}.png`) })
-    // Back on the shop, this browser remembers the request.
+    await noOverflow(page)
+    await page.screenshot({ path: path.join(report, `buyer-request-chat-${width}.png`) })
+    // Back on the shop: a link to their requests (a buy request and a photo request).
     await page.getByRole('link', { name: /Back to the shop/ }).click()
-    await page.getByRole('link', { name: /Your request/ }).waitFor()
+    await page.getByRole('link', { name: /Your requests/ }).waitFor()
     assert.equal(errors.length, 0, errors.join('\n'))
     await context.close()
   })
 
   await run('trade request: catalog search, must cover the cards picked, cash top-up', async () => {
-    const { context, page, state, errors } = await setup({ width: 390, height: 844 })
+    const { context, page, state, errors } = await setup({ as: 'buyer', width: 390, height: 844 })
     await openShop(page)
     // Pick the priciest card so one Trade Bait ($3) is short and needs cash.
     const priciest = fixture.shop.cards.reduce((a, b) => ((b.card.prices?.nm ?? 0) > (a.card.prices?.nm ?? 0) ? b : a))
@@ -248,10 +315,7 @@ try {
     await page.locator('.card-grid .pcard').filter({ hasText: priciest.card.name }).first().getByRole('button', { name: /^Add one/ }).click()
     await page.getByRole('button', { name: 'Send request' }).click()
     const dialog = page.getByRole('dialog')
-    await dialog.getByLabel('Your name').fill('QA Trader')
-    await dialog.getByRole('radio', { name: /Email/ }).check()
-    await dialog.getByLabel('Your email').fill('qa.trader@example.test')
-    await dialog.getByRole('checkbox', { name: /I'd like to trade/ }).check()
+    await dialog.getByRole('radio', { name: /Trade/ }).check()
     await dialog.getByLabel('Search cards to trade').fill('Trade Bait')
     await dialog.getByRole('button', { name: 'Add Trade Bait to trade' }).click()
     await dialog.getByRole('checkbox', { name: /prices follow the market/ }).check()
@@ -294,6 +358,7 @@ try {
     const { context, page, state, errors } = await setup({ authenticated: true })
     await openShop(page)
     assert.equal(await page.getByRole('button', { name: /photos/i }).count(), 0, 'photos are taken on the seller side, not on the shop')
+    assert.equal(await page.getByRole('button', { name: /Send request|Ask a question/ }).count(), 0, 'the owner can\'t send to their own shop')
     await page.locator('.share-owner-note').getByRole('link', { name: 'My Shop' }).click()
     await page.waitForURL('**/shop/requests')
     await page.getByRole('button', { name: 'Settings' }).click()
@@ -371,6 +436,26 @@ try {
     await page.getByRole('button', { name: 'Mark answered' }).click()
     await page.waitForFunction(() => document.querySelectorAll('.shop-req').length === 0)
     assert.equal(state.inbox[0].status, 'answered')
+    assert.equal(errors.length, 0, errors.join('\n'))
+    await context.close()
+  })
+
+  for (const width of WIDTHS) await run(`My Shop: chat with a signed-in buyer in the request; Sent tab for your own requests (${width}px)`, async () => {
+    const { context, page, state, errors } = await setup({ authenticated: true, width, height: heightFor(width) })
+    await page.goto(origin + '/shop/requests', { waitUntil: 'domcontentloaded' })
+    await page.locator('.shop-req').first().waitFor()
+    assert.equal(await page.getByRole('button', { name: /^Sent/ }).count(), 0, 'no Sent tab without sent requests')
+    await page.getByRole('button', { name: 'Answered', exact: true }).click()
+    const r2 = page.locator('.shop-req', { hasText: 'qa-buyer' })
+    await r2.getByRole('heading', { name: 'Chat with qa-buyer' }).waitFor()
+    await r2.getByText('Is the Owned Low centered?').waitFor()
+    assert.equal(await r2.getByText(/Reach them at/).count(), 0, 'a signed-in buyer has a chat, not a typed contact')
+    await r2.getByLabel('Message qa-buyer').fill('Yes, dead center. Photos coming.')
+    await r2.getByRole('button', { name: 'Send', exact: true }).click()
+    await r2.locator('.offer-msg.mine').getByText('Yes, dead center. Photos coming.').waitFor()
+    assert.equal(state.sellerChat.at(-1).body, 'Yes, dead center. Photos coming.')
+    await noOverflow(page)
+    await page.screenshot({ path: path.join(report, `my-shop-chat-${width}.png`) })
     assert.equal(errors.length, 0, errors.join('\n'))
     await context.close()
   })

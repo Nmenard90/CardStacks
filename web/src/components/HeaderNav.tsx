@@ -18,7 +18,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useUser } from '../context/UserContext'
 import { getUnreadOffers } from '../api/trading'
-import { getShopRequests } from '../api/shop'
+import { getSentRequests, getShopRequests } from '../api/shop'
 import { getGames } from '../api/cards'
 import { DEFAULT_GAME, currentGame, switchGame } from '../lib/game'
 
@@ -32,7 +32,7 @@ const ITEMS: NavItem[] = [
   { to: '/shop/requests',      label: '🛍 Shop' },
 ]
 
-/** New shop requests plus offers with unseen activity — the badge on Shop.
+/** New shop requests, unread request chats (as seller or buyer) and offers with unseen activity — the badge on Shop.
  *  Polls once a minute; demo accounts can't have a shop, so they never ask. */
 function useShopInbox(): number {
   const { user } = useUser()
@@ -47,7 +47,13 @@ function useShopInbox(): number {
     queryFn: () => getShopRequests(user!.id),
     enabled, refetchInterval: 60_000, retry: false,
   })
-  return offers + requests.filter(r => r.status === 'new').length
+  // Requests you sent to other shops, for the seller's unread replies.
+  const { data: sent = [] } = useQuery({
+    queryKey: ['shop-sent', user?.id],
+    queryFn: () => getSentRequests(user!.id),
+    enabled, refetchInterval: 60_000, retry: false,
+  })
+  return offers + requests.filter(r => r.status === 'new' || r.unread).length + sent.filter(r => r.unread).length
 }
 
 const TOOLS_ITEMS: NavItem[] = [

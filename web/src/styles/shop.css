@@ -34,14 +34,14 @@
 /* Every text box in a sheet looks the same: full width, same height, same border (a type="url" box used to fall back to the browser's small default). */
 .shop-sheet input:is([type=text],[type=tel],[type=email],[type=url],[type=number],[type=search]),.shop-sheet textarea,.shop-sheet select{box-sizing:border-box;width:100%;min-height:44px;background:var(--surface2);color:var(--text);border:var(--ink-w) solid var(--border);border-radius:10px;padding:10px 12px;font:inherit;font-size:16px}
 .shop-sheet textarea{resize:vertical;min-height:88px}
-/* "How should I contact you?": one pill per way, the picked one highlighted; the real radio stays for keyboards and screen readers. */
-.shop-contact{border:0;margin:0;padding:0;min-width:0;display:grid;gap:10px}
-.shop-contact legend{padding:0;margin-bottom:8px;font-size:13px;font-weight:800;color:var(--muted)}
-.shop-contact-methods{display:flex;flex-wrap:wrap;gap:8px}
-.shop-sheet label.shop-contact-method{position:relative;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:8px 14px;border:var(--ink-w) solid var(--border);border-radius:99px;background:var(--surface2);color:var(--text);font-size:14px;font-weight:700;cursor:pointer}
-.shop-sheet label.shop-contact-method.on{background:var(--accent);border-color:var(--accent);color:#111}
-.shop-contact-method input{position:absolute;inset:0;z-index:1;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
-.shop-contact-method:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+/* One-of-several choices in a sheet ("How do you want to pay?"): one pill per option, the picked one highlighted; the real radio covers the pill for keyboards, screen readers and taps. */
+.shop-choice{border:0;margin:0;padding:0;min-width:0;display:grid;gap:10px}
+.shop-choice legend{padding:0;margin-bottom:8px;font-size:13px;font-weight:800;color:var(--muted)}
+.shop-choice-options{display:flex;flex-wrap:wrap;gap:8px}
+.shop-sheet label.shop-choice-option{position:relative;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:8px 14px;border:var(--ink-w) solid var(--border);border-radius:99px;background:var(--surface2);color:var(--text);font-size:14px;font-weight:700;cursor:pointer}
+.shop-sheet label.shop-choice-option.on{background:var(--accent);border-color:var(--accent);color:#111}
+.shop-choice-option input{position:absolute;inset:0;z-index:1;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.shop-choice-option:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 .shop-sheet label.shop-agree{display:flex;gap:10px;align-items:flex-start;font-size:14px;font-weight:600;color:var(--text);line-height:1.4}
 .shop-agree input{width:22px;height:22px;flex:none;margin-top:1px}
 .shop-summary{margin:0;padding-left:20px;display:grid;gap:4px;font-size:14px}
@@ -169,8 +169,6 @@
 @media(max-width:600px){.req-sold{grid-column:1/-1;grid-template-columns:auto auto;justify-content:center}}
 
 /* Request form: "Send me photos" beside each picked card. */
-.shop-summary__line{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0.25rem 0.75rem}
-.shop-sheet label.shop-photo-ask{display:inline-flex;align-items:center;gap:0.375rem;font-size:0.8125rem;font-weight:700;color:var(--text);cursor:pointer}
 
 /* My Shop, a requested card: the seller's photo button, and whether the buyer asked for photos. */
 .req-card__photos{display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;margin-top:0.5rem}
@@ -195,3 +193,7 @@
 .buyer-req__others ul{margin:0;padding-left:1.25rem;display:grid;gap:0.25rem}
 .page-tracker .buyer-req .shop-photos .photo-frame{background:#f4f1e8;color:#222;border:0;border-radius:4px;padding:5px 5px 4px;box-shadow:0 2px 6px rgba(0,0,0,.45)}
 @media(max-width:600px){.buyer-req__card{grid-template-columns:3.5rem 1fr}}
+/* Shown above the sign-in screen when a signed-out buyer taps Send request or Ask for photos on a shop. */
+.shop-signin-note{box-sizing:border-box;max-width:960px;margin:16px auto 0;padding:12px 16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;background:var(--surface);border:var(--ink-w) solid var(--accent);border-radius:12px}
+@media (max-width:991px){.shop-signin-note{margin:16px 16px 0}}
+.shop-signin-note p{margin:0;flex:1 1 280px;line-height:1.4}

@@ -66,7 +66,7 @@ class ShopProfileDbSuite extends munit.FunSuite:
 
   test("pull list: a seller marks a requested card found and re-grades it; nobody else can") {
     val cards = List(ShopRequestItem("base1-4", "Charizard", "4", "NM", 1), ShopRequestItem("base1-2", "Blastoise", "2", "LP", 2))
-    val req   = run(repo.create(owner, ShopRequestInput("Ash", "ash@example.test", "", cards)))
+    val req   = run(repo.create(owner, ShopRequestInput("Ash", "ash@example.test", "", cards), None))
     def change(c: ShopRequestItemChange) = ShopRoutes.applyItemChange(_, c)
     assertEquals(run(repo.updateItem(owner, req.id, 1, change(ShopRequestItemChange(pulled = Some(true))))), Some(Right(cards(1).copy(pulled = Some(true)))))
     run(repo.updateItem(owner, req.id, 0, change(ShopRequestItemChange(condition = Some("MP")))))

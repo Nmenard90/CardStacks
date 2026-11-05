@@ -25,10 +25,27 @@ trait ShopRepository:
   /** The enabled shop of whoever owned an old share-link slug (/s/<slug>), so
    *  links handed out before trading moved into the shop still lead somewhere. */
   def shopSlugForShareLink(shareSlug: String): Task[Option[String]]
-  /** The email a seller signs in with, for the new-request email; None for a demo (anonymous) account. */
-  def sellerEmail(userId: String): Task[Option[String]]
-  def create(sellerUserId: String, input: ShopRequestInput): Task[ShopRequest]
+  /** The email someone signs in with, for request and chat emails; None for a demo (anonymous) account. */
+  def accountEmail(userId: String): Task[Option[String]]
+  /** The username of a real (not demo) account, shown to the seller as the buyer's name; None for a demo account. */
+  def accountName(userId: String): Task[Option[String]]
+  /** Saves a new request; `buyerUserId` is the signed-in buyer (None only for requests from before chat). */
+  def create(sellerUserId: String, input: ShopRequestInput, buyerUserId: Option[String]): Task[ShopRequest]
+  /** "Ask for photos" from a card tile: adds the card to this buyer's open photo request to this seller (making one
+   *  when there is none). The Boolean is false when they had already asked for that card and condition. */
+  def askPhotos(sellerUserId: String, buyerUserId: String, buyerName: String, item: ShopRequestItem): Task[(ShopRequest, Boolean)]
+  /** The seller's inbox, newest first, each with `unread` = the buyer wrote since the seller last opened it. */
   def list(sellerUserId: String): Task[List[ShopRequest]]
+  /** Requests a buyer sent, newest first: (request, shop slug, shop name, unread = the seller wrote since they looked). */
+  def listSent(buyerUserId: String): Task[List[(ShopRequest, String, String, Boolean)]]
+  /** One request this buyer sent: (request, seller's user id, shop slug, shop name), or None when it isn't theirs. */
+  def findSent(buyerUserId: String, id: String): Task[Option[(ShopRequest, String, String, String)]]
+  /** A request's chat, oldest first: (id, sender's user id, body, sent at). */
+  def messages(requestId: String): Task[List[(String, String, String, Instant)]]
+  /** Adds a chat message. When the seller writes on a new request it counts as answered. */
+  def addMessage(requestId: String, senderUserId: String, body: String): Task[Unit]
+  /** Marks the chat read for whichever side `userId` is on. */
+  def markRead(requestId: String, userId: String): Task[Unit]
   /** One of this seller's requests by its id (the buyer's link), or None. */
   def find(sellerUserId: String, id: String): Task[Option[ShopRequest]]
   def setStatus(sellerUserId: String, id: String, status: String): Task[Unit]
@@ -55,11 +72,22 @@ object ShopRepository:
   val MaxPhotosPerUser = 400
 
   final class Live(xa: Transactor[Task]) extends ShopRepository:
-    private type Row = (String, String, String, String, String, String, String, Instant)
+    private type Row = (String, String, String, String, String, String, String, Instant, Option[String])
+
+    /** The request columns, in Row's order; `p` is a table alias prefix such as "r.". */
+    private def cols(p: String = ""): Fragment =
+      Fragment.const(List("id", "buyer_name", "buyer_contact", "message", "kind", "items::text", "status", "created_at", "buyer_user_id")
+        .map(p + _).mkString(","))
 
     private def toRequest(r: Row): ShopRequest =
-      val (id, name, contact, msg, kind, itemsJson, status, at) = r
-      ShopRequest(id, name, contact, msg, kind, itemsJson.fromJson[List[ShopRequestItem]].getOrElse(Nil), status, at)
+      val (id, name, contact, msg, kind, itemsJson, status, at, buyer) = r
+      ShopRequest(id, name, contact, msg, kind, itemsJson.fromJson[List[ShopRequestItem]].getOrElse(Nil), status, at, buyer)
+
+    /** True when the other side wrote after `readCol` (the reader's last look); `fromSeller` picks whose messages count. */
+    private def unreadFr(readCol: String, fromSeller: Boolean): Fragment =
+      val who = if fromSeller then fr"m.sender_user_id = r.seller_user_id" else fr"m.sender_user_id <> r.seller_user_id"
+      fr"EXISTS (SELECT 1 FROM shop_request_messages m WHERE m.request_id = r.id AND" ++ who ++
+        Fragment.const(s"AND m.created_at > COALESCE(r.$readCol, '-infinity'::timestamptz))")
 
     def getSettings(userId: String): Task[Option[ShopSettings]] =
       sql"SELECT slug,enabled,messenger_url,display_name,bio FROM shop_settings WHERE user_id=$userId"
@@ -84,28 +112,78 @@ object ShopRepository:
             WHERE p.slug = $shareSlug AND s.enabled = TRUE"""
         .query[String].option.transact(xa)
 
-    def sellerEmail(userId: String): Task[Option[String]] =
+    def accountEmail(userId: String): Task[Option[String]] =
       sql"SELECT email FROM users WHERE id=$userId AND is_anonymous=FALSE"
         .query[String].option.map(_.map(_.trim).filter(_.contains("@"))).transact(xa)
 
-    def create(sellerUserId: String, input: ShopRequestInput): Task[ShopRequest] =
+    def accountName(userId: String): Task[Option[String]] =
+      sql"SELECT username FROM users WHERE id=$userId AND is_anonymous=FALSE".query[String].option.transact(xa)
+
+    /** Inserts a request; the buyer has read their own request, so only the seller's later messages count as unread. */
+    private def insert(sellerUserId: String, input: ShopRequestInput, buyerUserId: Option[String], kind: String): ConnectionIO[ShopRequest] =
       val id    = java.util.UUID.randomUUID().toString
       val now   = Instant.now()
-      val kind  = if input.items.isEmpty then "chat" else "buy"
       val items = input.items.toJson
-      sql"""INSERT INTO shop_requests(id,seller_user_id,buyer_name,buyer_contact,message,kind,items,status,created_at)
-        VALUES($id,$sellerUserId,${input.buyerName},${input.buyerContact},${input.message},$kind,$items::jsonb,'new',$now)"""
-        .update.run.transact(xa)
-        .as(ShopRequest(id, input.buyerName, input.buyerContact, input.message, kind, input.items, "new", now))
+      val read  = buyerUserId.map(_ => now)
+      sql"""INSERT INTO shop_requests(id,seller_user_id,buyer_name,buyer_contact,message,kind,items,status,created_at,buyer_user_id,buyer_read_at)
+        VALUES($id,$sellerUserId,${input.buyerName},${input.buyerContact},${input.message},$kind,$items::jsonb,'new',$now,$buyerUserId,$read)"""
+        .update.run
+        .as(ShopRequest(id, input.buyerName, input.buyerContact, input.message, kind, input.items, "new", now, buyerUserId))
+
+    def create(sellerUserId: String, input: ShopRequestInput, buyerUserId: Option[String]): Task[ShopRequest] =
+      insert(sellerUserId, input, buyerUserId, if input.items.isEmpty then "chat" else "buy").transact(xa)
+
+    def askPhotos(sellerUserId: String, buyerUserId: String, buyerName: String, item: ShopRequestItem): Task[(ShopRequest, Boolean)] =
+      (sql"SELECT " ++ cols() ++ fr"""FROM shop_requests
+         WHERE seller_user_id=$sellerUserId AND buyer_user_id=$buyerUserId AND kind='photos' AND status<>'done'
+         ORDER BY created_at DESC LIMIT 1 FOR UPDATE""")
+        .query[Row].option.map(_.map(toRequest)).flatMap {
+          case Some(r) if r.items.exists(i => i.cardId == item.cardId && i.condition == item.condition) => FC.pure((r, false))
+          case Some(r) =>
+            val items = r.items :+ item
+            sql"UPDATE shop_requests SET items=${items.toJson}::jsonb, status='new' WHERE id=${r.id}"
+              .update.run.as((r.copy(items = items, status = "new"), true))
+          case None =>
+            insert(sellerUserId, ShopRequestInput(buyerName, "", "", List(item)), Some(buyerUserId), "photos").map((_, true))
+        }.transact(xa)
 
     def list(sellerUserId: String): Task[List[ShopRequest]] =
-      sql"""SELECT id,buyer_name,buyer_contact,message,kind,items::text,status,created_at
-        FROM shop_requests WHERE seller_user_id=$sellerUserId ORDER BY created_at DESC LIMIT 200"""
-        .query[Row].to[List].map(_.map(toRequest)).transact(xa)
+      (sql"SELECT " ++ cols("r.") ++ fr"," ++ unreadFr("seller_read_at", fromSeller = false) ++
+        fr"FROM shop_requests r WHERE r.seller_user_id=$sellerUserId ORDER BY r.created_at DESC LIMIT 200")
+        .query[(Row, Boolean)].to[List].map(_.map((row, unread) => toRequest(row).copy(unread = unread))).transact(xa)
+
+    def listSent(buyerUserId: String): Task[List[(ShopRequest, String, String, Boolean)]] =
+      (sql"SELECT " ++ cols("r.") ++ fr", COALESCE(s.slug, ''), COALESCE(s.display_name, ''), " ++ unreadFr("buyer_read_at", fromSeller = true) ++
+        fr"""FROM shop_requests r LEFT JOIN shop_settings s ON s.user_id = r.seller_user_id
+            WHERE r.buyer_user_id=$buyerUserId ORDER BY r.created_at DESC LIMIT 200""")
+        .query[(Row, String, String, Boolean)].to[List]
+        .map(_.map((row, slug, name, unread) => (toRequest(row), slug, name, unread))).transact(xa)
+
+    def findSent(buyerUserId: String, id: String): Task[Option[(ShopRequest, String, String, String)]] =
+      (sql"SELECT " ++ cols("r.") ++ fr", r.seller_user_id, COALESCE(s.slug, ''), COALESCE(s.display_name, '')" ++
+        fr"""FROM shop_requests r LEFT JOIN shop_settings s ON s.user_id = r.seller_user_id
+            WHERE r.id=$id AND r.buyer_user_id=$buyerUserId""")
+        .query[(Row, String, String, String)].option
+        .map(_.map((row, seller, slug, name) => (toRequest(row), seller, slug, name))).transact(xa)
+
+    def messages(requestId: String): Task[List[(String, String, String, Instant)]] =
+      sql"""SELECT id,sender_user_id,body,created_at FROM shop_request_messages
+            WHERE request_id=$requestId ORDER BY created_at LIMIT 500"""
+        .query[(String, String, String, Instant)].to[List].transact(xa)
+
+    def addMessage(requestId: String, senderUserId: String, body: String): Task[Unit] =
+      (sql"INSERT INTO shop_request_messages(request_id,sender_user_id,body) VALUES($requestId,$senderUserId,$body)".update.run *>
+        sql"UPDATE shop_requests SET status='answered' WHERE id=$requestId AND seller_user_id=$senderUserId AND status='new'".update.run)
+        .void.transact(xa)
+
+    def markRead(requestId: String, userId: String): Task[Unit] =
+      sql"""UPDATE shop_requests SET
+              seller_read_at = CASE WHEN seller_user_id = $userId THEN NOW() ELSE seller_read_at END,
+              buyer_read_at  = CASE WHEN buyer_user_id  = $userId THEN NOW() ELSE buyer_read_at  END
+            WHERE id = $requestId""".update.run.void.transact(xa)
 
     def find(sellerUserId: String, id: String): Task[Option[ShopRequest]] =
-      sql"""SELECT id,buyer_name,buyer_contact,message,kind,items::text,status,created_at
-        FROM shop_requests WHERE id=$id AND seller_user_id=$sellerUserId"""
+      (sql"SELECT " ++ cols() ++ fr"FROM shop_requests WHERE id=$id AND seller_user_id=$sellerUserId")
         .query[Row].option.map(_.map(toRequest)).transact(xa)
 
     def setStatus(sellerUserId: String, id: String, status: String): Task[Unit] =
@@ -129,8 +207,7 @@ object ShopRepository:
       run.transact(xa)
 
     private def requestForUpdate(sellerUserId: String, id: String): ConnectionIO[Option[ShopRequest]] =
-      sql"""SELECT id,buyer_name,buyer_contact,message,kind,items::text,status,created_at
-        FROM shop_requests WHERE id=$id AND seller_user_id=$sellerUserId FOR UPDATE"""
+      (sql"SELECT " ++ cols() ++ fr"FROM shop_requests WHERE id=$id AND seller_user_id=$sellerUserId FOR UPDATE")
         .query[Row].option.map(_.map(toRequest))
 
     private def saveItems(sellerUserId: String, id: String, items: List[ShopRequestItem], status: String): ConnectionIO[Unit] =

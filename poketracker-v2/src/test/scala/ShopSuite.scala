@@ -8,7 +8,7 @@ package com.poketracker
 
 import com.poketracker.security.AuthGuard
 import com.poketracker.api.ShopRoutes
-import com.poketracker.models.{BuyerRequestItem, ShopPhotoRef, ShopRequest, ShopRequestInput, ShopRequestItem, ShopRequestItemChange, ShopSettings}
+import com.poketracker.models.{BuyerRequestItem, MessageInput, PhotoAskInput, ShopMessage, ShopOrderInput, ShopPhotoRef, ShopRequest, ShopRequestItem, ShopRequestItemChange, ShopSettings}
 import zio.json.*
 import zio.http.Method
 
@@ -27,9 +27,13 @@ class ShopSuite extends munit.FunSuite:
     assertEquals(ShopRoutes.validateSettings(input.copy(bio = "<script>plain text</script>")).toOption.get.bio, "<script>plain text</script>")
   }
 
-  test("a shop page and its request form are public") {
+  test("a shop page is public; sending, asking for photos and chatting need the buyer's own sign-in") {
     assert(AuthGuard.isPublicPath(Method.GET, "/api/shop/nicholas"))
-    assert(AuthGuard.isPublicPath(Method.POST, "/api/shop/nicholas/requests"))
+    for path <- List("/api/collection/u1/shop-orders/nicholas", "/api/collection/u1/shop-orders/nicholas/photo-ask",
+                     "/api/collection/u1/shop-sent", "/api/collection/u1/shop-sent/r1/messages",
+                     "/api/collection/u1/shop-requests/r1/messages") do
+      assert(!AuthGuard.isPublicPath(Method.POST, path), path)
+      assertEquals(AuthGuard.requiredOwnerUserId(path), Some("u1"), path)
   }
 
   test("paths that merely start with the word shop are not public") {
@@ -99,8 +103,10 @@ class ShopSuite extends munit.FunSuite:
   }
 
   test("a buyer can't send cards already marked found or re-graded") {
-    val sneaky = ShopRequestInput("Ash", "ash@example.test", "", List(card.copy(pulled = Some(true), askedCondition = Some("DMG"), foundQty = Some(1), sold = Some(1))))
-    assertEquals(ShopRoutes.validateRequest(sneaky).toOption.get.items, List(card))
+    val sneaky = ShopOrderInput("", List(card.copy(pulled = Some(true), askedCondition = Some("DMG"), foundQty = Some(1), sold = Some(1))))
+    assertEquals(ShopRoutes.validateOrder(sneaky).toOption.get.items, List(card))
+    assert(ShopRoutes.validateOrder(ShopOrderInput("  ", Nil)).isLeft, "nothing picked and nothing asked")
+    assert(ShopRoutes.validateOrder(ShopOrderInput("", List(card.copy(qty = 0)))).isLeft)
   }
 
   test("pull list: found some of several, all, or none") {
@@ -126,20 +132,36 @@ class ShopSuite extends munit.FunSuite:
   }
 
   test("a buyer can ask for photos of a card; only a yes is stored") {
-    val asked = ShopRequestInput("Ash", "ash@example.test", "", List(card.copy(photos = Some(true)), card.copy(cardId = "base1-2", photos = Some(false))))
-    assertEquals(ShopRoutes.validateRequest(asked).toOption.get.items.map(_.photos), List(Some(true), None))
+    val asked = ShopOrderInput("", List(card.copy(photos = Some(true)), card.copy(cardId = "base1-2", photos = Some(false))))
+    assertEquals(ShopRoutes.validateOrder(asked).toOption.get.items.map(_.photos), List(Some(true), None))
   }
 
-  test("the buyer's view of a request: their pick, no pull-list notes, only photos of their cards") {
+  test("asking for photos from a card tile: one copy of that card, marked as wanting photos") {
+    val item = ShopRoutes.validatePhotoAsk(PhotoAskInput(" base1-4 ", "Charizard", "4", "NM")).toOption.get
+    assertEquals((item.cardId, item.qty, item.condition, item.photos), ("base1-4", 1, "NM", Some(true)))
+    assert(ShopRoutes.validatePhotoAsk(PhotoAskInput("", "Charizard", "4", "NM")).isLeft)
+    assert(ShopRoutes.validatePhotoAsk(PhotoAskInput("base1-4", "Charizard", "4", "x" * 21)).isLeft)
+  }
+
+  test("chat messages: trimmed, not empty, 2000 characters at most; each side sees which ones the seller wrote") {
+    assertEquals(ShopRoutes.validateMessage(MessageInput("  Still have it?  ")), Right("Still have it?"))
+    assert(ShopRoutes.validateMessage(MessageInput("   ")).isLeft)
+    assert(ShopRoutes.validateMessage(MessageInput("x" * 2001)).isLeft)
+    val at   = java.time.Instant.EPOCH
+    val msgs = ShopRoutes.toMessages(List(("m1", "buyer", "hi", at), ("m2", "seller", "yes", at)), "seller")
+    assertEquals(msgs.map(_.fromSeller), List(false, true))
+  }
+
+  test("the buyer's view of a request: their pick, no pull-list notes, only photos of their cards, and the chat") {
     val graded  = card.copy(condition = "LP 1st Edition", askedCondition = Some("NM 1st Edition"), pulled = Some(true), photos = Some(true))
-    val request = ShopRequest("r1", "Ash", "ash@example.test", "hi", "buy", List(graded), "answered", java.time.Instant.EPOCH)
+    val request = ShopRequest("r1", "Ash", "", "hi", "buy", List(graded), "answered", java.time.Instant.EPOCH, Some("buyer1"))
     val photos  = List(ShopPhotoRef("base1-4", "LP", "front", 1L), ShopPhotoRef("base1-2", "NM", "front", 2L))
-    val view    = ShopRoutes.buyerView(request, photos)
+    val chat    = List(ShopMessage("m1", true, "Found it!", java.time.Instant.EPOCH))
+    val view    = ShopRoutes.buyerView(request, "nicholas", "Nick's Cards", photos, chat, false)
     assertEquals(view.items, List(BuyerRequestItem("base1-4", "Charizard", "4", "LP 1st Edition", 1, true, Some("NM 1st Edition"))))
     assertEquals(view.photos, photos.take(1))
-    assertEquals(view.status, "answered")
-    assert(!view.toJson.contains("ash@example.test") && !view.toJson.contains("pulled"))
-    assert(AuthGuard.isPublicPath(Method.GET, "/api/shop/nicholas/requests/0b5e1c9e-0000-4000-8000-000000000000"))
+    assertEquals((view.status, view.shopSlug, view.shopName, view.messages), ("answered", "nicholas", "Nick's Cards", chat))
+    assert(!view.toJson.contains("pulled") && !view.toJson.contains("buyer1"))
   }
 
   test("request emails are off until the mail server, user and password are all set") {

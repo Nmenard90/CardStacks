@@ -14,7 +14,9 @@
 
 import { BrowserRouter, Navigate, Routes, Route, useLocation, useSearchParams } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { UserProvider } from './context/UserContext'
+import { useState } from 'react'
+import { UserProvider, useUser } from './context/UserContext'
+import { takeReturnTo } from './lib/shopPending'
 import { ToastProvider } from './components/Toast'
 import { DemoBanner } from './components/DemoBanner'
 import { CollectionPage } from './pages/CollectionPage'
@@ -54,7 +56,11 @@ function TradeRedirect() {
 const SPACES_PARAMS = ['area', 'box', 'unit', 'case', 'space']
 function Home() {
   const { search } = useLocation()
+  const { user } = useUser()
+  // A Google sign-in always comes back to "/": a buyer who signed in from a shop goes back to it (lib/shopPending).
+  const [returnTo] = useState(() => (user ? null : takeReturnTo()))
   const params = new URLSearchParams(search)
+  if (user && returnTo) return <Navigate to={returnTo} replace />
   if (SPACES_PARAMS.some(p => params.has(p))) return <Navigate to={`/spaces${search}`} replace />
   return <RoomPage />
 }

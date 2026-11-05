@@ -35,6 +35,10 @@ import java.util.Properties
 trait ShopNotifier:
   /** Tells the seller about a new request in their shop. Never fails; problems are logged. */
   def newRequest(sellerUserId: String, shopSlug: String, shopName: String, request: ShopRequest): UIO[Unit]
+  /** Tells one side of a request's chat that the other side wrote. `toSeller` picks the link (My Shop, or the
+   *  buyer's request page). Never fails; problems are logged. */
+  def newMessage(toUserId: String, toSeller: Boolean, fromName: String, shopSlug: String, shopName: String,
+                 requestId: String, body: String): UIO[Unit]
 
 object ShopNotifier:
 
@@ -78,21 +82,39 @@ object ShopNotifier:
     val who     = oneLine(r.buyerName).take(80)
     val copies  = r.items.map(_.qty).sum
     val shop    = if shopName.trim.nonEmpty then oneLine(shopName).take(80) else shopSlug
+    val what    = r.kind match
+      case "photos"                => "asked for photos"
+      case _ if r.items.isEmpty    => "sent a question"
+      case _                       => "sent a request"
     val subject =
-      if r.items.isEmpty then s"New question from $who in your CardStacks shop"
+      if r.kind == "photos" then s"$who asked for photos in your CardStacks shop"
+      else if r.items.isEmpty then s"New question from $who in your CardStacks shop"
       else s"New request from $who in your CardStacks shop ($copies card${if copies == 1 then "" else "s"})"
     val cards = r.items.map { i =>
       val photos = if i.photos.contains(true) then " · wants photos" else ""
       s"  - ${i.qty}× ${i.name} #${i.number} (${i.condition})$photos"
     }
+    val contact = r.buyerContact.trim
     val lines =
-      List(s"$who sent ${if r.items.isEmpty then "a question" else "a request"} in your shop \"$shop\".", "",
-           s"How they want to be contacted: ${r.buyerContact.trim}") ++
+      List(s"$who $what in your shop \"$shop\".") ++
+      (if contact.isEmpty then Nil else List("", s"How they want to be contacted: $contact")) ++
       (if cards.isEmpty then Nil else "" :: "Cards:" :: cards) ++
       (if r.message.trim.isEmpty then Nil else List("", "Message:", r.message.trim)) ++
-      List("", s"Open My Shop to see it and reply: $appUrl/shop/requests", "",
+      List("", s"Open My Shop to see it and reply in the chat: $appUrl/shop/requests", "",
            "You get this email because your CardStacks shop is open. It goes to the email you sign in with.")
     Email(to, subject, lines.mkString("\n"), buyerEmail(r.buyerContact))
+
+  /** The email about a new chat message (plain text; the body was typed by the other side). */
+  def messageEmail(to: String, toSeller: Boolean, fromName: String, shopSlug: String, shopName: String,
+                   requestId: String, body: String, appUrl: String): Email =
+    val who  = oneLine(fromName).take(80)
+    val shop = if shopName.trim.nonEmpty then oneLine(shopName).take(80) else shopSlug
+    val link = if toSeller then s"$appUrl/shop/requests" else s"$appUrl/shop/$shopSlug/request/$requestId"
+    val text = body.trim.take(2000)
+    Email(to, s"New message from $who about ${if toSeller then "a request in your shop" else s"your request to $shop"}",
+      List(s"$who wrote:", "", text, "", s"Reply here: $link", "",
+           "You get this email because you have a request open on CardStacks. It goes to the email you sign in with.")
+        .mkString("\n"), None)
 
   /** Sends one email over SMTP (blocking, so on the blocking pool). */
   private def send(cfg: SmtpConfig, e: Email): Task[Unit] = ZIO.attemptBlocking {
@@ -118,20 +140,29 @@ object ShopNotifier:
 
   private final class Live(repo: ShopRepository, cfg: Option[SmtpConfig], sent: Ref[Map[String, List[Instant]]]) extends ShopNotifier:
     def newRequest(sellerUserId: String, shopSlug: String, shopName: String, request: ShopRequest): UIO[Unit] =
+      deliver(sellerUserId, s"shop request ${request.id}")((addr, c) => requestEmail(addr, shopSlug, shopName, request, c.appUrl))
+
+    def newMessage(toUserId: String, toSeller: Boolean, fromName: String, shopSlug: String, shopName: String,
+                   requestId: String, body: String): UIO[Unit] =
+      deliver(toUserId, s"a message on shop request $requestId")((addr, c) =>
+        messageEmail(addr, toSeller, fromName, shopSlug, shopName, requestId, body, c.appUrl))
+
+    /** Emails `toUserId` at their account address, within MaxPerHour per person; never fails. */
+    private def deliver(toUserId: String, about: String)(build: (String, SmtpConfig) => Email): UIO[Unit] =
       cfg match
         case None => ZIO.unit
         case Some(c) =>
           (for
             now     <- Clock.instant
-            // Room for one more email to this seller this hour? (Reserve it now, so two requests can't both slip in.)
+            // Room for one more email to this person this hour? (Reserve it now, so two can't both slip in.)
             allowed <- sent.modify { all =>
-                         val recent = all.getOrElse(sellerUserId, Nil).filter(_.isAfter(now.minusSeconds(3600)))
-                         if recent.size >= MaxPerHour then (false, all.updated(sellerUserId, recent))
-                         else (true, all.updated(sellerUserId, now :: recent))
+                         val recent = all.getOrElse(toUserId, Nil).filter(_.isAfter(now.minusSeconds(3600)))
+                         if recent.size >= MaxPerHour then (false, all.updated(toUserId, recent))
+                         else (true, all.updated(toUserId, now :: recent))
                        }
-            to      <- if allowed then repo.sellerEmail(sellerUserId) else ZIO.none
-            _       <- ZIO.foreachDiscard(to)(addr => send(c, requestEmail(addr, shopSlug, shopName, request, c.appUrl)))
-          yield ()).catchAllCause(cause => ZIO.logWarningCause(s"Could not email the seller about shop request ${request.id}", cause))
+            to      <- if allowed then repo.accountEmail(toUserId) else ZIO.none
+            _       <- ZIO.foreachDiscard(to)(addr => send(c, build(addr, c)))
+          yield ()).catchAllCause(cause => ZIO.logWarningCause(s"Could not send the email about $about", cause))
 
   val layer: ZLayer[ShopRepository, Nothing, ShopNotifier] = ZLayer.fromZIO {
     for

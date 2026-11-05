@@ -1,7 +1,10 @@
 /**
- * API calls for a user's public shop page, shop settings, and request inbox.
- * ENDPOINTS: GET /api/shop/:slug, POST /api/shop/:slug/requests (public, no login; returns the request's id),
- *            GET /api/shop/:slug/requests/:id (public: the buyer's own request, by the id only their link carries),
+ * API calls for a user's public shop page, shop settings, request inbox, and the request chat.
+ * ENDPOINTS: GET /api/shop/:slug (public),
+ *            POST /api/collection/:userId/shop-orders/:slug[/photo-ask] (signed-in buyer: send a request / ask for photos),
+ *            GET /api/collection/:userId/shop-sent[/:id] (the buyer's sent requests; one with photos and chat),
+ *            POST /api/collection/:userId/shop-sent/:id/messages (buyer writes in the chat),
+ *            GET|POST /api/collection/:userId/shop-requests/:id/messages (seller reads / writes in the chat),
  *            GET|PUT /api/collection/:userId/shop-settings,
  *            GET /api/collection/:userId/shop-requests,
  *            POST /api/collection/:userId/shop-requests/:id (owner only)
@@ -40,19 +43,28 @@ export interface SaleShortfall { name: string; number: string; condition: string
 
 export interface SaleResult { request: ShopRequest; taken: number; short: SaleShortfall[] }
 
-export interface ShopRequestInput {
+export type ShopRequestStatus = 'new' | 'answered' | 'done'
+
+/** A request in the seller's inbox. `buyerUserId` is set when a signed-in buyer sent it (it has a chat); older ones
+ *  only have the contact the buyer typed. `unread` = the buyer wrote since the seller last opened the chat. */
+export interface ShopRequest {
+  id: string
   buyerName: string
   buyerContact: string
   message: string
   items: ShopRequestItem[]
+  kind: 'buy' | 'chat' | 'photos'
+  status: ShopRequestStatus
+  createdAt: string
+  buyerUserId?: string
+  unread?: boolean
 }
 
-export type ShopRequestStatus = 'new' | 'answered' | 'done'
-
-export interface ShopRequest extends ShopRequestInput {
+/** One chat message on a request. */
+export interface ShopMessage {
   id: string
-  kind: 'buy' | 'chat'
-  status: ShopRequestStatus
+  fromSeller: boolean
+  body: string
   createdAt: string
 }
 
@@ -91,8 +103,13 @@ export const getShop = (slug: string) =>
 export const shopForShareLink = (shareSlug: string) =>
   api.get<{ slug: string }>(`/api/shop/from-share/${encodeURIComponent(shareSlug)}`).then(r => r.data.slug)
 
-export const sendShopRequest = (slug: string, input: ShopRequestInput) =>
-  api.post<{ ok: boolean; id: string }>(`/api/shop/${encodeURIComponent(slug)}/requests`, input).then(r => r.data)
+/** A signed-in buyer sends a request (cards and/or a note or trade offer) to the shop at `slug`; returns its id. */
+export const sendShopOrder = (userId: string, slug: string, order: { message: string; items: ShopRequestItem[] }) =>
+  api.post<{ ok: boolean; id: string }>(`/api/collection/${userId}/shop-orders/${encodeURIComponent(slug)}`, order).then(r => r.data)
+
+/** "📷 Ask for photos" on one card tile (the condition shown); asking twice is harmless. Returns the request's id. */
+export const askForPhotos = (userId: string, slug: string, card: { cardId: string; name: string; number: string; condition: string }) =>
+  api.post<{ ok: boolean; id: string }>(`/api/collection/${userId}/shop-orders/${encodeURIComponent(slug)}/photo-ask`, card).then(r => r.data)
 
 /** One card of a request as its buyer sees it: the condition the seller confirmed (and the buyer's pick, if different). */
 export interface BuyerRequestItem {
@@ -105,17 +122,41 @@ export interface BuyerRequestItem {
   askedCondition?: string
 }
 
-/** A buyer's own request: its cards, whether the seller has answered, and the seller's photos of those cards. */
+/** A request the signed-in user sent to someone's shop: which shop, its cards, whether the seller has answered, the
+ *  seller's photos of those cards and the chat (both empty in the list), `unread` = the seller wrote since you looked. */
 export interface BuyerRequestView {
+  id: string
+  shopSlug: string
+  shopName: string
+  kind: 'buy' | 'chat' | 'photos'
   status: ShopRequestStatus
   createdAt: string
+  message: string
   items: BuyerRequestItem[]
   photos: ShopPhotoRef[]
+  messages: ShopMessage[]
+  unread: boolean
 }
 
-/** The buyer's view of a request they sent; rejects (404) for an unknown id or a closed shop. */
-export const getBuyerRequest = (slug: string, id: string) =>
-  api.get<BuyerRequestView>(`/api/shop/${encodeURIComponent(slug)}/requests/${encodeURIComponent(id)}`).then(r => r.data)
+/** Requests you sent to other shops, newest first. */
+export const getSentRequests = (userId: string) =>
+  api.get<BuyerRequestView[]>(`/api/collection/${userId}/shop-sent`).then(r => r.data)
+
+/** One request you sent, with the seller's photos and the chat (opening it marks the chat read). */
+export const getSentRequest = (userId: string, id: string) =>
+  api.get<BuyerRequestView>(`/api/collection/${userId}/shop-sent/${encodeURIComponent(id)}`).then(r => r.data)
+
+/** Buyer writes in a request's chat; returns the whole chat. */
+export const postBuyerMessage = (userId: string, id: string, body: string) =>
+  api.post<ShopMessage[]>(`/api/collection/${userId}/shop-sent/${encodeURIComponent(id)}/messages`, { body }).then(r => r.data)
+
+/** Seller reads a request's chat (marks it read). */
+export const getRequestMessages = (userId: string, id: string) =>
+  api.get<ShopMessage[]>(`/api/collection/${userId}/shop-requests/${encodeURIComponent(id)}/messages`).then(r => r.data)
+
+/** Seller writes in a request's chat; returns the whole chat. */
+export const postSellerMessage = (userId: string, id: string, body: string) =>
+  api.post<ShopMessage[]>(`/api/collection/${userId}/shop-requests/${encodeURIComponent(id)}/messages`, { body }).then(r => r.data)
 
 /** Where a seller photo's picture lives — usable straight in an <img src>. */
 export const shopPhotoUrl = (slug: string, p: ShopPhotoRef) =>

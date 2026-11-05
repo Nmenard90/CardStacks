@@ -30,11 +30,17 @@ interface Props {
   /** The seller's photo addresses (front/back) for one condition of this card, if any. The seller takes them from
    *  My Shop or Explore, never here: this tile is what buyers see. */
   photos?: (cond: string) => { front?: string; back?: string }
+  /** Buyers only: "📷 Ask for photos" of the condition shown. `asked` = this buyer already asked for it. Hidden once
+   *  both photos are up. Omitted on the owner's own shop. */
+  askPhotos?: { asked: (cond: string) => boolean; onAsk: (cond: string) => void }
 }
 
 const money = (n: number) => '$' + n.toFixed(2)
 
-export function ShopCardTile({ card, conds, setName, inCart, onAdj, preview, photos }: Props) {
+/** Same look as the small buttons on the collection's CardTile (📒 To binder, 📷 Photos). */
+const tileButton = { marginTop: 6, fontSize: 11, padding: '4px 8px', alignSelf: 'flex-start' } as const
+
+export function ShopCardTile({ card, conds, setName, inCart, onAdj, preview, photos, askPhotos }: Props) {
   // Best condition first (NM→DMG), so the headline price is the best copy's.
   const ordered = [...conds].sort((a, b) => CONDS.indexOf(baseCond(a.cond)) - CONDS.indexOf(baseCond(b.cond)) || a.cond.localeCompare(b.cond))
   const [sel, setSel] = useState(ordered[0]?.cond ?? 'NM')
@@ -65,6 +71,10 @@ export function ShopCardTile({ card, conds, setName, inCart, onAdj, preview, pho
               aria-label={`${card.name} ${condLabel(current.cond)} in your request`} />
             <button className="qbtn" disabled={picked >= current.qty} onClick={() => onAdj(current.cond, 1)} aria-label={`Add one ${condLabel(current.cond)}`}>+</button>
           </div>
+          {askPhotos && !(pics.front && pics.back) && (askPhotos.asked(current.cond)
+            ? <button className="tb-btn" style={tileButton} disabled title="The seller will add them to this card">📷 Photos asked ✓</button>
+            : <button className="tb-btn" style={tileButton} onClick={() => askPhotos.onAsk(current.cond)}
+                title={`Ask the seller for front and back photos of this ${condLabel(current.cond)} copy`}>📷 Ask for photos</button>)}
         </div>
       </div>
       <div className="cond-section">

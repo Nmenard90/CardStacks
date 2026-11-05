@@ -19,6 +19,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getOffer, postOfferMessage, setOfferStatus, tradingError } from '../api/trading'
 import { condLabel } from '../lib/conditions'
 import { useToast } from './Toast'
+import { MessageThread } from './MessageThread'
 import type { CardOffer, CardOfferStatus, OfferCard } from '../types'
 
 const money = (n?: number | null) => (n == null ? '—' : `$${n.toFixed(2)}`)
@@ -87,7 +88,6 @@ function CardLines({ title, cards }: { title: string; cards: OfferCard[] }) {
 function OfferDetail({ userId, offerId, close }: { userId: string; offerId: string; close: () => void }) {
   const qc = useQueryClient()
   const toast = useToast()
-  const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const { data: offer, error } = useQuery({
     queryKey: ['offer', offerId],
@@ -122,11 +122,6 @@ function OfferDetail({ userId, offerId, close }: { userId: string; offerId: stri
     }
   }
   const status = (s: CardOfferStatus, msg: string) => act(() => setOfferStatus(userId, offerId, s), msg)
-  const send = async () => {
-    const body = draft.trim()
-    if (!body) return
-    if (await act(() => postOfferMessage(userId, offerId, body))) setDraft('')
-  }
 
   const isSeller = offer.role === 'seller'
   return (
@@ -162,25 +157,11 @@ function OfferDetail({ userId, offerId, close }: { userId: string; offerId: stri
         <p className="offer-note">CardStacks doesn't handle payments. Agree below on how to pay (PayPal Goods &amp; Services protects both sides) and how to ship or meet up.</p>
       )}
 
-      <section className="offer-thread">
-        <h4>Messages</h4>
-        {offer.messages.length === 0 && <p className="muted">No messages yet.</p>}
-        {offer.messages.map(m => (
-          <div key={m.id} className={`offer-msg ${m.senderId === userId ? 'mine' : ''}`}>
-            <small>{m.senderId === userId ? 'You' : m.sender} · {new Date(m.createdAt).toLocaleString()}</small>
-            <p>{m.body}</p>
-          </div>
-        ))}
-        <div className="offer-compose">
-          <textarea
-            value={draft} maxLength={2000} rows={2}
-            placeholder={`Message ${offer.otherUser}…`}
-            onChange={e => setDraft(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void send() }}
-          />
-          <button className="primary" disabled={busy || !draft.trim()} onClick={() => void send()}>Send</button>
-        </div>
-      </section>
+      <MessageThread
+        messages={offer.messages.map(m => ({ id: m.id, mine: m.senderId === userId, who: m.sender, body: m.body, createdAt: m.createdAt }))}
+        otherName={offer.otherUser}
+        onSend={body => act(() => postOfferMessage(userId, offerId, body))}
+      />
     </div>
   )
 }

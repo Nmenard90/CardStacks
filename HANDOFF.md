@@ -175,6 +175,87 @@ tcg/
 
 ## Current state (2026-11-04)
 
+**⚠️ DONE ON THE BRANCH, NOT LIVE: shop chat + sign-in to buy + "Ask for photos" on the tile (2026-11-04, committed
+on branch `fix/shop-photos-owner-side` in worktree `C:\Users\nicho\tcg-shop-photos`, on top of main `6e3f844`).**
+Fully verified (below). **Waiting on one thing: migration 022 must be run in production before this is pushed**
+(the auto-mode permission system blocked the agent from writing to the production DB, so the owner runs it). Then
+push the branch to main. Production is still `6e3f844` (contact choice + request emails; see the next entry).
+
+What the owner asked for (2026-11-04, frustrated, in their words): "the photo thing should be on the tile not a
+seperate thing"; "Theres 3 check boxes all diffrent fonts in different places after the request is clicked";
+"why do we need to have a contact card at all? I thought you were setting up our own chat on the website";
+"get the check boxes in one place or organiuze it … now nothing on my site is uniform". Owner chose (asked
+explicitly): buyers tap **📷 Ask for photos on the card tile** in the shop; buyers **must sign in** (free account) to
+send a request, and buyer + seller talk in an **on-site chat** per request (no contact box).
+
+Design as built:
+- **Migration 022** `poketracker-v2/sql/migration_022_shop_chat.sql` (additive, one transaction, safe to re-run):
+  `shop_requests` + `buyer_user_id` (FK users, ON DELETE SET NULL), `seller_read_at`, `buyer_read_at`; new table
+  `shop_request_messages(id, request_id → shop_requests CASCADE, sender_user_id → users, body 1-2000, created_at)`.
+  **NOT run in production.** The backend code below needs it: run it in Railway and verify (check queries at the
+  bottom of the file) BEFORE pushing the backend.
+- **Backend (compiles; 34/34 tests pass):** ShopSuite 21, plus DB suites ShopChatDbSuite 4 (new), ShopSaleDbSuite
+  4, ShopProfileDbSuite 5, run against a scratch Postgres 18 on 127.0.0.1:55432 with schema + migrations 010-022.
+  - The anonymous `POST /api/shop/:slug/requests` and `GET /api/shop/:slug/requests/:id` were **removed**.
+  - New protected endpoints (all under `/api/collection/:userId`, AuthGuard owner check):
+    - Buyer: `shop-orders/:slug`, `shop-orders/:slug/photo-ask`, `shop-sent`, `shop-sent/:id` (marks read) and
+      `shop-sent/:id/messages`.
+    - Seller: `shop-requests/:id/messages` (GET marks read; POST).
+  - A seller reply on a `new` request marks it `answered`.
+  - The photo ask adds the card to the buyer's open `kind='photos'` request for that seller, or creates one.
+  - `ShopNotifier` emails the seller on new requests and photo asks, and the other side on each chat message
+    (20/hour per recipient). `sellerEmail` was renamed `accountEmail`, and `accountName` was added (a demo account
+    can't send).
+  - Files: `models/Shop.scala`, `repository/ShopRepository.scala`, `api/ShopRoutes.scala`,
+    `service/ShopNotifier.scala`, `test/ShopSuite.scala`, `test/ShopChatDbSuite.scala` (new), and one-arg fixes in
+    `ShopProfileDbSuite`/`ShopSaleDbSuite`.
+- **Frontend (verified):**
+  - Checks pass: tsc, eslint (only the 2 old SpacesLivePage errors remain), lib tests 10/10 and vite build.
+  - `shop-browser.mjs` passes 20/20 with `SHOP_TEST_WIDE=1`, which adds the owner's 4000x1985 screen size. The
+    tests cover: a signed-out buyer hitting the sign-in step; a signed-in buyer asking for photos on the tile,
+    seeing exactly one checkbox and no contact boxes, the same font on every label, sending, and chatting; and
+    the seller's chat.
+  - Screenshots were reviewed at 4000, 1440 and 390 wide.
+  - Fixes found that way:
+    - The chat box is now styled everywhere (`trading.css .offer-compose`); it was unstyled on the buyer page.
+    - The form's title no longer flips after sending.
+    - The photo-ask toast is shorter (it covered the form on phones).
+  - `api/shop.ts`: new calls and types; `sendShopRequest`/`getBuyerRequest` removed.
+  - `components/MessageThread.tsx` (new): the one shared chat box. `OfferInbox` now uses it, so offers and shop chats
+    look identical.
+  - `components/ShopRequestChat.tsx` (new): the seller's chat inside each My Shop request.
+  - `components/ShopCardTile.tsx`: "📷 Ask for photos" / "📷 Photos asked ✓", styled like Explore's tile buttons.
+  - `pages/ShopPage.tsx`:
+    - A signed-out buyer who taps Send or Ask gets the sign-in screen, with the cart and action kept in
+      sessionStorage via `lib/shopPending.ts` (new).
+    - `App.tsx` Home sends a Google sign-in back to the shop.
+    - The form was redone in one column: cards, a "How do you want to pay?" Buy/Trade pill choice, the trade picker,
+      one message box, ONE rules checkbox, then Send.
+    - The contact fields, the "Send me photos" checkbox and the Facebook Messenger button were removed.
+    - The owner sees no Send bar.
+  - `pages/ShopRequestsPage.tsx`: a new **Sent** tab for requests you sent; chat on each request from a signed-in
+    buyer (old requests still show the typed contact); "New message" pill; the Messenger field removed from Settings.
+  - `pages/ShopRequestStatusPage.tsx`: now signed-in; shows cards, photos, note and chat.
+  - `components/HeaderNav.tsx`: the badge counts unread chats both ways.
+  - `styles/shop.css`: `.shop-contact*` became the generic `.shop-choice*`, `.shop-signin-note` was added, and the
+    photo-checkbox CSS was removed.
+  - `lib/myShopRequests.ts` was deleted, since accounts replace it.
+  - `web/tests/shop-browser.mjs` was updated with a buyer account (`as: 'buyer'`), the new mocks and new tests.
+- **To finish:**
+  1. Run migration 022 in production. From the repo, with the Railway CLI logged in and PostgreSQL 18's `bin` on
+     PATH:
+     `railway run -s Postgres -- bash -c 'psql "$DATABASE_PUBLIC_URL" -v ON_ERROR_STOP=1 -f poketracker-v2/sql/migration_022_shop_chat.sql'`.
+     Alternatively, paste the file into `railway connect Postgres`.
+  2. Verify it with the check queries at the bottom of the file: 3 columns plus the `shop_request_messages` table.
+  3. Push: `git push origin fix/shop-photos-owner-side:main`. That deploys both services.
+  - `lib/contact.ts` is now only used for old requests' typed contact. It could be trimmed later.
+  - The owner also said "nothing on my site is uniform": a site-wide consistency pass (buttons, checkboxes, form
+    fields) is wanted after this.
+- Local test DB: `C:\Users\nicho\AppData\Local\Temp\claude\25d3acdc1382cc8d\218ecdd4-1ab8-4abb-ba1b-adcd507a1dd3\scratchpad\pgdata`.
+  Start or stop it with `"C:\Program Files\PostgreSQL\18\bin\pg_ctl.exe" -D <that dir> stop`. It may still be
+  running. Use `SHOP_CHAT_IT_DB_URL` / `SHOP_SALE_IT_DB_URL` / `SHOP_PROFILE_IT_DB_URL` =
+  `jdbc:postgresql://127.0.0.1:55432/postgres`.
+
 **Shop request form: pick how to be contacted; owner gets an email (2026-11-04, LIVE on main `e38e3b7`, no
 migration; emails stay off until the owner adds the SMTP_* vars in Railway):** the owner was angry that the form *required*
 a Facebook profile link ("most people dont even know how to get theirs"). Now the buyer picks Text / Call / Email /
