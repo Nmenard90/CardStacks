@@ -103,7 +103,7 @@ export function ShopRequestStatusPage() {
                       {pics.length > 0 ? (
                         <div className="shop-photos">
                           {pics.map(p => (
-                            <button key={p.side} type="button" className="photo-frame" title={`Zoom in: ${p.side} photo`} onClick={() => preview.show(p.url!)}>
+                            <button key={p.side} type="button" className="photo-frame" title={`Zoom in: ${p.side} photo`} onClick={() => preview.show(p.url!, { pinned: true })}>
                               <img src={p.url} alt={`${p.side} photo of the ${item.name}`} loading="lazy" />
                               <span>{p.side === 'front' ? 'Front' : 'Back'}</span>
                             </button>

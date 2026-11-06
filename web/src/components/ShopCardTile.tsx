@@ -94,7 +94,7 @@ export function ShopCardTile({ card, conds, setName, inCart, onAdj, preview, pho
         {hasPics && (
           <div className="shop-photos">
             {(['front', 'back'] as const).map(s => pics[s] && (
-              <button key={s} type="button" className="photo-frame" title={`Zoom in: ${s} photo`} onClick={() => preview.show(pics[s]!)}>
+              <button key={s} type="button" className="photo-frame" title={`Zoom in: ${s} photo`} onClick={() => preview.show(pics[s]!, { pinned: true })}>
                 <img src={pics[s]} alt={`${s} photo of the card`} loading="lazy" />
                 <span>{s === 'front' ? 'Front' : 'Back'}</span>
               </button>

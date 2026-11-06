@@ -73,7 +73,8 @@ export function CardThumb({ card, variant, preview, onClick, showPrice = true, c
         onPointerLeave={byMouse(hide)}
         onFocus={preview ? show : undefined}
         onBlur={preview ? hide : undefined}
-        onClick={onClick ?? show}
+        // A click opens it "pinned": it stays (page dimmed) until a click anywhere or Esc closes it.
+        onClick={onClick ?? (() => preview?.show(card.images.large || card.images.small, { holo, price, pinned: true }))}
         onError={() => setFailed(card.images.small)}
       />
       {showPrice && price > 0 && <span className="price-ribbon">${price.toFixed(2)}</span>}

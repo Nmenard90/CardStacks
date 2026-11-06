@@ -219,6 +219,26 @@ try {
     assert.doesNotMatch(await page.locator('body').innerText(), /sales only|no trades/i)
     assert.equal(await page.locator('.share-owner-note').count(), 0, 'visitors must not see the owner note')
     await page.screenshot({ path: path.join(report, `shop-${width}.png`) })
+    // A clicked card picture zooms and stays (page dimmed) even when the mouse moves off; a click anywhere or Esc
+    // closes it. (It used to have nothing that could close it on a computer.)
+    if (width === 1440) {
+      const thumb = page.locator('.card-grid .pcard img.thumb').first()
+      await thumb.click()
+      await page.locator('.card-preview-overlay.pinned.active').waitFor()
+      await page.mouse.move(5, 5)
+      await page.waitForTimeout(600)
+      assert.equal(await page.locator('.card-preview-wrap.visible').count(), 1, 'moving the mouse off keeps a clicked zoom open')
+      await page.mouse.click(5, 400)
+      await page.locator('.card-preview-wrap.visible').waitFor({ state: 'detached' })
+      await thumb.click()
+      await page.locator('.card-preview-overlay.pinned.active').waitFor()
+      await page.keyboard.press('Escape')
+      // Esc drops the clicked zoom; the mouse is still on the card, so only the ordinary hover zoom remains,
+      // and that one goes when the mouse leaves.
+      await page.locator('.card-preview-overlay.pinned').waitFor({ state: 'detached' })
+      await page.mouse.move(5, 400)
+      await page.locator('.card-preview-wrap.visible').waitFor({ state: 'detached' })
+    }
 
     // Set filter lives in the URL: choosing a set filters, Back returns to all sets.
     const all = await page.locator('.card-grid .pcard').count()

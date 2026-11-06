@@ -573,6 +573,8 @@
     position:fixed;inset:0;z-index:1000;pointer-events:none;
     display:flex;align-items:center;justify-content:center;
   }
+  /* Opened by a click: dims the page and catches the next click anywhere (or Esc) to close. */
+  .card-preview-overlay.pinned.active{pointer-events:auto;background:rgba(0,0,0,.7);cursor:zoom-out}
   /* The zoom is a bigger look at the same card, so it carries the same
      holo shimmer and price ribbon as the small thumbnail — a plain zoom
      that drops both would show something visibly different from the card
