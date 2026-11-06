@@ -179,6 +179,13 @@ tcg/
 run in production by the owner first (all statements, COMMIT). Gotcha: the worktree `C:\Users\nicho\tcg-shop-photos`
 is linked to a DIFFERENT Railway project (`unique-sparkle`); run `railway` commands from `C:\Users\nicho\tcg`, which
 is linked to production (`selfless-intuition`: services `Postgres`, `hospitable-courtesy` = backend, `tcg` = web).
+Follow-ups the same day, all live:
+- `bfa3243`: the owner sees the same Send bar and Ask for photos buttons on their own shop; tapping them explains.
+- `4f5c4e7`: the My Shop Settings on/off checkbox was stretched across the panel by the `.trade-main input` width
+  rule. That rule now skips checkboxes and radios, via `:where`.
+- `6b08b09`: when front and back photos of a requested card+condition are both up, waiting buyers get an automatic
+  chat message from the seller, which also sends the unread badge and an email (`ShopRoutes.tellBuyersPhotosAreUp`).
+Chat only appears on requests from signed-in buyers; requests from before 2026-11-04 still show the typed contact.
 
 What the owner asked for (2026-11-04, frustrated, in their words): "the photo thing should be on the tile not a
 seperate thing"; "Theres 3 check boxes all diffrent fonts in different places after the request is clicked";
