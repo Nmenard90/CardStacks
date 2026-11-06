@@ -187,6 +187,35 @@ Follow-ups the same day, all live:
   chat message from the seller, which also sends the unread badge and an email (`ShopRoutes.tellBuyersPhotosAreUp`).
 Chat only appears on requests from signed-in buyers; requests from before 2026-11-04 still show the typed contact.
 
+**Room card pictures fixed (2026-11-05, LIVE `41060df`):** cards in the room showed as blank placeholders.
+- Cause 1: pokemontcg.io's `_hires` images were returning 503 for some cards, and the room tried one URL and gave
+  up. Now `artCandidates`/`loadCardArt` (`room3d/room/artUrl.js`) try large → small → one retry about 4s later.
+- Cause 2: TCGTracking now serves art from `cdn.tcgtracking.com`, which has no CORS headers and wasn't on the
+  `/card-art` relay allow-list. It has been added to `cardArt.mjs` and `artUrl.js`.
+
+**OWNER-REPORTED BACKLOG (2026-11-05, not started; the owner is frustrated, so do these next):**
+1. Room: there's no way to create a binder from the binder shelf. The "+ Add binder" button exists only in Spaces →
+   Binder Library.
+2. Room: no way to add a box into storage.
+3. Room: no way to add cards INTO a storage box (or binder) from the room. The room's "+ Add cards" just opens the
+   general /add page. The owner wants a place to add cards inside the box/binder view, and wants the current
+   general "Add cards" renamed to **"Quick add"**.
+4. Convention Mode: "the risk check never changes on the cards".
+5. "Searches are broken to add cards". It could NOT be reproduced on /add (search returned Pikachu with art on
+   2026-11-05). Ask which search, or check the room's add flows after item 3.
+6. Site-wide uniformity pass (buttons, checkboxes, fields).
+
+**UNCOMMITTED in the worktree: a desktop fix for the card zoom.** Owner report: "when you click cards you cant click
+off of them". A zoom opened by a click (seller photos, card pictures) had nothing that could close it on a computer.
+- Started: a `pinned` mode in `CardPreview.tsx`. It dims the page; clicking anywhere or pressing Esc closes it, and
+  `hide()` ignores pinned zooms. `CardThumb`, `ShopCardTile` and `ShopRequestStatusPage` open it pinned. There's a
+  CSS rule in `tracker.css`.
+- Status: the browser test still FAILS at "click anywhere closes it", and `shop-browser.mjs` has temporary
+  `console.log('DEBUG …')` lines to remove.
+- Lead: in the test, the overlay's className after the click was plain `card-preview-overlay`, so a click DID close
+  it. The `.card-preview-wrap.visible` element then stayed. Check whether the pinned overlay re-opens via the
+  thumb's `onFocus` (focus returns to the img), or whether the wrap's `visible` class lags.
+
 What the owner asked for (2026-11-04, frustrated, in their words): "the photo thing should be on the tile not a
 seperate thing"; "Theres 3 check boxes all diffrent fonts in different places after the request is clicked";
 "why do we need to have a contact card at all? I thought you were setting up our own chat on the website";
