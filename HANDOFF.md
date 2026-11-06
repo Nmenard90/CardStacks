@@ -193,6 +193,24 @@ Chat only appears on requests from signed-in buyers; requests from before 2026-1
 - Cause 2: TCGTracking now serves art from `cdn.tcgtracking.com`, which has no CORS headers and wasn't on the
   `/card-art` relay allow-list. It has been added to `cardArt.mjs` and `artUrl.js`.
 
+**Also live on 2026-11-05:**
+- `f949ac9`: a card zoom opened by a click is "pinned" (`CardPreview.tsx`). It dims the page, and a click anywhere
+  or Esc closes it. This fixes the owner's "you cant click off of them".
+- `e83fa3f`: Convention Mode's risk score depends on the card (`lib/conventionRisk.ts`: value, most-faked names,
+  chase rarity, vintage, ask under market) and shows its reasons. Before, every card showed "Medium".
+
+**Browser audit, 2026-11-05 (live site; throwaway demo account plus the owner's Chrome):**
+- `tests/site-audit.mjs`: 44 page views (desktop and phone, signed out and in) with no crashes or console errors.
+  - Only expected 404s, from deliberately missing shops and links.
+  - One 502 on Settings, during a redeploy.
+  - Two small tap targets in the shop footer on phones.
+- Hands-on checks:
+  - Add Cards search works (40 Pikachu results, all pictures loaded).
+  - Add → **Save** → POST bulk returns 200 and the collection total updates. NOTE: "Add" only stages the card until
+    you press Save, which is easy to miss; it may be the owner's "adding is broken".
+  - Spaces has "+ Add binder", "+ Box" and "+ Shelf unit". The ROOM has none of these.
+  - Convention Mode risk now varies: Charizard $149 is Medium with 3 reasons; Bidoof is Low.
+
 **OWNER-REPORTED BACKLOG (2026-11-05, not started; the owner is frustrated, so do these next):**
 1. Room: there's no way to create a binder from the binder shelf. The "+ Add binder" button exists only in Spaces →
    Binder Library.
