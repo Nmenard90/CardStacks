@@ -22,6 +22,7 @@ import { HeaderNav } from '../components/HeaderNav'
 import { usePreview } from '../components/CardPreview'
 import { CardThumb } from '../components/CardThumb'
 import { CONDS, condPrice, type Cond } from '../lib/conditions'
+import { dealRisk } from '../lib/conventionRisk'
 import type { Card, ConventionPriceReport, PaymentType, VendorNote } from '../types'
 
 // The keys this page's data is saved under in the browser's local storage.
@@ -156,19 +157,12 @@ export function ConventionModePage() {
   const walkAway = market > 0 ? market * 1.03 : 0
   const askVsMarket = market > 0 && ask > 0 ? ((ask - market) / market) * 100 : 0
 
-  // A 0-100 risk score, recomputed only when something it depends on changes.
-  const riskScore = useMemo(() => {
-    if (!selectedCard) return 0
-    let score = 18
-    if (ask > market * 1.1 && market > 0) score += 15
-    if (ask > 75) score += 15
-    if (condition === 'NM') score += 10
-    if (reports.filter(r => r.cardId === selectedCard.id).length < 3) score += 8
-    if (!booth.trim()) score += 5
-    return clamp(score, 0, 100)
-  }, [selectedCard, ask, market, condition, reports, booth])
-
-  const riskLabel = riskScore >= 65 ? 'High' : riskScore >= 40 ? 'Medium' : riskScore > 0 ? 'Low' : '—'
+  // How likely this deal is a fake: from the card itself (value, often-faked Pokémon, rarity, vintage) and the ask.
+  const releaseYear = Number((sets.find(s => s.id === selectedCard?.setId)?.releaseDate ?? '').slice(0, 4)) || undefined
+  const risk = selectedCard
+    ? dealRisk({ name: selectedCard.name, rarity: selectedCard.rarity, setId: selectedCard.setId, releaseYear, market, ask, condition })
+    : null
+  const riskLabel = risk?.label ?? '—'
   const checklist = fakeRiskChecklist(selectedCard, ask, condition)
 
   const selectCard = (card: Card) => {
@@ -304,6 +298,13 @@ export function ConventionModePage() {
 
           <div className="panel checklist-panel">
             <div className="panel-head"><div><p className="eyebrow">Step 2</p><h2>Fake-risk quick check</h2></div></div>
+            {risk && <>
+              <p className="eyebrow">Why the risk is {risk.label.toLowerCase()}</p>
+              <ul className="checklist risk-reasons">
+                {risk.reasons.map(reason => <li key={reason}>{reason}</li>)}
+              </ul>
+              <p className="eyebrow">What to check</p>
+            </>}
             <ul className="checklist">
               {checklist.map(item => <li key={item}>{item}</li>)}
             </ul>
