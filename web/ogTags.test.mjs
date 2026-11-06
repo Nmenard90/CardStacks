@@ -22,7 +22,7 @@ test('tags cover title, description, preview image and url, all absolute', () =>
     "<title>testowner's Pokémon card shop</title>",
     'property="og:title" content="testowner\'s Pokémon card shop"',
     'property="og:description" content="Browse Pokémon singles by set',
-    'property="og:image" content="https://cards.example/og-shop.png"',
+    'property="og:image" content="https://cards.example/og-shop.png?v=2"',
     'property="og:url" content="https://cards.example/shop/testowner"',
     'property="og:image:width" content="1200"',
     'property="og:image:height" content="630"',
