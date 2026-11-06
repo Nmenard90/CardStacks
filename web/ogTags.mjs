@@ -33,7 +33,7 @@ const esc = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replac
 export function shopOg(slug, origin) {
   const title = `${slug}'s Pokémon card shop`
   const description =
-    "Browse Pokémon singles by set at today's market prices and send a request — no account needed. " +
+    "Browse Pokémon singles by set at today's market prices and send a request with a free CardStacks account. " +
     'Prices follow the market. No percentage offers on buys or trades. Trades welcome.'
   return {
     title,
@@ -44,7 +44,8 @@ export function shopOg(slug, origin) {
       `<meta property="og:title" content="${esc(title)}" />`,
       `<meta property="og:description" content="${esc(description)}" />`,
       `<meta property="og:url" content="${esc(`${origin}/shop/${slug}`)}" />`,
-      `<meta property="og:image" content="${esc(`${origin}/og-shop.png`)}" />`,
+      // ?v= changes whenever the picture does: Discord and Facebook cache previews by image address.
+      `<meta property="og:image" content="${esc(`${origin}/og-shop.png?v=2`)}" />`,
       `<meta property="og:image:type" content="image/png" />`,
       `<meta property="og:image:width" content="1200" />`,
       `<meta property="og:image:height" content="630" />`,
