@@ -143,6 +143,21 @@ class ShopSuite extends munit.FunSuite:
     assert(ShopRoutes.validatePhotoAsk(PhotoAskInput("base1-4", "Charizard", "4", "x" * 21)).isLeft)
   }
 
+  test("photos are up: only open requests from signed-in buyers that asked for that card and condition are told") {
+    val asked  = card.copy(cardId = "base1-4", condition = "NM", photos = Some(true))
+    val at     = java.time.Instant.EPOCH
+    val open   = ShopRequest("r1", "Ash", "", "", "photos", List(asked), "new", at, Some("buyer1"))
+    val reqs   = List(
+      open,
+      open.copy(id = "r2", status = "done"),                                    // closed: not told
+      open.copy(id = "r3", buyerUserId = None),                                 // before chat: nobody to tell
+      open.copy(id = "r4", items = List(asked.copy(photos = None))),            // didn't ask for photos
+      open.copy(id = "r5", items = List(asked.copy(condition = "LP"))))         // other condition
+    assertEquals(ShopRoutes.waitingForPhotos(reqs, "base1-4", "NM").map(_._1.id), List("r1"))
+    val text = ShopRoutes.photoReadyMessage(asked)
+    assert(text.contains("Charizard #4 (NM)") && text.contains("front and back"), text)
+  }
+
   test("chat messages: trimmed, not empty, 2000 characters at most; each side sees which ones the seller wrote") {
     assertEquals(ShopRoutes.validateMessage(MessageInput("  Still have it?  ")), Right("Still have it?"))
     assert(ShopRoutes.validateMessage(MessageInput("   ")).isLeft)

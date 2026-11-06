@@ -186,6 +186,39 @@ object ShopRoutes:
                   .someOrFail("Make a free CardStacks account (or sign in) to send requests.")
     yield (s._1, s._3, name)
 
+  /** The open requests from signed-in buyers that asked for photos of this card in this condition. */
+  private[poketracker] def waitingForPhotos(requests: List[ShopRequest], cardId: String, cond: String): List[(ShopRequest, ShopRequestItem)] =
+    requests.filter(r => r.status != "done" && r.buyerUserId.nonEmpty).flatMap(r =>
+      r.items.find(i => i.cardId == cardId && i.condition == cond && i.photos.contains(true)).map(r -> _))
+
+  /** The chat message that tells a buyer the photos they asked for are up. */
+  private[poketracker] def photoReadyMessage(item: ShopRequestItem): String =
+    s"📷 The photos you asked for are up: ${item.name} #${item.number} (${item.condition}), front and back. " +
+      "They're on your request and on the card in the shop."
+
+  /** After a photo upload: when this card+condition now has both a front and a back photo, posts photoReadyMessage
+   *  in the chat of each open request waiting for it (once; a retake doesn't post it again). The message comes from
+   *  the seller, so the buyer gets the unread badge and an email like any reply. Problems are only logged. */
+  private def tellBuyersPhotosAreUp(sellerUserId: String, cardId: String, cond: String): URIO[ShopRepository & ShopNotifier, Unit] =
+    (for
+      photos   <- ZIO.serviceWithZIO[ShopRepository](_.listPhotos(sellerUserId))
+      bothUp    = Set("front", "back").subsetOf(photos.filter(p => p.cardId == cardId && p.condition == cond).map(_.side).toSet)
+      requests <- if bothUp then ZIO.serviceWithZIO[ShopRepository](_.list(sellerUserId)) else ZIO.succeed(Nil)
+      waiting   = waitingForPhotos(requests, cardId, cond)
+      shop     <- if waiting.isEmpty then ZIO.none else ZIO.serviceWithZIO[ShopRepository](_.getSettings(sellerUserId))
+      seller   <- if waiting.isEmpty then ZIO.none else ZIO.serviceWithZIO[ShopRepository](_.accountName(sellerUserId))
+      shopName  = shop.map(_.displayName).filter(_.nonEmpty).orElse(seller).getOrElse("The seller")
+      _        <- ZIO.foreachDiscard(waiting) { (request, item) =>
+                    val text = photoReadyMessage(item)
+                    ZIO.serviceWithZIO[ShopRepository](_.messages(request.id)).flatMap { chat =>
+                      ZIO.unless(chat.exists(_._3 == text))(
+                        ZIO.serviceWithZIO[ShopRepository](_.addMessage(request.id, sellerUserId, text)) *>
+                          ZIO.serviceWithZIO[ShopNotifier](_.newMessage(request.buyerUserId.get, false, shopName,
+                            shop.fold("")(_.slug), shopName, request.id, text)))
+                    }
+                  }
+    yield ()).catchAllCause(cause => ZIO.logWarningCause(s"Could not tell buyers that photos of $cardId are up", cause))
+
   /** Reads a JSON body; Left = message for the sender. */
   private def readJson[A: JsonDecoder](req: Request): IO[String, A] =
     req.body.asString.orElseFail("Could not read that.").flatMap(b => ZIO.fromEither(b.fromJson[A]).orElseFail("Could not read that."))
@@ -390,6 +423,8 @@ object ShopRoutes:
           _     <- ZIO.unless(isJpeg(bytes))(ZIO.fail("Only JPEG photos are accepted."))
           ok    <- ZIO.serviceWithZIO[ShopRepository](_.savePhoto(userId, cardId, cond, side, bytes)).mapError(_ => "Could not save that photo.")
           _     <- ZIO.unless(ok)(ZIO.fail(s"You are at the limit of ${ShopRepository.MaxPhotosPerUser} photos. Remove some first."))
+          // Once front and back are both up, tell every buyer waiting for them (in the background; never fails this).
+          _     <- tellBuyersPhotosAreUp(userId, cardId, cond).forkDaemon
         yield Response.json("""{"ok": true}""")
         ).catchAll(msg => ZIO.succeed(Response.badRequest(msg)))
     },
