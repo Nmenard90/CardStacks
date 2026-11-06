@@ -547,7 +547,9 @@ function Storage({ userId, space, boxes, binders, reload, unitId, setUnitId, ope
     })()
     return () => { cancelled = true }
   }, [openBoxId, boxes]) // eslint-disable-line react-hooks/exhaustive-deps
-  const [picking, setPicking] = useState(false)
+  // ?add=box (the room's "+ Add box") opens the box picker straight away.
+  const [addParams] = useSearchParams()
+  const [picking, setPicking] = useState(() => addParams.get('add') === 'box')
   const [pickingUnit, setPickingUnit] = useState(false)
   // The order the last "Sets by date" press used — the button offers the other.
   const [dateOrder, setDateOrder] = useState<'oldest' | 'newest'>('newest')
@@ -1963,7 +1965,9 @@ function firstOpenBinderPosition(unit: StorageUnit, placed: Binder[]): { shelfIn
 function Binders({ userId, space, binders, reload, open }: {
   userId: string; space: CollectionSpace; binders: Binder[]; reload: () => Promise<void>; open: (id: string) => void
 }) {
-  const [addOpen, setAddOpen] = useState(false)
+  // ?add=binder (the room's "+ Add binder") opens the new-binder form straight away.
+  const [addParams] = useSearchParams()
+  const [addOpen, setAddOpen] = useState(() => addParams.get('add') === 'binder')
   const toast = useToast()
 
   const create = async (name: string, pocketSize: PocketSize, unitId: string, coverImage: string) => {
@@ -2227,7 +2231,7 @@ function Displays({ userId, space, reload, caseId, setCaseId }: {
                   )
                 }
                 const available = lots.filter(lot => lot.quantity - lot.allocated > 0)
-                if (!available.length) return <p>No available owned copies to display. Add cards from the Add Cards page first.</p>
+                if (!available.length) return <p>No available owned copies to display. Add cards with Quick add first.</p>
                 return available.slice(0, 30).map(lot => {
                   const card = cardFor(lot.cardId)
                   return (

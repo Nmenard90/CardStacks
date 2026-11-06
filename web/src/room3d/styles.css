@@ -477,6 +477,8 @@ canvas { display: block; touch-action: none; }
 .zone-browser__pager span { color: #66756e; font: 700 0.6875rem/1 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .zone-browser__tabs { display: inline-flex; gap: 0.25rem; }
 .zone-browser__tabs button.active { color: #fff9ea; background: #326f65; border-color: #326f65; }
+/* "+ Add binder" / "+ Add box": the same button as the rest of the bar, filled like the active tab so it reads as the action. */
+.zone-browser__bar .zone-browser__add { color: #fff9ea; background: #326f65; border-color: #326f65; }
 .zone-browser__empty-slot {
   flex: 0 0 9.875rem;
   display: grid;

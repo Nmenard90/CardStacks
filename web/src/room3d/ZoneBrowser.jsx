@@ -28,7 +28,8 @@ export function Pager({ label, from, to, total, onPrev, onNext, hasPrev, hasNext
   );
 }
 
-export default function ZoneBrowser({ zone, world, state, nav, onOpen, onAddToSlot }) {
+/** @param onAdd  binders/storage: opens the place to add a new binder or box (Spaces); omitted for the display cabinet */
+export default function ZoneBrowser({ zone, world, state, nav, onOpen, onAddToSlot, onAdd }) {
   const isDisplay = zone === 'display';
   const kind = zone === 'binders' ? 'binder' : 'box';
   const noun = zone === 'binders' ? 'binder' : zone === 'storage' ? 'box' : 'card';
@@ -104,6 +105,7 @@ export default function ZoneBrowser({ zone, world, state, nav, onOpen, onAddToSl
   return (
     <section className="zone-picker zone-browser" aria-label={`${zone === 'binders' ? 'Binder library' : 'Bulk storage'} browser`}>
       <div className="zone-browser__bar">
+        {onAdd && <button type="button" className="zone-browser__add" onClick={onAdd}>+ Add {noun}</button>}
         {units.length > 0 ? (
           <>
             <button type="button" onClick={() => stepUnit(-1)} disabled={unitIndex <= 0} aria-label="Previous shelf unit">‹</button>

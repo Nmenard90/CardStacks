@@ -28,7 +28,7 @@ const ITEMS: NavItem[] = [
   { to: '/',                   label: '🏠 Room' },
   { to: '/spaces',             label: '📦 Spaces' },
   { to: '/explore',            label: '🗂 Explore' },
-  { to: '/add',                label: '⚡ Add Cards' },
+  { to: '/add',                label: '⚡ Quick add' },
   { to: '/shop/requests',      label: '🛍 Shop' },
 ]
 

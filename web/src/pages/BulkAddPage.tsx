@@ -289,17 +289,18 @@ export function BulkAddPage() {
 
   return (
     <div className="page-tracker bulk-page">
-      <h1 className="sr-only">Add cards</h1>
+      <h1 className="sr-only">Quick add</h1>
       <style>{STYLE}</style>
       <div id="app" style={{ display: 'block' }}>
         <header>
-          <div className="logo">⚡ ADD <span>&amp; FILE</span></div>
+          <div className="logo">⚡ QUICK <span>ADD</span></div>
           <div className="user-badge">👤 <b>{user.username}</b></div>
           <div className="header-right">
-            {tiles.length > 0 && <span className="unsaved">{totalCards} unsaved · saved locally</span>}
+            {/* Adding only stages cards here; say plainly that they aren't in the collection until saved. */}
+            {tiles.length > 0 && <span className="unsaved">{totalCards} not in your collection yet · press Save</span>}
             <button className="tb-btn" onClick={clearAll}>Clear</button>
             <button className="tb-btn primary" onClick={save} disabled={saving || tiles.length === 0}>
-              {saving ? 'Saving…' : `Save${tiles.length ? ` (${totalCards})` : ''}`}
+              {saving ? 'Saving…' : `Save to collection${tiles.length ? ` (${totalCards})` : ''}`}
             </button>
             <HeaderNav />
           </div>
