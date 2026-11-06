@@ -47,6 +47,8 @@ interface CartLine { card: Card; cond: string; qty: number; max: number }
 const SHOP_SORTS: SortKey[] = ['value', 'name', 'set', 'number', 'rarity', 'artist', 'qty', 'recent']
 const money = (n: number) => '$' + n.toFixed(2)
 const lineKey = (cardId: string, cond: string) => `${cardId}|${cond}`
+/** What the owner is told when they try a buyer's button on their own shop. */
+const OWN_SHOP = "This is your own shop, so it can't send to you. Buyers' requests and photo asks show up in My Shop."
 
 export function ShopPage() {
   // The link name from the URL (/shop/:slug) picks whose shop this is.
@@ -265,9 +267,9 @@ export function ShopPage() {
                     inCart={cond => cart[lineKey(o.card.id, cond)]?.qty ?? 0}
                     onAdj={(cond, d) => adjust(o.card, cond, o.conditions.find(c => c.condition === cond)?.quantity ?? 0, d)}
                     photos={cond => ({ front: photoAt(o.card.id, cond, 'front'), back: photoAt(o.card.id, cond, 'back') })}
-                    askPhotos={isOwner ? undefined : {
-                      asked: cond => askedPhotos.has(`${o.card.id}|${cond}`),
-                      onAsk: cond => void askPhotos(o.card, cond),
+                    askPhotos={{
+                      asked: cond => !isOwner && askedPhotos.has(`${o.card.id}|${cond}`),
+                      onAsk: cond => (isOwner ? toast(OWN_SHOP) : void askPhotos(o.card, cond)),
                     }}
                   />
                 ))}
@@ -286,12 +288,11 @@ export function ShopPage() {
       {preview.overlay}
 
       <div className="shop-bar">
-        {isOwner ? <span>This is your shop. Buyers send requests from this bar; you answer them in <Link to="/shop/requests">My Shop</Link>.</span> : <>
-          <span>{cartCount > 0 ? `${cartCount} card${cartCount === 1 ? '' : 's'} · about ${money(cartTotal)} at today's prices` : 'Pick cards with +, or just ask a question'}</span>
-          <button type="button" className="shop-btn" onClick={() => (buyerId ? setFormOpen(true) : needSignIn('send'))}>
-            {cartCount > 0 ? 'Send request' : 'Ask a question'}
-          </button>
-        </>}
+        {/* The same bar for the owner as for buyers (they see their shop exactly as buyers do); it just can't send to itself. */}
+        <span>{cartCount > 0 ? `${cartCount} card${cartCount === 1 ? '' : 's'} · about ${money(cartTotal)} at today's prices` : 'Pick cards with +, or just ask a question'}</span>
+        <button type="button" className="shop-btn" onClick={() => (isOwner ? toast(OWN_SHOP) : buyerId ? setFormOpen(true) : needSignIn('send'))}>
+          {cartCount > 0 ? 'Send request' : 'Ask a question'}
+        </button>
       </div>
 
       {formOpen && buyerId && <RequestForm slug={slug} userId={buyerId} username={user?.username ?? ''} lines={lines} total={cartTotal}

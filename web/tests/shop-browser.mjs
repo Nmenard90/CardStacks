@@ -357,8 +357,13 @@ try {
   await run('owner: shop page is what buyers see (no photo buttons), links to My Shop; Settings saves name and bio', async () => {
     const { context, page, state, errors } = await setup({ authenticated: true })
     await openShop(page)
-    assert.equal(await page.getByRole('button', { name: /photos/i }).count(), 0, 'photos are taken on the seller side, not on the shop')
-    assert.equal(await page.getByRole('button', { name: /Send request|Ask a question/ }).count(), 0, 'the owner can\'t send to their own shop')
+    // The owner sees the same buttons buyers see (no seller-only photo button); trying one just explains.
+    assert.equal(await page.getByRole('button', { name: /Take photo|Add photos/ }).count(), 0, 'photos are taken on the seller side, not on the shop')
+    await page.locator('.card-grid .pcard').first().getByRole('button', { name: '📷 Ask for photos' }).waitFor()
+    await page.getByRole('button', { name: 'Ask a question' }).click()
+    await page.getByText(/This is your own shop/).first().waitFor()
+    assert.equal(await page.getByRole('dialog').count(), 0, 'no request form for your own shop')
+    assert.equal(state.sent.length, 0)
     await page.locator('.share-owner-note').getByRole('link', { name: 'My Shop' }).click()
     await page.waitForURL('**/shop/requests')
     await page.getByRole('button', { name: 'Settings' }).click()
