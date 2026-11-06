@@ -36,7 +36,7 @@ test('tags cover title, description, preview image and url, all absolute', () =>
 test('the preview describes the request flow, the no-percentage rule and that trades are welcome', () => {
   const { tags } = shopOg('testowner', 'https://cards.example')
   assert.match(tags, /by set/)
-  assert.match(tags, /no account needed/)
+  assert.match(tags, /free CardStacks account/)
   assert.match(tags, /Prices follow the market/)
   assert.match(tags, /No percentage offers on buys or trades/)
   assert.match(tags, /Trades welcome/)
