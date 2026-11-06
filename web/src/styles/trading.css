@@ -15,7 +15,9 @@
   background: var(--accent); color: #1a1430;
 }
 .trade-main button:disabled { opacity: .5; cursor: default; }
-.trade-main input, .trade-main select, .trade-main textarea {
+/* Text boxes only: a checkbox or radio stretched to 100% floats in the middle of its row with its label pushed out. */
+/* (:where keeps this rule as weak as plain ".trade-main input", so page-specific box styles still win.) */
+.trade-main input:where(:not([type=checkbox]):not([type=radio])), .trade-main select, .trade-main textarea {
   background: var(--surface); color: var(--text); border: 2px solid var(--border);
   border-radius: 10px; padding: 8px 10px; font: inherit; width: 100%; box-sizing: border-box;
 }

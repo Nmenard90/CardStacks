@@ -368,6 +368,15 @@ try {
     await page.waitForURL('**/shop/requests')
     await page.getByRole('button', { name: 'Settings' }).click()
     await page.waitForURL('**/shop/requests?tab=settings')
+    await page.getByLabel('Shop name', { exact: true }).waitFor()
+    // The on/off checkbox stays checkbox-sized with its words beside it, inside the panel (a page-wide input rule
+    // once stretched it across the box and pushed "Shop is ON" out of it).
+    const onOff = page.getByRole('checkbox', { name: /Shop is ON/ })
+    assert((await onOff.boundingBox()).width <= 30, 'the shop on/off checkbox is checkbox-sized')
+    const panel = await page.locator('.shop-settings').boundingBox()
+    const label = await page.locator('.shop-settings label.shop-agree').boundingBox()
+    assert(label.x >= panel.x && label.x + label.width <= panel.x + panel.width + 1, 'the on/off label stays inside the panel')
+    await page.screenshot({ path: path.join(report, 'my-shop-settings-1440.png'), fullPage: true })
     await page.getByLabel('Shop name', { exact: true }).fill('QA Collector Shop')
     await page.getByLabel(/About you and your cards/).fill('My own bio.\n<script>plain text</script>')
     await page.getByRole('button', { name: 'Save', exact: true }).click()

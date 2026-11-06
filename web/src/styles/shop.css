@@ -10,7 +10,8 @@
 .shop-settings p{margin:0}
 .shop-settings label{display:grid;gap:6px;font-size:13px;font-weight:800;color:var(--muted)}
 .shop-settings input[type=text]{width:100%;background:var(--surface2);color:var(--text);border:var(--ink-w) solid var(--border);border-radius:10px;padding:10px 12px;font:inherit;font-size:16px}
-.shop-settings label.shop-agree{display:flex;gap:10px;align-items:center;font-size:15px;font-weight:700;color:var(--text)}
+/* Same checkbox row as the request form's (.shop-sheet label.shop-agree), so every checkbox on the site matches. */
+.shop-settings label.shop-agree{display:flex;gap:10px;align-items:flex-start;font-size:14px;font-weight:600;color:var(--text);line-height:1.4}
 .shop-tools{display:flex;flex-wrap:wrap;gap:8px;padding:8px 16px}
 .shop-tools input[type=search],.shop-tools select{flex:1 1 180px;min-width:0;background:var(--surface2);color:var(--text);border:var(--ink-w) solid var(--border);border-radius:10px;padding:10px 12px;font:inherit;font-size:16px}
 .shop-msg{padding:16px;color:var(--muted)}
@@ -43,7 +44,7 @@
 .shop-choice-option input{position:absolute;inset:0;z-index:1;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
 .shop-choice-option:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 .shop-sheet label.shop-agree{display:flex;gap:10px;align-items:flex-start;font-size:14px;font-weight:600;color:var(--text);line-height:1.4}
-.shop-agree input{width:22px;height:22px;flex:none;margin-top:1px}
+.shop-agree input[type=checkbox]{width:22px;height:22px;flex:none;margin:1px 0 0}
 .shop-summary{margin:0;padding-left:20px;display:grid;gap:4px;font-size:14px}
 .shop-error{margin:0;color:var(--red);font-weight:700}
 .shop-sheet-btns{display:flex;gap:8px;flex-wrap:wrap}
@@ -110,7 +111,7 @@
 
 /* Owner settings form (name, bio, link). */
 .shop-settings input::placeholder,.shop-settings textarea::placeholder{color:var(--muted);opacity:1}
-.shop-settings textarea{width:100%;background:var(--surface2);color:var(--text);border:var(--ink-w) solid var(--border);border-radius:10px;padding:10px 12px;font:inherit;font-size:16px;resize:vertical}
+.trade-main .shop-settings textarea,.shop-settings textarea{width:100%;background:var(--surface2);color:var(--text);border:var(--ink-w) solid var(--border);border-radius:10px;padding:10px 12px;font:inherit;font-size:16px;resize:vertical}
 .shop-settings :is(a,button,input,textarea):focus-visible{outline:3px solid var(--accent);outline-offset:4px}
 .shop-hero .shop-bio{max-width:650px;margin:0 auto 14px;color:var(--text);font-size:16px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;text-transform:none}
 /* My Shop: "View my shop" sits at the end of the tab row; the inline "turn it on" link-button. */
