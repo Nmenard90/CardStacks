@@ -211,7 +211,29 @@ Chat only appears on requests from signed-in buyers; requests from before 2026-1
   - Spaces has "+ Add binder", "+ Box" and "+ Shelf unit". The ROOM has none of these.
   - Convention Mode risk now varies: Charizard $149 is Medium with 3 reasons; Bidoof is Low.
 
-**OWNER-REPORTED BACKLOG (2026-11-05, not started; the owner is frustrated, so do these next):**
+**Overnight 2026-11-05/06 (owner asleep, said "keep going until everything is fixed and you finish the audit"),
+all LIVE:**
+- `5c38078`: Room "+ Add binder" / "+ Add box" in the binder/box lists (`ZoneBrowser` `onAdd`). They open Spaces with
+  its new-binder form or box picker already open (`/spaces?area=binders&add=binder`, `?area=storage&add=box`),
+  reusing Spaces' create-and-place code.
+  - An open box's panel link now reads "+ Add or move cards in this box".
+  - "Add Cards" is "Quick add" everywhere (nav, page, room button). Its Save button reads "Save to collection (n)",
+    with the hint "not in your collection yet · press Save".
+  - Verified live with a demo account: both forms open, a binder was created, and the nav says Quick add.
+- `a8770ba`: shop footer links have 24px tap targets. The final `site-audit.mjs` on the live site found only the
+  expected 404s.
+- **Room browser suite (`tests/room-browser.mjs`): 68/77.** The same 9 failures also happen on the live code WITHOUT
+  the overnight change, so they're not from it. Still to investigate:
+  - (a) "binder cover: add a cover photo" (4 sizes). The test's binder panel shows no `.binder-cover` section, but
+    the owner's real room does show it, so it's probably a test-fixture mismatch.
+  - (b) "display cabinet: an empty slot takes one of my cards" (4 sizes).
+  - (c) "without graphics acceleration… draws nothing while still": 2-3 frames in 2 s. Possibly the new art retry
+    (`loadCardArt` retries ~4 s later, and a late load redraws).
+  - Run it with Vite on 5179 using qa env vars; it takes about 25 minutes with software WebGL.
+- Spaces' Add Binder form defaults "Shelf placement" to "Leave unplaced". A binder made from the room's shelf might
+  be better placed on that shelf by default.
+
+**OWNER-REPORTED BACKLOG (2026-11-05). Items 1-4 are done (see above); 5 and 6 remain:**
 1. Room: there's no way to create a binder from the binder shelf. The "+ Add binder" button exists only in Spaces →
    Binder Library.
 2. Room: no way to add a box into storage.
