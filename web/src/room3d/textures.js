@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { drawableArtUrl } from './room/artUrl.js';
+import { artCandidates, loadCardArt } from './room/artUrl.js';
 
 function canvas(w, h) {
   const c = document.createElement('canvas');
@@ -250,15 +250,11 @@ export function makeHoloCardTexture(cardOrSeed = 0) {
 
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  if (card?.imageUrl) {
-    const image = new Image();
-    image.crossOrigin = 'anonymous';
-    image.onload = () => {
-      ctx.clearRect(0, 0, width, height);
-      ctx.drawImage(image, 0, 0, width, height);
-      tex.needsUpdate = true;
-    };
-    image.src = drawableArtUrl(card.imageUrl) ?? '';
-  }
+  // The art, falling back to the small image and one later retry, so a CDN hiccup doesn't leave it blank.
+  loadCardArt(artCandidates(card), (image) => {
+    ctx.clearRect(0, 0, width, height);
+    ctx.drawImage(image, 0, 0, width, height);
+    tex.needsUpdate = true;
+  });
   return tex;
 }

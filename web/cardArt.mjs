@@ -16,7 +16,8 @@
  */
 
 /** Hosts whose images may be relayed. Exact names, no wildcards. */
-export const ART_HOSTS = Object.freeze(['tcgplayer-cdn.tcgplayer.com', 'product-images.tcgplayer.com'])
+// cdn.tcgtracking.com: where TCGTracking's API points card art since late 2026 (no CORS headers either).
+export const ART_HOSTS = Object.freeze(['tcgplayer-cdn.tcgplayer.com', 'product-images.tcgplayer.com', 'cdn.tcgtracking.com'])
 const MAX_BYTES = 5 * 1024 * 1024
 const TIMEOUT_MS = 10_000
 

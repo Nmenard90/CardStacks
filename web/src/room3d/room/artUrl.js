@@ -9,7 +9,7 @@
  */
 
 /** Must match ART_HOSTS in web/cardArt.mjs. */
-const RELAYED_HOSTS = new Set(['tcgplayer-cdn.tcgplayer.com', 'product-images.tcgplayer.com']);
+const RELAYED_HOSTS = new Set(['tcgplayer-cdn.tcgplayer.com', 'product-images.tcgplayer.com', 'cdn.tcgtracking.com']);
 
 /**
  * PURPOSE: A drawable URL for a card image.
@@ -23,4 +23,49 @@ export function drawableArtUrl(url) {
   } catch {
     return null;
   }
+}
+
+/** pokemontcg.io's small image for a hi-res one ("…/31_hires.png" → "…/31.png"); null for anything else. */
+function smallFromHires(url) {
+  return typeof url === 'string' && /_hires\.\w+$/.test(url) ? url.replace(/_hires(\.\w+)$/, '$1') : null;
+}
+
+/**
+ * PURPOSE: The drawable URLs to try for a card, best first: the large art, then the small one. pokemontcg.io's hi-res
+ *   images sometimes fail (HTTP 503) while the small ones still load, and one failed picture used to leave the card
+ *   as a blank placeholder for good.
+ * @param {{ imageUrl?: string|null, imageSmall?: string|null }|null|undefined} card
+ * @return {string[]}
+ */
+export function artCandidates(card) {
+  const raw = [card?.imageUrl, card?.imageSmall, smallFromHires(card?.imageUrl)];
+  return [...new Set(raw.map(drawableArtUrl).filter(Boolean))];
+}
+
+/**
+ * PURPOSE: Loads the first of `urls` that works and hands it to `onLoad`. When every one fails, tries the list once
+ *   more after `retryMs` (the art CDNs' failures are usually brief), then gives up and the placeholder stays.
+ * @param {string[]} urls  from artCandidates
+ * @param {(image: HTMLImageElement) => void} onLoad
+ * @param {number} [retryMs]
+ * @param {typeof Image} [ImageImpl]  injected in tests
+ */
+export function loadCardArt(urls, onLoad, retryMs = 4000, ImageImpl = globalThis.Image) {
+  let index = 0;
+  let retried = false;
+  const tryNext = () => {
+    if (index >= urls.length) {
+      if (retried || urls.length === 0) return;
+      retried = true;
+      index = 0;
+      setTimeout(tryNext, retryMs);
+      return;
+    }
+    const image = new ImageImpl();
+    image.crossOrigin = 'anonymous';
+    image.onload = () => onLoad(image);
+    image.onerror = () => { index += 1; tryNext(); };
+    image.src = urls[index];
+  };
+  tryNext();
 }
