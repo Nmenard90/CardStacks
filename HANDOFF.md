@@ -175,11 +175,10 @@ tcg/
 
 ## Current state (2026-11-04)
 
-**⚠️ DONE ON THE BRANCH, NOT LIVE: shop chat + sign-in to buy + "Ask for photos" on the tile (2026-11-04, committed
-on branch `fix/shop-photos-owner-side` in worktree `C:\Users\nicho\tcg-shop-photos`, on top of main `6e3f844`).**
-Fully verified (below). **Waiting on one thing: migration 022 must be run in production before this is pushed**
-(the auto-mode permission system blocked the agent from writing to the production DB, so the owner runs it). Then
-push the branch to main. Production is still `6e3f844` (contact choice + request emails; see the next entry).
+**LIVE (2026-11-05, main `1e1c0fe`): shop chat + sign-in to buy + "Ask for photos" on the tile.** Migration 022 was
+run in production by the owner first (all statements, COMMIT). Gotcha: the worktree `C:\Users\nicho\tcg-shop-photos`
+is linked to a DIFFERENT Railway project (`unique-sparkle`); run `railway` commands from `C:\Users\nicho\tcg`, which
+is linked to production (`selfless-intuition`: services `Postgres`, `hospitable-courtesy` = backend, `tcg` = web).
 
 What the owner asked for (2026-11-04, frustrated, in their words): "the photo thing should be on the tile not a
 seperate thing"; "Theres 3 check boxes all diffrent fonts in different places after the request is clicked";
