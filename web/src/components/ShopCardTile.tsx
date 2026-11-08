@@ -33,6 +33,8 @@ interface Props {
   /** Buyers only: "📷 Ask for photos" of the condition shown. `asked` = this buyer already asked for it. Hidden once
    *  both photos are up. Omitted on the owner's own shop. */
   askPhotos?: { asked: (cond: string) => boolean; onAsk: (cond: string) => void }
+  /** The owner only: tapping one of their photos opens the photo screen (retake or remove) instead of zooming. */
+  onOpenPhotos?: (cond: string) => void
 }
 
 const money = (n: number) => '$' + n.toFixed(2)
@@ -40,7 +42,7 @@ const money = (n: number) => '$' + n.toFixed(2)
 /** Same look as the small buttons on the collection's CardTile (📒 To binder, 📷 Photos). */
 const tileButton = { marginTop: 6, fontSize: 11, padding: '4px 8px', alignSelf: 'flex-start' } as const
 
-export function ShopCardTile({ card, conds, setName, inCart, onAdj, preview, photos, askPhotos }: Props) {
+export function ShopCardTile({ card, conds, setName, inCart, onAdj, preview, photos, askPhotos, onOpenPhotos }: Props) {
   // Best condition first (NM→DMG), so the headline price is the best copy's.
   const ordered = [...conds].sort((a, b) => CONDS.indexOf(baseCond(a.cond)) - CONDS.indexOf(baseCond(b.cond)) || a.cond.localeCompare(b.cond))
   const [sel, setSel] = useState(ordered[0]?.cond ?? 'NM')
@@ -94,7 +96,9 @@ export function ShopCardTile({ card, conds, setName, inCart, onAdj, preview, pho
         {hasPics && (
           <div className="shop-photos">
             {(['front', 'back'] as const).map(s => pics[s] && (
-              <button key={s} type="button" className="photo-frame" title={`Zoom in: ${s} photo`} onClick={() => preview.show(pics[s]!, { pinned: true })}>
+              <button key={s} type="button" className="photo-frame"
+                title={onOpenPhotos ? `Change or remove your ${s} photo` : `Zoom in: ${s} photo`}
+                onClick={() => (onOpenPhotos ? onOpenPhotos(current.cond) : preview.show(pics[s]!, { pinned: true }))}>
                 <img src={pics[s]} alt={`${s} photo of the card`} loading="lazy" />
                 <span>{s === 'front' ? 'Front' : 'Back'}</span>
               </button>

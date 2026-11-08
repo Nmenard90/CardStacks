@@ -220,6 +220,8 @@
     display:flex;gap:8px;padding:9px 18px;background:var(--surface);
     border-bottom:var(--ink-w) solid var(--border);align-items:center;flex-wrap:wrap;
   }
+  /* The search box sits first in the toolbar, with the filters and sort (never up in the header). */
+  .page-tracker .toolbar .toolbar-search{flex:1 1 220px;min-width:0;max-width:360px;}
   .page-tracker .sort-label{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;}
   .page-tracker .tb-btn{font-size:14px;padding:5px 11px;}
 

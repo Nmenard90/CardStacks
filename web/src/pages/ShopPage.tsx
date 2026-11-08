@@ -33,6 +33,7 @@ import { condPrice } from '../lib/conditions'
 import { compareBy, DEFAULT_DIR, type SortDir, type SortKey } from '../lib/cardSort'
 import { usePagedList } from '../lib/usePagedList'
 import { ShopCardTile } from '../components/ShopCardTile'
+import { MyCardPhotos } from '../components/MyCardPhotos'
 import { TradeCardPicker, type TradeLine } from '../components/TradeCardPicker'
 import { SortControl } from '../components/SortControl'
 import { usePreview } from '../components/CardPreview'
@@ -94,6 +95,8 @@ export function ShopPage() {
   const [sortDir, setSortDir] = useState<SortDir>(DEFAULT_DIR.value)
   const [cart, setCart] = useState<Record<string, CartLine>>({})
   const [formOpen, setFormOpen] = useState(false)
+  // The owner tapped one of their photos: the photo screen for that card (retake or remove).
+  const [editingPhotos, setEditingPhotos] = useState<{ card: Card; cond: string } | null>(null)
 
   // The seller's photos: address of each picture by card + condition + side.
   const photoMap = useMemo(
@@ -206,8 +209,6 @@ export function ShopPage() {
           {/* The shop name when the seller set one ("Ash's Binder"), otherwise "<SLUG>'S SHOP". */}
           <div className="logo">{shop?.displayName ? shop.displayName.toUpperCase() : <>{slug.toUpperCase()}'S <span>SHOP</span></>}</div>
           <Link to="/" className="user-badge" title="Powered by CardStacks">🃏 <b>CardStacks</b></Link>
-          <input type="text" className="header-search" placeholder="Search name, artist, set…"
-            value={search} onChange={e => setSearch(e.target.value)} />
           {sentHere.length > 0 && <Link className="user-badge" to={sentHere.length === 1 ? `/shop/${slug}/request/${sentHere[0].id}` : '/shop/requests?tab=sent'}>🧾 <b>Your request{sentHere.length > 1 ? 's' : ''}</b></Link>}
         </header>
 
@@ -243,7 +244,10 @@ export function ShopPage() {
           )}
         </div>
 
+        {/* Search, set filter and sort live together in one row, like on every other page. */}
         <div className="toolbar">
+          <input type="text" className="toolbar-search" placeholder="Search name, artist, set…" aria-label="Search this shop"
+            value={search} onChange={e => setSearch(e.target.value)} />
           <select value={setFilter} onChange={e => setSetFilter(e.target.value)} aria-label="Filter by set">
             <option value="">All sets ({owned.length})</option>
             {setOptions.map(s => <option key={s.id} value={s.id}>{s.name} ({s.n})</option>)}
@@ -267,6 +271,7 @@ export function ShopPage() {
                     inCart={cond => cart[lineKey(o.card.id, cond)]?.qty ?? 0}
                     onAdj={(cond, d) => adjust(o.card, cond, o.conditions.find(c => c.condition === cond)?.quantity ?? 0, d)}
                     photos={cond => ({ front: photoAt(o.card.id, cond, 'front'), back: photoAt(o.card.id, cond, 'back') })}
+                    onOpenPhotos={isOwner && user ? cond => setEditingPhotos({ card: o.card, cond }) : undefined}
                     askPhotos={{
                       asked: cond => !isOwner && askedPhotos.has(`${o.card.id}|${cond}`),
                       onAsk: cond => (isOwner ? toast(OWN_SHOP) : void askPhotos(o.card, cond)),
@@ -295,6 +300,7 @@ export function ShopPage() {
         </button>
       </div>
 
+      {editingPhotos && user && <MyCardPhotos userId={user.id} card={editingPhotos.card} cond={editingPhotos.cond} onClose={() => setEditingPhotos(null)} />}
       {formOpen && buyerId && <RequestForm slug={slug} userId={buyerId} username={user?.username ?? ''} lines={lines} total={cartTotal}
         onClose={() => setFormOpen(false)}
         onSent={() => { setCart({}); void qc.invalidateQueries({ queryKey: ['shop-sent', buyerId] }) }} />}

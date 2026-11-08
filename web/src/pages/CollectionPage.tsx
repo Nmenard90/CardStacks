@@ -450,6 +450,23 @@ export function CollectionPage() {
 
   if (!user) return <div className="page-tracker"><LoginScreen /></div>
 
+  // Search and the set picker sit first in the toolbar, with the sort and filters (never up in the header).
+  const finder = (
+    <>
+      {/* Primary way to find a card: searches every set, no set required. */}
+      <input
+        type="text"
+        className="toolbar-search"
+        aria-label="Search cards"
+        placeholder={allSets ? 'Search every set by name or number' : `Search within ${set?.name ?? 'this set'}`}
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+      />
+      {/* Optional: narrow the grid to one set when not searching. */}
+      <SetSelector sets={sets} selectedId={activeSetId} onSelect={id => setSetId(id)} />
+    </>
+  )
+
   return (
     <div className="page-tracker">
       <h1 className="sr-only">Explore cards</h1>
@@ -457,20 +474,6 @@ export function CollectionPage() {
         <header>
           <div className="logo">CARD<span>STACKS</span></div>
           <div className="user-badge">👤 <b>{user.username}</b></div>
-          {/* Primary way to find a card: searches every set, no set required. */}
-          <input
-            type="text"
-            className="header-search header-search-wide"
-            placeholder={allSets ? 'Search every set by name or number' : `Search within ${set?.name ?? 'this set'}`}
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-          {/* Optional: narrow the grid to one set when not searching. */}
-          <SetSelector
-            sets={sets}
-            selectedId={activeSetId}
-            onSelect={id => setSetId(id)}
-          />
           <HeaderNav />
         </header>
 
@@ -521,6 +524,7 @@ export function CollectionPage() {
             rather than just disabled). */}
         {allSets && !isSearchMode ? (
           <div className="toolbar">
+            {finder}
             <span className="sort-label">Sort:</span>
             {(['name', 'price', 'set', 'number', 'artist'] as BrowseSort[]).map(m => (
               <button key={m} className={'tb-btn' + (browseSort === m ? ' active' : '')} onClick={() => setBrowseSort(m)}>
@@ -539,6 +543,7 @@ export function CollectionPage() {
           </div>
         ) : (
           <div className="toolbar">
+            {finder}
             <SortControl keys={CARD_SORTS} sort={sort} dir={sortDir} onChange={(k, d) => { setSort(k); setSortDir(d) }} />
             <button className={'tb-btn' + (ownership === 'owned' ? ' active' : '')} onClick={() => toggleOwnership('owned')}>
               Owned only
