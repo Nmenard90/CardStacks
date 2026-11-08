@@ -37,6 +37,16 @@ import { useUser } from '../context/UserContext'
 
 const STATUS_LABEL: Record<ShopRequestStatus, string> = { new: 'New', answered: 'Answered', done: 'Done' }
 
+/** Where a request stands: open (new / answered) or finished — sold (a sale took cards out) or closed with no sale. */
+type Outcome = 'new' | 'answered' | 'sold' | 'closed'
+const outcomeOf = (r: ShopRequest): Outcome =>
+  r.status !== 'done' ? r.status : r.items.some(i => (i.sold ?? 0) > 0) ? 'sold' : 'closed'
+const OUTCOME_LABEL: Record<Outcome, string> = { new: 'New', answered: 'Answered', sold: 'Sold', closed: 'Closed · no sale' }
+const FILTERS: { id: Outcome | 'all'; label: string }[] = [
+  { id: 'new', label: 'New' }, { id: 'answered', label: 'Answered' }, { id: 'sold', label: 'Sold' },
+  { id: 'closed', label: 'Closed' }, { id: 'all', label: 'All' },
+]
+
 /** Turns the user's public shop on/off and sets its link name and Messenger link. */
 function ShopSettingsPanel({ userId, suggestedSlug }: { userId: string; suggestedSlug: string }) {
   const { data: saved, isLoading } = useQuery({
@@ -210,7 +220,7 @@ export function ShopRequestsPage() {
   const userId = user?.id ?? ''
   const qc = useQueryClient()
   const [params, setParams] = useSearchParams()
-  const [filter, setFilter] = useState<ShopRequestStatus | 'all'>('new')
+  const [filter, setFilter] = useState<Outcome | 'all'>('new')
   const [touched, setTouched] = useState<Set<string>>(new Set())
   const preview = usePreview() // hover a requested card's picture to see it big while pulling it
 
@@ -247,7 +257,7 @@ export function ShopRequestsPage() {
   if (!user) return <div className="page-tracker"><LoginScreen /></div>
 
   // A request just sold (or put back) stays on screen until the filter changes, though it's now Done.
-  const shown = requests.filter(r => filter === 'all' || r.status === filter || touched.has(r.id))
+  const shown = requests.filter(r => filter === 'all' || outcomeOf(r) === filter || touched.has(r.id))
   // The Requests badge counts new requests plus older ones with an unread message.
   const newCount = requests.filter(r => r.status === 'new' || r.unread).length
   const unreadSent = sent.filter(r => r.unread).length
@@ -299,9 +309,9 @@ export function ShopRequestsPage() {
             <p className="shop-sub">Buy, trade and photo requests from your public shop. Reply in each request's chat; you get an email at your sign-in address for each new request and message.</p>
             {shopOff && <p className="shop-msg">Your shop is off, so nobody can send requests. <button type="button" className="shop-link-btn" onClick={() => setTab('settings')}>Turn it on in Settings →</button></p>}
             <div className="shop-tools">
-              {(['new', 'answered', 'done', 'all'] as const).map(f => (
+              {FILTERS.map(({ id: f, label }) => (
                 <button key={f} type="button" className={'shop-btn' + (filter === f ? '' : ' shop-btn-ghost')} onClick={() => { setFilter(f); setTouched(new Set()) }}>
-                  {f === 'all' ? 'All' : STATUS_LABEL[f]}
+                  {label}{f !== 'all' && ` (${requests.filter(r => outcomeOf(r) === f).length})`}
                 </button>
               ))}
             </div>
@@ -315,20 +325,30 @@ export function ShopRequestsPage() {
                 <li key={r.id} className="shop-req">
                   <div className="shop-req-head">
                     <b>{r.buyerName}</b>
-                    <span className={'shop-pill shop-pill-' + r.status}>{KIND_LABEL(r)} · {STATUS_LABEL[r.status]}</span>
+                    <span className={'shop-pill shop-pill-' + r.status}>{KIND_LABEL(r)} · {OUTCOME_LABEL[outcomeOf(r)]}</span>
                     {r.unread && <span className="shop-pill shop-pill-new">New message</span>}
                     <span className="shop-sub">{new Date(r.createdAt).toLocaleString()}</span>
                   </div>
+                  {r.status === 'done' && (
+                    <p className="shop-sub">{outcomeOf(r) === 'sold'
+                      ? 'This sale is complete. The sold cards came out of your collection; a refund puts them back.'
+                      : 'You closed this request without a sale. Reopen it to work on it again.'}</p>
+                  )}
                   {/* Requests from before the chat only have the contact the buyer typed. */}
                   {!r.buyerUserId && <BuyerContact name={r.buyerName} contact={r.buyerContact} />}
-                  {r.items.length > 0 && <RequestedCards requestId={r.id} items={r.items} userId={userId} preview={preview} />}
+                  {/* A finished request is a record: no finding or re-grading until it's reopened. */}
+                  {r.items.length > 0 && <RequestedCards requestId={r.id} items={r.items} userId={userId} preview={preview} locked={r.status === 'done'} />}
                   {r.message && <p className="shop-req-msg">{r.message}</p>}
                   {r.buyerUserId && <ShopRequestChat userId={userId} request={r} />}
-                  <SaleControls request={r} userId={userId} onChange={() => setTouched(t => new Set(t).add(r.id))} />
+                  {/* A closed request has nothing to sell; a sold one keeps only its refund. */}
+                  {(outcomeOf(r) !== 'closed' || touched.has(r.id)) && <SaleControls request={r} userId={userId} onChange={() => setTouched(t => new Set(t).add(r.id))} />}
                   <div className="shop-sheet-btns">
-                    {r.status !== 'answered' && <button type="button" className="shop-btn shop-btn-ghost" onClick={() => mark(r, 'answered')}>Mark answered</button>}
-                    {r.status !== 'done' && <button type="button" className="shop-btn shop-btn-ghost" onClick={() => mark(r, 'done')}>{r.items.length > 0 ? 'Close, no sale' : 'Mark done'}</button>}
-                    {r.status !== 'new' && <button type="button" className="shop-btn shop-btn-ghost" onClick={() => mark(r, 'new')}>Reopen</button>}
+                    {r.status === 'done' ? (
+                      <button type="button" className="shop-btn shop-btn-ghost" onClick={() => mark(r, 'new')}>Reopen</button>
+                    ) : <>
+                      {r.status === 'new' && <button type="button" className="shop-btn shop-btn-ghost" onClick={() => mark(r, 'answered')}>Mark answered</button>}
+                      <button type="button" className="shop-btn shop-btn-ghost" onClick={() => mark(r, 'done')}>{r.items.length > 0 ? 'Close, no sale' : 'Mark done'}</button>
+                    </>}
                   </div>
                 </li>
               ))}

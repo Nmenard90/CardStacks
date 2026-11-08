@@ -56,7 +56,8 @@ const ICON: Record<CardLocation['kind'], string> = { box: '📦', binder: '📒'
  * @param userId    the seller (the signed-in owner)
  * @param preview   the page's zoom (usePreview): hovering or tapping a card's picture shows it big
  */
-export function RequestedCards({ requestId, items, userId, preview }: { requestId: string; items: ShopRequestItem[]; userId: string; preview?: ReturnType<typeof usePreview> }) {
+/** @param locked  the request is finished (sold or closed): a record only — no finding, counting or re-grading. */
+export function RequestedCards({ requestId, items, userId, preview, locked = false }: { requestId: string; items: ShopRequestItem[]; userId: string; preview?: ReturnType<typeof usePreview>; locked?: boolean }) {
   const qc = useQueryClient()
   const [error, setError] = useState('')
   const { data: owned = [] } = useQuery({ queryKey: ['owned', userId], queryFn: () => getOwnedCards(userId), enabled: !!userId })
@@ -149,7 +150,7 @@ export function RequestedCards({ requestId, items, userId, preview }: { requestI
           </ul>
           <div className="req-card__conds" role="group" aria-label={`Condition of ${item.name}`}>
             {CONDS.map(c => (
-              <button key={c} type="button" className="req-cond" aria-pressed={c === cond} disabled={soldHere > 0} style={{ '--cond': COND_COLORS[c] } as React.CSSProperties}
+              <button key={c} type="button" className="req-cond" aria-pressed={c === cond} disabled={soldHere > 0 || locked} style={{ '--cond': COND_COLORS[c] } as React.CSSProperties}
                 onClick={() => { if (c !== cond) change(index, { condition: c }) }}>{c}</button>
             ))}
             {item.askedCondition && <span className="req-card__asked">Buyer picked {item.askedCondition}</span>}
@@ -166,7 +167,7 @@ export function RequestedCards({ requestId, items, userId, preview }: { requestI
               )}
             </div>
           )}
-          {item.qty > 1 && soldHere === 0 && (
+          {item.qty > 1 && soldHere === 0 && !locked && (
             <div className="req-card__count" role="group" aria-label={`How many ${item.name} you found`}>
               <button type="button" className="req-step" aria-label="One fewer found" disabled={got === 0} onClick={() => change(index, { foundQty: got - 1 })}>−</button>
               <span><b>{got}</b> of {item.qty} found</span>
@@ -179,6 +180,8 @@ export function RequestedCards({ requestId, items, userId, preview }: { requestI
             <span className="req-sold__tag">✓ Sold{item.qty > 1 || soldHere !== got ? ` ${soldHere}` : ''}</span>
             <button type="button" className="req-sold__back" onClick={() => putBack(index)}>Put back</button>
           </div>
+        ) : locked ? (
+          <span className="req-sold__tag req-sold__tag--none">Not sold</span>
         ) : (
           <button type="button" className="req-found" aria-pressed={!!item.pulled} onClick={() => change(index, { pulled: !item.pulled })}>
             <span aria-hidden="true">{item.pulled ? '✓' : ''}</span>{item.pulled ? 'Found' : 'Find'}

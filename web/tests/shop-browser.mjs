@@ -311,7 +311,7 @@ try {
     assert.match((await page.locator('.buyer-req__card').first().innerText()).replace(/\s+/g, ' '), new RegExp(`1× ${first.name}`))
     await page.getByLabel('Message the seller').fill('Thanks! Paying by Venmo.')
     await page.getByRole('button', { name: 'Send', exact: true }).click()
-    await page.locator('.offer-msg.mine').getByText('Thanks! Paying by Venmo.').waitFor()
+    await page.locator('.chat__row--mine').getByText('Thanks! Paying by Venmo.').waitFor()
     assert.equal(state.buyerChat.length, 1)
     const cond = state.sent[0].items[0].condition
     state.buyerPhotos = [{ cardId: first.id, condition: cond, side: 'front', version: 1 }, { cardId: first.id, condition: cond, side: 'back', version: 1 }]
@@ -479,14 +479,14 @@ try {
     await page.goto(origin + '/shop/requests', { waitUntil: 'domcontentloaded' })
     await page.locator('.shop-req').first().waitFor()
     assert.equal(await page.getByRole('button', { name: /^Sent/ }).count(), 0, 'no Sent tab without sent requests')
-    await page.getByRole('button', { name: 'Answered', exact: true }).click()
+    await page.getByRole('button', { name: /^Answered/ }).click()
     const r2 = page.locator('.shop-req', { hasText: 'qa-buyer' })
     await r2.getByRole('heading', { name: 'Chat with qa-buyer' }).waitFor()
     await r2.getByText('Is the Owned Low centered?').waitFor()
     assert.equal(await r2.getByText(/Reach them at/).count(), 0, 'a signed-in buyer has a chat, not a typed contact')
     await r2.getByLabel('Message qa-buyer').fill('Yes, dead center. Photos coming.')
     await r2.getByRole('button', { name: 'Send', exact: true }).click()
-    await r2.locator('.offer-msg.mine').getByText('Yes, dead center. Photos coming.').waitFor()
+    await r2.locator('.chat__row--mine').getByText('Yes, dead center. Photos coming.').waitFor()
     assert.equal(state.sellerChat.at(-1).body, 'Yes, dead center. Photos coming.')
     await noOverflow(page)
     await page.screenshot({ path: path.join(report, `my-shop-chat-${width}.png`) })
@@ -512,8 +512,9 @@ try {
     assert.equal(state.salePosts.length, 0, 'nothing is taken out before saying yes')
     await page.getByRole('button', { name: 'Yes, take them out' }).click()
     await page.getByText('Sold: 2 cards taken out of your collection.').waitFor()
-    // Still on screen though it's Done now; sold cards say so, can be put back, and can't be re-graded.
-    assert.match(await page.locator('.shop-req .shop-pill').innerText(), /Done/)
+    // Still on screen though it's finished now: marked Sold; sold cards say so, can be put back, and can't be re-graded.
+    assert.match(await page.locator('.shop-req .shop-pill').innerText(), /Sold/)
+    assert.equal(await page.getByRole('button', { name: /^Find$|Close, no sale|Mark answered/ }).count(), 0, 'a finished request is a record')
     assert.match((await mid.locator('.req-sold__tag').innerText()), /Sold 1/)
     assert(await mid.getByRole('button', { name: 'LP' }).isDisabled())
     assert.equal(await page.locator('.req-card', { hasText: 'Owned High' }).locator('.req-sold').count(), 0)
@@ -523,9 +524,14 @@ try {
     await page.screenshot({ path: path.join(report, `my-shop-sold-${width}.png`) })
     // One card comes back (a return), then the rest (a refund).
     await mid.getByRole('button', { name: 'Put back' }).click()
-    await mid.getByRole('button', { name: 'Found', pressed: true }).waitFor()
+    await mid.getByText('Not sold').waitFor()
     await page.getByRole('button', { name: 'Refund · put all 1 back' }).click()
     await page.getByText('Put back: 1 card returned to your collection.').waitFor()
+    // Nothing sold any more: it's Closed, with only Reopen, and the Closed filter finds it.
+    assert.match(await page.locator('.shop-req .shop-pill').innerText(), /Closed/)
+    assert.equal(await page.locator('.shop-req .shop-sheet-btns button').allInnerTexts().then(t => t.join('|')), 'Reopen')
+    await page.getByRole('button', { name: /^Closed/ }).click()
+    await page.locator('.shop-req').first().waitFor()
     assert.deepEqual(state.salePosts, [{ action: 'sell' }, { action: 'put-back', index: 2 }, { action: 'put-back' }])
     assert.deepEqual(state.itemPosts, [{ index: 2, foundQty: 1 }, { index: 3, pulled: true }])
     assert.equal(errors.length, 0, errors.join('\n'))

@@ -162,6 +162,8 @@
 .req-card--sold{opacity:.7}
 .req-sold{align-self:center;display:grid;justify-items:center;gap:6px;min-width:64px}
 .req-sold__tag{padding:4px 8px;border-radius:8px;background:#22c55e;color:#111;font-weight:800;font-size:13px;white-space:nowrap}
+/* A card on a finished request that wasn't sold: a plain grey label, not a button. */
+.req-sold__tag.req-sold__tag--none{background:var(--surface3);color:var(--muted);align-self:center}
 .req-sold__back{min-height:32px;padding:0 10px;border-radius:8px;border:2px solid var(--muted);background:transparent;color:var(--text);font:inherit;font-weight:700;font-size:12.5px;cursor:pointer}
 .sale{margin:10px 0}
 .sale__btns,.sale__ask{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
