@@ -211,6 +211,16 @@ Chat only appears on requests from signed-in buyers; requests from before 2026-1
   - Spaces has "+ Add binder", "+ Box" and "+ Shelf unit". The ROOM has none of these.
   - Convention Mode risk now varies: Charizard $149 is Medium with 3 reasons; Bidoof is Low.
 
+**2026-11-08, all LIVE:**
+- `ca3a140`: on Shop and Explore, search (and Explore's set picker) moved into the toolbar with the sort and filters.
+  This is now a rule (memory `feedback_search_sort_together`). Spaces still has a header search: check it next.
+  - On their own shop, tapping one of their photos opens `MyCardPhotos` (retake/remove).
+- `68c5c55`: My Shop filters are New / Answered / Sold / Closed / All. A finished request is read-only
+  (`RequestedCards` `locked`): only Reopen remains, plus a sold request's refund.
+  - The shared chat (`MessageThread` + `styles/chat.css`) has bubbles, day separators and a growing box; Enter
+    sends.
+  - shop-browser passes 18/18.
+
 **Overnight 2026-11-05/06 (owner asleep, said "keep going until everything is fixed and you finish the audit"),
 all LIVE:**
 - `5c38078`: Room "+ Add binder" / "+ Add box" in the binder/box lists (`ZoneBrowser` `onAdd`). They open Spaces with
