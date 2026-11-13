@@ -348,3 +348,10 @@ docs/agent-reports/site-audit-20261029. Live since 2026-10-29 (`a65a2d3`).
   the canvas never drew at a pixel ratio under 1, so the browser shrank a
   bigger picture to fit the screen. Fixed on `fix/room-lite` (config.js caps
   the ratio at `devicePixelRatio`).
+- **BUG-054** (2026-11-13, owner) The room's binder shelf had a big list panel
+  across the bottom (about a quarter of a phone screen). A binder could only be
+  added by leaving for Spaces. An open binder was small behind its info panel
+  (a thumbnail on a phone) and sat left of centre on desktop: `freeRect` kept
+  the first of two equally good areas. Fixed on `fix/binder-shelf`: a slim
+  shelf bar, a "+" spot on the shelf to add a binder there, details on demand,
+  and the book centred and larger. See HANDOFF "Current state". Live 2026-11-13.

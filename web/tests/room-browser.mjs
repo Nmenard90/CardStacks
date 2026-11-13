@@ -115,7 +115,7 @@ async function setup({ width, height, touch = false, guideSeen = true, reducedMo
     for (const k of ['pushState', 'replaceState']) { const f = history[k].bind(history); history[k] = (st, t, u) => { note(`${k} ${u}`); return f(st, t, u) } }
     for (const t of ['pointerdown', 'pointerup', 'pointercancel', 'click']) window.addEventListener(t, (e) => note(`${t} ${e.pointerType ?? ''} ${Math.round(e.clientX)},${Math.round(e.clientY)} on ${e.target?.tagName}`), true)
   }, { user, guideSeen })
-  const state = { writes: [], requests: [], slots: structuredClone(binderSlots), placed: [], caseAllocs: structuredClone(caseAllocs) }
+  const state = { writes: [], requests: [], slots: structuredClone(binderSlots), placed: [], caseAllocs: structuredClone(caseAllocs), added: [], binderPlacements: [] }
   await context.route('https://qa.supabase.co/**', route => route.fulfill({ json: user }))
   await context.route(url => url.pathname.startsWith('/api/'), async route => {
     const req = route.request(), url = new URL(req.url()), p = url.pathname, m = req.method()
@@ -139,6 +139,18 @@ async function setup({ width, height, touch = false, guideSeen = true, reducedMo
       state.caseAllocs.push(alloc)
       return json(alloc)
     }
+    if (m === 'POST' && p === `/api/binders/${U}`) { // Spaces' own calls for a new binder: create, then place
+      const made = { id: `binder-new-${state.added.length}`, userId: U, ...req.postDataJSON(), slots: [], createdAt: now, updatedAt: now }
+      state.added.push(made)
+      return json(made)
+    }
+    const placing = p.match(/^\/api\/spaces\/qa-owner\/binders\/([^/]+)\/placement$/)
+    if (m === 'PUT' && placing) {
+      const body = req.postDataJSON(), made = state.added.find(b => b.id === placing[1])
+      state.binderPlacements.push({ binderId: placing[1], ...body })
+      if (made) Object.assign(made, { spaceId: body.spaceId, storageUnitId: body.unitId, shelfIndex: body.shelfIndex, shelfPosition: body.shelfPosition })
+      return json({ ok: true })
+    }
     if (m !== 'GET') return route.fulfill({ status: 405, body: `QA: unexpected ${m} ${p}` })
     if (p === '/api/auth/me') return json(user)
     if (p === '/api/games') return json([{ id: 'pokemon', name: 'Pokémon', shortName: 'Pokémon', enabled: true }])
@@ -146,7 +158,7 @@ async function setup({ width, height, touch = false, guideSeen = true, reducedMo
     if (p === `/api/spaces/${U}`) return json(spaces)
     if (p === `/api/spaces/${U}/inventory`) return json(lots)
     if (p === `/api/storage/${U}/boxes`) return json(boxes)
-    if (p === `/api/binders/${U}`) return json(binders.map(b => ({ ...b, slots: [] })))
+    if (p === `/api/binders/${U}`) return json([...binders, ...state.added].map(b => ({ ...b, slots: [] })))
     const binder = p.match(/^\/api\/binders\/qa-owner\/([^/]+)$/)
     if (binder) { const b = binders.find(x => x.id === binder[1]); return b ? json({ ...b, slots: state.slots[b.id] ?? [] }) : route.fulfill({ status: 404, body: 'no binder' }) }
     const drawer = p.match(/^\/api\/spaces\/qa-owner\/drawers\/([^/]+)\/allocations$/)
@@ -193,8 +205,8 @@ async function settle(page) {
  * Screen position (page px) of the centre of a named object or furniture piece, or of one binder/box on a shelf unit
  * ({ name: 'ShelfUnit_binders', instance: 0 }: the unit's first item). Null if it isn't on screen.
  */
-async function screenPoint(page, { name, pieceType, instance }) {
-  return page.evaluate(({ name, pieceType, instance }) => {
+async function screenPoint(page, { name, pieceType, instance, item }) {
+  return page.evaluate(({ name, pieceType, instance, item }) => {
     const { scene, camera, gl, THREE } = window.__nook3d
     let target = null
     if (name) target = scene.getObjectByName(name)
@@ -202,9 +214,13 @@ async function screenPoint(page, { name, pieceType, instance }) {
     if (!target) return null // hit targets may be invisible on purpose; the raycaster still finds them
     // Shelf units are instanced meshes: aim at their overall box, or at one instance. Anything else: the centre of its biggest mesh.
     let v
+    if (item != null) { // one binder/box by id: the instanced mesh that draws it, and its instance (ShelfUnit.jsx userData.itemIds)
+      target.traverse(o => { if (instance == null && o.isInstancedMesh && o.userData.itemIds?.includes(item)) instance = o.userData.itemIds.indexOf(item) })
+      if (instance == null) return null
+    }
     if (instance != null) {
       let mesh = null
-      target.traverse(o => { if (!mesh && o.isInstancedMesh && o.count > instance) mesh = o })
+      target.traverse(o => { if (!mesh && o.isInstancedMesh && o.count > instance && (item == null || o.userData.itemIds?.[instance] === item)) mesh = o })
       if (!mesh) return null
       const m = new THREE.Matrix4(); mesh.getMatrixAt(instance, m)
       if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox()
@@ -220,7 +236,7 @@ async function screenPoint(page, { name, pieceType, instance }) {
     const r = gl.domElement.getBoundingClientRect()
     const x = r.left + (v.x + 1) / 2 * r.width, y = r.top + (1 - v.y) / 2 * r.height
     return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom && v.z < 1 ? { x, y } : { miss: { x: Math.round(x), y: Math.round(y), z: v.z, canvas: [r.left, r.top, r.width, r.height], hash: location.hash, same: (() => { const all = []; scene.traverse(o => { if (o.name === name) { const p = o.getWorldPosition(new THREE.Vector3()).project(camera); let vis = true; o.traverseAncestors(a => { if (!a.visible) vis = false }); all.push([Math.round(r.left + (p.x + 1) / 2 * r.width), Math.round(r.top + (1 - p.y) / 2 * r.height), vis]) } }); return all })() } }
-  }, { name, pieceType, instance })
+  }, { name, pieceType, instance, item })
 }
 
 /** On-screen height in px of one binder/box on a shelf unit — how big its name label is drawn. */
@@ -435,16 +451,30 @@ for (const size of SIZES.filter(s => !only || s.label === only)) {
     } finally { await home() }
   })
 
-  await check('binders: tap the bookcase, pick a binder, read a card with its price', async () => {
+  await check('binders: tap the bookcase, pick a binder on the shelf, read a card with its price', async () => {
     await clickObject(page, { name: 'ShelfUnit_binders' }, touch)
     assert.equal(await hash(page), '#/binders')
-    await page.locator('.room3d .zone-picker').waitFor()
+    // The shelf is the list: a slim bar, no list panel.
+    await page.locator('.room3d .view-bar--shelf').waitFor()
+    assert.equal(await page.locator('.room3d .zone-picker').count(), 0, 'the binder shelf should not show the big list panel')
     await shot(page, `${size.label}-binders`)
     await layoutSound(page, HUD)
-    await press(page.locator('.room3d .zone-picker button', { hasText: 'Base Set Binder' }).first())
+    await clickObject(page, { name: 'ShelfUnit_binders', item: 'binder-0' }, touch)
     assert.equal(await hash(page), '#/binders/binder-0')
-    await page.getByRole('heading', { name: 'Base Set Binder' }).waitFor()
-    await page.waitForTimeout(500)
+    await page.locator('.room3d .focus-label', { hasText: 'Base Set Binder' }).waitFor()
+    // The open book gets the screen: no info panel until Details (or a card) is tapped, and the book fills most of it.
+    assert.equal(await page.locator('.room3d .item-panel').count(), 0, 'the binder opened with its info panel covering the book')
+    await page.waitForTimeout(500); await settle(page)
+    const book = await page.evaluate(() => {
+      const { scene, camera, gl, THREE } = window.__nook3d, r = gl.domElement.getBoundingClientRect(), box = new THREE.Box3()
+      scene.traverse(o => { if (o.name.startsWith('BinderCard_') || o.name.startsWith('BinderPocket_')) box.expandByObject(o) })
+      const a = box.min.clone().project(camera), b = box.max.clone().project(camera)
+      return { w: Math.abs(b.x - a.x) / 2 * r.width, h: Math.abs(b.y - a.y) / 2 * r.height, sw: r.width, sh: r.height }
+    })
+    // Most of the screen, or (a phone on its side, where the bars take the height) most of its width or height.
+    assert(book.w * book.h > 0.3 * book.sw * book.sh || book.w > 0.75 * book.sw || book.h > 0.55 * book.sh,
+      `the open binder's pockets are only ${Math.round(book.w)}x${Math.round(book.h)} px of a ${Math.round(book.sw)}x${Math.round(book.sh)} screen`)
+    await shot(page, `${size.label}-binder-open`)
     await clickObject(page, { name: 'BinderCard_pocket:binder-0:0' }, touch)
     assert.equal(await hash(page), '#/binders/binder-0/card/pocket:binder-0:0')
     const facts = await page.locator('.room3d .item-panel').innerText()
@@ -487,6 +517,7 @@ for (const size of SIZES.filter(s => !only || s.label === only)) {
   })
 
   await check('binder cover: add a cover photo to a binder that already exists', async () => {
+    await tapButton('Details') // the binder's info panel opens on request
     const cover = page.locator('.room3d .binder-cover')
     await cover.waitFor()
     assert.match(await cover.innerText(), /No cover photo/)
@@ -516,6 +547,38 @@ for (const size of SIZES.filter(s => !only || s.label === only)) {
       await page.keyboard.press('Escape'); await page.waitForTimeout(200); assert.equal(await hash(page), '')
     }
     else { await tapButton('← Back to Binder Library'); assert.equal(await hash(page), '#/binders'); await tapButton('← Back to room'); assert.equal(await hash(page), '') }
+  })
+
+  await check('binder shelf: tap the + spot, name the binder, and it stands in that spot (create + place, as Spaces does)', async () => {
+    await tapButton('02 Binders')
+    assert.equal(await hash(page), '#/binders')
+    await page.waitForFunction(() => Boolean(window.__nook3d.scene.getObjectByName('ShelfAddSpot')))
+    await clickObject(page, { name: 'ShelfAddSpot' }, touch)
+    const form = page.locator('.room3d .view-bar--add-binder')
+    await form.waitFor()
+    assert.match(await form.innerText(), /shelf 1, spot 4/i) // the fixture's shelf 1 holds spots 1-3
+    await shot(page, `${size.label}-binder-add`)
+    await layoutSound(page, HUD)
+    await press(form.getByRole('button', { name: 'Put it on the shelf' }))
+    await form.getByText('A binder needs a name.').waitFor()
+    await form.getByRole('textbox', { name: 'Binder name' }).fill('Shelf Test Binder')
+    await press(form.getByRole('button', { name: 'Put it on the shelf' }))
+    await form.waitFor({ state: 'detached' })
+    const made = state.added.at(-1), placed = state.binderPlacements.at(-1)
+    assert.equal(made?.name, 'Shelf Test Binder'); assert.equal(made.pocketSize, 'Nine')
+    assert.deepEqual(placed, { binderId: made.id, spaceId: 'space-1', unitId: 'unit-shelf', shelfIndex: 0, shelfPosition: 3 })
+    assert.equal(await hash(page), '#/binders', 'adding a binder should stay on the shelf')
+    await page.waitForFunction((id) => { let found = false; window.__nook3d.scene.traverse(o => { if (o.userData?.itemIds?.includes(id)) found = true }); return found }, made.id)
+    await shot(page, `${size.label}-binder-added`)
+  })
+
+  await check('binder shelf: a binder with no shelf spot opens from Unplaced', async () => {
+    await tapButton('Unplaced (1)')
+    await press(page.getByRole('menuitem', { name: 'Loose Binder' }))
+    assert.equal(await hash(page), '#/binders/binder-loose')
+    await page.locator('.room3d .focus-label', { hasText: 'Loose Binder' }).waitFor()
+    await tapButton('← Back to Binder Library'); await tapButton('← Back to room')
+    assert.equal(await hash(page), '')
   })
 
   let relayed = null

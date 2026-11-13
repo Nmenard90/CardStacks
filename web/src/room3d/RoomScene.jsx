@@ -33,7 +33,8 @@ import { freeRect } from './room/freeRect.js';
 import RenderOnChange from './room/RenderOnChange.jsx';
 import { RoomMaterial } from './look/simpleMaterial.js';
 import { pageCount, pocketsPerPage } from './room/binderLayout.js';
-import { BinderBar, PickerBar } from './ViewBars.jsx';
+import { AddBinderBar, BinderBar, PickerBar, ShelfBar } from './ViewBars.jsx';
+import { searchContainers } from './data/selectors.js';
 import ItemPanel from './ItemPanel.jsx';
 import ZoneBrowser from './ZoneBrowser.jsx';
 import { useLiveRoom, usePocketSearch } from './data/useLiveRoom.ts';
@@ -159,6 +160,7 @@ function zoneSubject(scene, focus, out) {
     const m = new THREE.Matrix4(); const part = new THREE.Box3();
     root.updateWorldMatrix(true, true);
     root.traverse((o) => {
+      if (o.name === 'ShelfAddSpot') { out.union(part.setFromObject(o)); return; } // the "+" binder is part of the shelf's contents
       if (!o.isInstancedMesh || !o.count) return;
       if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
       for (let i = 0; i < o.count; i++) { o.getMatrixAt(i, m); m.premultiply(o.matrixWorld); out.union(part.copy(o.geometry.boundingBox).applyMatrix4(m)); }
@@ -306,6 +308,8 @@ export default function RoomScene({ userId, onHelp }) {
   // Card picker for one binder pocket or one empty display slot: { kind: 'pocket'|'display', slot, slotId?, query, cardId, error, busy }
   const [pick, setPick] = useState(null);
   const [boxUi, setBoxUi] = useState({ drawerId: null, cardId: null }); // which drawer the rolodex shows, and the card chosen in it
+  const [adding, setAdding] = useState(null); // a binder being added from the shelf: { spot } (null spot: the unit's first open one)
+  const [binderDetails, setBinderDetails] = useState(false); // the open binder's info panel; hidden so the book gets the screen
   const spread = useSpread(stage);
   const reducedMotion = useReducedMotion();
   const { world, lookup } = room;
@@ -371,7 +375,8 @@ export default function RoomScene({ userId, onHelp }) {
   const goBack = () => route.binderCardId ? navigate({ focus: 'binders', binderId: route.binderId }) : selected ? closeItem() : navigate(EMPTY_ROUTE);
 
   // Opening a different binder or box starts it fresh: first page, no picker, first drawer.
-  useEffect(() => { setBinderPage(0); setPick(null); }, [route.binderId]);
+  useEffect(() => { setBinderPage(0); setPick(null); setBinderDetails(false); }, [route.binderId]);
+  useEffect(() => { if (route.focus !== 'binders' || route.binderId) setAdding(null); }, [route.focus, route.binderId]);
   useEffect(() => { setBoxUi({ drawerId: null, cardId: null }); }, [route.boxId]);
   useEffect(() => { if (!selectedBinder) setPick((p) => (p?.kind === 'display' ? p : null)); }, [selectedBinder]);
   useEffect(() => { if (route.focus !== 'display') setPick((p) => (p?.kind === 'display' ? null : p)); }, [route.focus]);
@@ -401,6 +406,37 @@ export default function RoomScene({ userId, onHelp }) {
       setPick((p) => (p ? { ...p, busy: false, error: error?.response?.data?.message ?? error?.message ?? 'Could not save that.' } : p));
     }
   };
+  // The binder shelf: the first empty spot in view gets the "+" binder; "+ Add binder" uses it too.
+  const binderUnitId = world?.navigator.binderUnitId ?? null;
+  const binderUnit = world?.navigator.units.find((u) => u.id === binderUnitId) ?? null;
+  const binderPlan = world?.zones.binders.plan;
+  const binderItems = world?.zones.binders.items;
+  const shelfAddSpot = useMemo(() => {
+    if (!binderUnitId || !binderPlan || !binderItems) return null;
+    const taken = new Set(binderItems.map((item) => `${item.row}:${item.col}`));
+    for (let row = 0; row < binderPlan.rows; row++) {
+      for (let col = 0; col < binderPlan.cols; col++) {
+        if (!taken.has(`${row}:${col}`)) return { row, col, shelfIndex: binderPlan.shelfStart + row, shelfPosition: binderPlan.positionStart + col };
+      }
+    }
+    return null;
+  }, [binderUnitId, binderPlan, binderItems]);
+  const unplacedBinders = useMemo(() => (room.state ? searchContainers(room.state, { kind: 'binder', query: '', placement: 'unplaced' }) : []), [room.state]);
+  const startAdding = (spot) => setAdding({ spot: spot ?? shelfAddSpot });
+  const addingWhere = !adding ? null
+    : adding.spot ? `shelf ${adding.spot.shelfIndex + 1}, spot ${adding.spot.shelfPosition + 1}`
+    : binderUnit && binderUnit.freeBinderSpots > 0 ? binderUnit.name : null;
+  const createBinder = async ({ name, pocketSize }) => {
+    await room.addBinder({ name, pocketSize, unitId: addingWhere ? binderUnitId : null, spot: adding?.spot ?? null });
+    setAdding(null);
+  };
+  const shelfPagers = [];
+  if (binderPlan && binderUnitId) {
+    if (binderPlan.shelfPages > 1) shelfPagers.push({ key: 'shelves', label: `Shelves ${binderPlan.shelfStart + 1}–${binderPlan.shelfStart + binderPlan.rows} of ${binderPlan.shelfCount}`, hasPrev: binderPlan.shelfPage > 0, hasNext: binderPlan.shelfPage < binderPlan.shelfPages - 1, onPrev: () => room.nav.setBinderWin({ shelfPage: binderPlan.shelfPage - 1 }), onNext: () => room.nav.setBinderWin({ shelfPage: binderPlan.shelfPage + 1 }) });
+    if (binderPlan.positionPages > 1) shelfPagers.push({ key: 'spots', label: `Spots ${binderPlan.positionStart + 1}–${binderPlan.positionStart + binderPlan.cols} of ${binderPlan.positionsPerShelf}`, hasPrev: binderPlan.positionPage > 0, hasNext: binderPlan.positionPage < binderPlan.positionPages - 1, onPrev: () => room.nav.setBinderWin({ positionPage: binderPlan.positionPage - 1 }), onNext: () => room.nav.setBinderWin({ positionPage: binderPlan.positionPage + 1 }) });
+  }
+  const unitIndex = world ? world.navigator.units.findIndex((u) => u.id === binderUnitId) : -1;
+  const stepUnit = (delta) => { const next = world?.navigator.units[unitIndex + delta]; if (next) room.nav.setBinderUnit(next.id); };
   const freeSlot = (() => { const used = new Set(selectedBinder?.cards.map((c) => c.slotIndex) ?? []); let i = 0; while (used.has(i)) i++; return i; })();
 
   // Esc steps back one level: focused field → picked card → picker → open card → binder/box → zone → whole room.
@@ -410,6 +446,7 @@ export default function RoomScene({ userId, onHelp }) {
     if (field && ['INPUT', 'SELECT', 'TEXTAREA'].includes(field.tagName)) { field.blur(); return true; }
     if (pick) { if (pick.cardId) setPick({ ...pick, cardId: null, error: null }); else setPick(null); return true; }
     if (boxUi.cardId) { setBoxUi((u) => ({ ...u, cardId: null })); return true; }
+    if (adding) { setAdding(null); return true; }
     if (route.focus) { goBack(); return true; }
     return false;
   };
@@ -426,6 +463,7 @@ export default function RoomScene({ userId, onHelp }) {
     : world.meta.isEmpty && !route.focus ? 'Your room is ready for your first binders, boxes and display cases.'
     : selectedBinder ? 'Flip pages with ← → or the page bar. Tap a card to read it, or an empty pocket to fill it.'
     : selectedDisplayCard ? 'The card you chose from the display cabinet.'
+    : route.focus === 'binders' ? `${TAP} a binder to open it, or the + spot to add one.`
     : route.focus ? `${TAP} a single item on the furniture, or pick it from the list.`
     : `${TAP} the box shelf, bookcase or cabinet — or the desk, pinboard and window for the rest of CardStacks.`;
 
@@ -439,6 +477,7 @@ export default function RoomScene({ userId, onHelp }) {
           <ClubhouseRoom activeZone={route.focus} onSelect={selectZone} hovered={hovered} setHovered={setHovered}
             zones={world?.zones} onRoute={onRoute} setHoveredPiece={setHoveredPiece}
             onSelectBinder={selectBinder} hoveredBinder={hoveredBinder} selectedBinder={selectedBinder?.id ?? null} setHoveredBinder={setHoveredBinder}
+            binderAddSpot={adding?.spot ?? shelfAddSpot} onAddBinder={startAdding}
             onSelectBin={selectBox} hoveredBin={hoveredBin} selectedBin={selectedBox?.id ?? null} setHoveredBin={setHoveredBin}
             displayCards={world?.displayCards ?? []} selectedCard={selectedDisplayCard?.displayIndex ?? null} hoveredCard={hoveredCard} setHoveredCard={setHoveredCard} onSelectCard={selectDisplay}
             emptyDisplaySlots={pick || selected ? [] : emptyDisplay.map((s) => s.displayIndex)} onPickEmptyDisplay={openDisplayPicker} />
@@ -455,18 +494,26 @@ export default function RoomScene({ userId, onHelp }) {
       {tag && <div className="room-tag" ref={tagEl} aria-hidden="true">{tag}</div>}
       <RoomStatus room={room} focused={Boolean(route.focus)} onHelp={onHelp} />
       {/* At the display cabinet, adding means filling one of its empty slots here; everywhere else it's the Add Cards page. */}
-      {room.status === 'ready' && !selected && !pick && !(route.focus === 'display' && emptyDisplay.length === 0) && (route.focus === 'display'
+      {room.status === 'ready' && !selected && !pick && route.focus !== 'binders' && !(route.focus === 'display' && emptyDisplay.length === 0) && (route.focus === 'display'
         ? <button type="button" className="add-fab add-fab--focus" onClick={() => openDisplayPicker(emptyDisplay[0].displayIndex)}><span aria-hidden="true">+</span> Add a card to the cabinet</button>
         : <button type="button" className={`add-fab${route.focus ? ' add-fab--focus' : ''}${world.meta.isEmpty ? ' add-fab--pulse' : ''}`} onClick={() => routerNavigate('/add')}><span aria-hidden="true">+</span> {world.meta.isEmpty ? 'Add your first cards' : 'Quick add'}</button>)}
       {!route.focus && <nav className="zone-nav" aria-label="Room areas"><button type="button" onClick={() => navigate({ focus: 'storage' })}><span>01</span> Card boxes</button><button type="button" onClick={() => navigate({ focus: 'binders' })}><span>02</span> Binders</button><button type="button" onClick={() => navigate({ focus: 'display' })}><span>03</span> Display cabinet</button><button type="button" onClick={() => routerNavigate('/explore')}><span>04</span> Explore</button></nav>}
       {route.focus && <button type="button" className="back-btn" onClick={goBack} title="Esc">← {route.binderCardId ? 'Back to binder' : selected ? `Back to ${ZONES[route.focus].label}` : 'Back to room'}</button>}
-      {route.focus && <div className="focus-label">{ZONES[route.focus].label}</div>}
-      {route.focus && !selected && world && room.state && <ZoneBrowser zone={route.focus} world={world} state={room.state} nav={room.nav} onOpen={openFromBrowser} onAddToSlot={openDisplayPicker}
-        // "+ Add binder" / "+ Add box": opens Spaces with its new-binder form or box picker already open.
-        onAdd={route.focus === 'display' ? undefined : () => routerNavigate(spacesLink(route.focus === 'binders' ? { area: 'binders', add: 'binder' } : { area: 'storage', add: 'box' }))} />}
-      {selectedBinder && !pick && <BinderBar pages={binderPages} page={binderPage} spread={spread} onPage={setBinderPage} onAdd={() => { openPicker(freeSlot); setBinderPage(Math.floor(freeSlot / pocketsPerPage(selectedBinder.pocketSize))); }} empty={selectedBinder.cards.length === 0} />}
+      {route.focus && <div className="focus-label">{selectedBinder ? selectedBinder.name : ZONES[route.focus].label}</div>}
+      {/* The binder shelf is its own panel: binders are picked and added on the 3D shelf, so only a slim bar is needed. */}
+      {route.focus === 'binders' && !selected && world && (adding
+        ? <AddBinderBar where={addingWhere} onCreate={createBinder} onCancel={() => setAdding(null)} />
+        : <ShelfBar unit={binderUnit && { name: binderUnit.name, count: binderUnit.binderCount }} canPrev={unitIndex > 0} canNext={unitIndex < world.navigator.units.length - 1}
+            onStep={world.navigator.units.length > 1 ? stepUnit : null} pagers={shelfPagers} unplaced={unplacedBinders} onOpen={(id) => openFromBrowser('binder', id)} onAdd={() => startAdding()} />)}
+      {route.focus && route.focus !== 'binders' && !selected && world && room.state && <ZoneBrowser zone={route.focus} world={world} state={room.state} nav={room.nav} onOpen={openFromBrowser} onAddToSlot={openDisplayPicker}
+        // "+ Add box": opens Spaces with its box picker already open.
+        onAdd={route.focus === 'display' ? undefined : () => routerNavigate(spacesLink({ area: 'storage', add: 'box' }))} />}
+      {selectedBinder && !pick && <BinderBar pages={binderPages} page={binderPage} spread={spread} onPage={setBinderPage} onAdd={() => { openPicker(freeSlot); setBinderPage(Math.floor(freeSlot / pocketsPerPage(selectedBinder.pocketSize))); }} empty={selectedBinder.cards.length === 0}
+        detailsOpen={binderDetails || Boolean(selectedBinderCard)} onDetails={() => { if (selectedBinderCard) navigate({ focus: 'binders', binderId: route.binderId }); setBinderDetails(!(binderDetails || selectedBinderCard)); }} />}
       {pick && <PickerBar label={pick.kind === 'display' ? `Display slot ${pick.slot + 1}` : `Pocket ${pick.slot + 1}`} ownedOnly={pick.kind === 'display'} query={pick.query} onQuery={(query) => setPick((p) => ({ ...p, query, cardId: null, error: null }))} resultCount={pickerCards.length} searching={pickerSearch.searching} chosen={chosenPickerCard} onPlace={placePicked} onCancel={() => setPick(null)} busy={pick.busy} error={pick.error} />}
-      {selectedBinder && <ItemPanel type="binder" item={selectedBinder} selectedCard={selectedBinderCard} onClose={closeItem} onCover={(cover) => room.setBinderCover(String(selectedBinder.id), cover)} siteLink={{ to: `/binder/${encodeURIComponent(selectedBinder.id)}`, label: 'Open binder page' }} onLink={routerNavigate} />}
+      {/* The open binder's details only when asked for (Details) or when a card in it is tapped, so the book gets the screen. */}
+      {selectedBinder && (binderDetails || selectedBinderCard) && <ItemPanel type="binder" item={selectedBinder} selectedCard={selectedBinderCard}
+        onClose={() => { setBinderDetails(false); if (selectedBinderCard) navigate({ focus: 'binders', binderId: route.binderId }); }} onCover={(cover) => room.setBinderCover(String(selectedBinder.id), cover)} siteLink={{ to: `/binder/${encodeURIComponent(selectedBinder.id)}`, label: 'Open binder page' }} onLink={routerNavigate} />}
       {selectedBox && <ItemPanel type="storage" item={selectedBox} onClose={closeItem} drawerId={boxDrawer?.id} onDrawer={(id) => setBoxUi({ drawerId: id, cardId: null })} cardId={boxUi.cardId} onCard={(id) => setBoxUi((u) => ({ ...u, cardId: id }))}
         siteLink={{ to: spacesLink({ space: selectedBox.spaceId, area: 'storage', unit: selectedBox.unitId, box: selectedBox.id }), label: '+ Add or move cards in this box' }} onLink={routerNavigate} />}
       {selectedDisplayCard && <ItemPanel type="display" item={selectedDisplayCard} onClose={closeItem}

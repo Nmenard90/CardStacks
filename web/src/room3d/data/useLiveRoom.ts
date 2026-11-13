@@ -24,16 +24,17 @@
  */
 import { useCallback, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getCaseAllocations, getDrawerPlacements, getSpaceInventory, listSpaces, placeCopies } from '../../api/rooms'
+import { getCaseAllocations, getDrawerPlacements, getSpaceInventory, listSpaces, placeBinder, placeCopies } from '../../api/rooms'
 import { listBoxes } from '../../api/storage'
-import { getBinder, listBinders, setSlot, updateBinder } from '../../api/binders'
+import { createBinder, getBinder, listBinders, setSlot, updateBinder } from '../../api/binders'
 import { getOwnedCards } from '../../api/collection'
 import { getCards, getSets, searchCards } from '../../api/cards'
 import { basePrice, condPrice, defaultVariant, lotKey, variantLabel } from '../../lib/conditions'
 import { currentGame } from '../../lib/game'
-import type { Binder, Card, CardAllocation, CollectionSpace, InventoryLot, StorageBox } from '../../types'
+import type { Binder, Card, CardAllocation, CollectionSpace, InventoryLot, PocketSize, StorageBox } from '../../types'
 import { buildLiveState, setIdOf, unknownPocketCards } from './liveState.js'
 import { DEFAULT_NAV, createLookup, revealNav, toWorldModel } from './roomWorld.js'
+import { findFreeBinderSpot } from './selectors.js'
 
 /** Reads in flight at once for the per-container requests. */
 const CONCURRENCY = 6
@@ -262,6 +263,27 @@ export function useLiveRoom(userId: string | undefined) {
     queryClient.setQueryData<RoomRaw>(queryKey, old => old && { ...old, binders: old.binders.map(b => b.id !== binderId ? b : { ...b, coverImage: coverImage ?? undefined }) })
   }, [userId, queryClient, queryKey])
 
+  /**
+   * PURPOSE: Makes a new binder from the room's binder shelf and stands it on that shelf, with the same calls Spaces
+   * uses (create, then place), then rereads the room so it appears where it was added.
+   * @param name        the binder's name
+   * @param pocketSize  Four / Nine / Twelve
+   * @param unitId      the shelf unit the room is showing; null when there is none (the binder is left unplaced)
+   * @param spot        the empty spot that was tapped; without one, the unit's first open spot
+   * @return the new binder's id, and whether it found a place on the shelf
+   */
+  const addBinder = useCallback(async ({ name, pocketSize, unitId, spot }: { name: string; pocketSize: PocketSize; unitId: string | null; spot?: { shelfIndex: number; shelfPosition: number } | null }) => {
+    if (!userId) throw new Error('Sign in to add a binder.')
+    const made = await createBinder(userId, name, pocketSize)
+    const unit = unitId && state ? (state.spaces as CollectionSpace[]).flatMap(s => s.storageUnits).find(u => u.id === unitId) : null
+    const where = !unit || !state ? null
+      : spot ? { spaceId: unit.spaceId, unitId: unit.id, shelfIndex: spot.shelfIndex, shelfPosition: spot.shelfPosition }
+      : findFreeBinderSpot(state, unit.id)
+    if (where) await placeBinder(userId, made.id, where)
+    await query.refetch()
+    return { id: String(made.id), placed: Boolean(where) }
+  }, [userId, state, query])
+
   const status = query.isError && !raw ? 'error' : raw ? 'ready' : 'loading'
   return {
     status,
@@ -279,5 +301,6 @@ export function useLiveRoom(userId: string | undefined) {
     placeInPocket,
     placeInDisplay,
     setBinderCover,
+    addBinder,
   }
 }

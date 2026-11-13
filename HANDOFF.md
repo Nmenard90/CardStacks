@@ -175,6 +175,30 @@ tcg/
 
 ## Current state (2026-11-04)
 
+**LIVE (2026-11-13, pushed to main without a visual check by the owner — revert if it looks wrong): the room's binder shelf.**
+Owner's ask: no huge bar at the bottom of the binder shelf; add a binder right from the shelf; see the binders on the
+shelf and open them there; an open binder should take most of the screen.
+- The binders zone no longer shows `ZoneBrowser` (the list panel). It shows a slim `ShelfBar` (`ViewBars.jsx`): the
+  shelf unit with ‹ › to change units, shelf pagers when needed, "Unplaced (n)" (a small menu that opens those
+  binders) and "+ Add binder". The card-box shelf still uses `ZoneBrowser`, so the same change could be made there.
+- A see-through "+" binder (`ShelfAddSpot` in `room/ShelfUnit.jsx`) stands in the first empty spot in view. Tapping
+  it, or "+ Add binder", opens `AddBinderBar` (name, pocket size). `useLiveRoom.addBinder` makes the binder with
+  Spaces' calls (create, then place in that spot, or the unit's first open one) and rereads the room. It stays on
+  the shelf. The room no longer sends "+ Add binder" to Spaces; `?add=binder` there still works.
+- An open binder hides its info panel. "Details" on the page bar shows it; tapping a card shows it with the
+  card's facts; × hides it again. The area label at the top right shows the binder's name.
+- `room/freeRect.js`: a tie between equally good rectangles kept the first (narrower) one, so the open book was
+  pushed left. Ties now go to the larger one. For floating subjects (book, rolodex) the Back button, status chip
+  and area label count as panels, not a full-width band, so the book can rise beside them. On desktop
+  (1440x900) the book went from 830x545 to about 935x615 px; on a phone it now fills the width.
+- Shelf instanced meshes carry `userData.itemIds`; the browser test aims at a binder by id.
+- Checks: tsc, eslint (room3d), test:room 104/104, vite build. `tests/room-browser.mjs` passes 20/20 at all four
+  sizes (desktop, phone, tablet, phone-landscape), with new checks for the + spot (create + place calls) and
+  Unplaced. The 9 failures noted under 2026-11-08 no longer occur.
+  - Run it on this server with Playwright at `~/.cache/cardstacks-tools/playwright/node_modules/playwright-core`
+    (`PLAYWRIGHT_MODULE=...`), and Vite on 5179 with the qa env vars.
+- To ship: review the diff, merge to `main` and push (this deploys). No backend change, no migration.
+
 **LIVE (2026-11-05, main `1e1c0fe`): shop chat + sign-in to buy + "Ask for photos" on the tile.** Migration 022 was
 run in production by the owner first (all statements, COMMIT). Gotcha: the worktree `C:\Users\nicho\tcg-shop-photos`
 is linked to a DIFFERENT Railway project (`unique-sparkle`); run `railway` commands from `C:\Users\nicho\tcg`, which

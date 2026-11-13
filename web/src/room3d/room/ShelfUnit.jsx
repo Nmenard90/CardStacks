@@ -12,7 +12,7 @@
  *  - No useFrame: nothing here renders or animates continuously. Matrices are
  *    written once per layout change; hover/selection only rewrites colours.
  */
-import React, { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import React, { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoundedBox } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
@@ -135,6 +135,7 @@ function PartInstances({ group, hoveredId, selectedId, handlers }) {
       castShadow
       receiveShadow
       frustumCulled={false}
+      userData={{ itemIds: entries.map((entry) => entry.id) }} // instance i is item itemIds[i] (the browser tests aim at one by id)
       onClick={handlers.onItemClick && ((e) => { const id = idOf(e); if (id) handlers.onItemClick(e, id); })}
       onPointerMove={handlers.onItemMove && ((e) => { const id = idOf(e); if (id) handlers.onItemMove(e, id); })}
       onPointerOut={handlers.onItemOut}
@@ -183,13 +184,46 @@ function LabelMesh({ kind, labels }) {
   );
 }
 
+const ADD_BODY = { idle: 0.22, hover: 0.45 }; // the add spot's see-through binder: how solid it looks
+
+/**
+ * The "+" binder standing in an empty spot on the binder shelf: tapping it adds a binder right there. A see-through
+ * binder-sized block with a plus on its spine, so it reads as "a binder goes here".
+ */
+function AddSpot({ plan, spot, onAdd }) {
+  const { gl } = useThree();
+  const [hover, setHover] = useState(false);
+  useEffect(() => () => { gl.domElement.style.cursor = ''; }, [gl]);
+  const p = binderPlacement(plan, spot.row, spot.col, 0);
+  const front = -0.215; // just in front of the binders' spines (their labels sit at -0.213)
+  return (
+    <group
+      name="ShelfAddSpot" position={[p.x, p.y, 0]}
+      onPointerOver={(e) => { e.stopPropagation(); setHover(true); gl.domElement.style.cursor = 'pointer'; }}
+      onPointerOut={() => { setHover(false); gl.domElement.style.cursor = ''; }}
+      onClick={(e) => { e.stopPropagation(); if (e.delta < 6) onAdd(spot); }}
+    >
+      <mesh position={[0, 0, p.z]}>
+        <boxGeometry args={[p.width * 0.9, p.height * 0.96, 0.34]} />
+        <meshBasicMaterial color="#fff1c8" transparent opacity={hover ? ADD_BODY.hover : ADD_BODY.idle} depthWrite={false} toneMapped={false} />
+      </mesh>
+      <group position={[0, 0, front]} rotation={[0, Math.PI, 0]}>
+        <mesh><planeGeometry args={[p.width * 0.56, 0.035]} /><meshBasicMaterial color={hover ? '#ffd36e' : '#f3c64f'} toneMapped={false} /></mesh>
+        <mesh><planeGeometry args={[0.035, p.width * 0.56]} /><meshBasicMaterial color={hover ? '#ffd36e' : '#f3c64f'} toneMapped={false} /></mesh>
+      </group>
+    </group>
+  );
+}
+
 /**
  * @param {{ kind: 'binders'|'boxes', zoneType: string, zone: { plan: object, items: object[] }, parts: object, position: number[], rotation: number[],
- *   focused: boolean, hoveredId: string|null, selectedId: string|null, onSelectItem: Function, onHoverItem: Function, onSelectZone: Function, onHoverZone: Function }} props
+ *   focused: boolean, hoveredId: string|null, selectedId: string|null, onSelectItem: Function, onHoverItem: Function, onSelectZone: Function, onHoverZone: Function,
+ *   addSpot?: { row: number, col: number }|null, onAddAt?: Function }} props
+ *   addSpot / onAddAt — binders only: an empty spot in view where a "+" binder is drawn; tapping it calls onAddAt(spot).
  *   focused — the camera is on this unit. Until it is, a tap anywhere on the unit (binder or box included) only zooms in,
  *   because from across the room the items are too small to read or hit, above all on a phone.
  */
-export default function ShelfUnit({ kind, zoneType, zone, parts, position, rotation, focused, hoveredId, selectedId, onSelectItem, onHoverItem, onSelectZone, onHoverZone }) {
+export default function ShelfUnit({ kind, zoneType, zone, parts, position, rotation, focused, hoveredId, selectedId, onSelectItem, onHoverItem, onSelectZone, onHoverZone, addSpot = null, onAddAt }) {
   const { plan, items } = zone;
   const built = useMemo(() => (kind === 'binders' ? buildBinders(plan, items, parts) : buildBoxes(plan, items, parts)), [kind, plan, items, parts]);
   // While one item of this zone is open, the shelf ignores clicks so nothing behind it is selected by accident.
@@ -211,6 +245,7 @@ export default function ShelfUnit({ kind, zoneType, zone, parts, position, rotat
       <Frame kind={kind} frame={plan.frame} parts={parts} />
       {built.groups.map((group) => <PartInstances key={group.key} group={group} hoveredId={hoveredId} selectedId={selectedId} handlers={handlers} />)}
       <LabelMesh kind={kind} labels={built.labels} />
+      {focused && interactive && addSpot && onAddAt && <AddSpot plan={plan} spot={addSpot} onAdd={onAddAt} />}
     </group>
   );
 }

@@ -77,7 +77,7 @@ function ClubhouseLights({ night }) {
 export default function ClubhouseRoom({
   theme = THEME, layout = DEFAULT_LAYOUT, zones,
   onSelect, hovered, setHovered,
-  onSelectBinder, hoveredBinder, selectedBinder, setHoveredBinder,
+  onSelectBinder, hoveredBinder, selectedBinder, setHoveredBinder, binderAddSpot, onAddBinder,
   onSelectBin, hoveredBin, selectedBin, setHoveredBin,
   selectedCard, hoveredCard, setHoveredCard, onSelectCard,
   displayCards = [], activeZone, onRoute, setHoveredPiece, emptyDisplaySlots, onPickEmptyDisplay,
@@ -154,6 +154,7 @@ export default function ClubhouseRoom({
         <DynamicShelving
           zones={zones} anchors={anchors} activeZone={activeZone} onSelect={onSelect} setHovered={setHovered}
           hoveredBinder={hoveredBinder} selectedBinder={selectedBinder} setHoveredBinder={setHoveredBinder} onSelectBinder={onSelectBinder}
+          binderAddSpot={binderAddSpot} onAddBinder={onAddBinder}
           hoveredBin={hoveredBin} selectedBin={selectedBin} setHoveredBin={setHoveredBin} onSelectBin={onSelectBin}
         />
       )}
